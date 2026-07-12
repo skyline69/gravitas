@@ -27,7 +27,10 @@ ApplicationWindow {
     }
     Component {
         id: detailPage
-        Detail { onPlayUrl: (url) => stack.push(playerPage, {url: url}) }
+        Detail {
+            onPlayUrl: (url) => stack.push(playerPage, {url: url})
+            onBack: () => stack.pop()
+        }
     }
     Component {
         id: playerPage

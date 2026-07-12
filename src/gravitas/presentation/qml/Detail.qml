@@ -8,6 +8,7 @@ Item {
     property string mediaType
     property string mediaId
     signal playUrl(string url)
+    signal back()
 
     onMediaIdChanged: if (mediaId.length) detailController.load(mediaType, mediaId)
 
@@ -22,6 +23,18 @@ Item {
     }
     FastBlur { anchors.fill: parent; source: bgSrc; radius: 64 }
     Rectangle { anchors.fill: parent; color: Qt.rgba(0.078, 0.078, 0.078, 0.86) }
+
+    // floating back button, above the scrolling content
+    AppButton {
+        z: 10
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.margins: 16
+        ghost: true
+        iconGlyph: Icons.arrowLeft
+        text: "Back"
+        onClicked: detail.back()
+    }
 
     Flickable {
         anchors.fill: parent
