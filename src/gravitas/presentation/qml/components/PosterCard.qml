@@ -20,7 +20,7 @@ Item {
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
             }
-            MouseArea { anchors.fill: parent; onClicked: root.clicked() }
+            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.clicked() }
         }
         Text {
             width: 160; text: root.title; color: "white"

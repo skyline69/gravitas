@@ -16,5 +16,5 @@ Rectangle {
         Text { text: root.name; color: Theme.text; font.bold: true }
         Text { text: root.subtitle; color: Theme.textDim; font.pixelSize: Theme.fontSmall }
     }
-    MouseArea { id: mouse; anchors.fill: parent; hoverEnabled: true; onClicked: root.clicked() }
+    MouseArea { id: mouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.clicked() }
 }

@@ -12,6 +12,8 @@ Button {
     scale: control.pressed ? 0.96 : 1.0
     Behavior on scale { NumberAnimation { duration: Theme.durFast; easing.type: Easing.OutCubic } }
 
+    HoverHandler { cursorShape: Qt.PointingHandCursor }
+
     background: Rectangle {
         radius: Theme.radius
         color: control.ghost
@@ -31,6 +33,10 @@ Button {
             spacing: (control.iconGlyph.length && control.text.length) ? Theme.spacing / 2 : 0
             AppIcon {
                 anchors.verticalCenter: parent.verticalCenter
+                // Icon glyphs are centered on their line box, but adjacent text
+                // sits lower (baseline/x-height), so nudge the icon down a hair
+                // to optically align with the label.
+                anchors.verticalCenterOffset: Math.round(Theme.fontBody * 0.1)
                 visible: control.iconGlyph.length > 0
                 glyph: control.iconGlyph
                 color: Theme.text

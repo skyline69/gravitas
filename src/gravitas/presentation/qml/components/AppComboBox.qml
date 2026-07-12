@@ -7,6 +7,8 @@ ComboBox {
     implicitHeight: Theme.controlHeight
     font.pixelSize: Theme.fontBody
 
+    HoverHandler { cursorShape: Qt.PointingHandCursor }
+
     background: Rectangle {
         radius: Theme.radius
         color: control.pressed ? Theme.surfacePress : Theme.surface
@@ -38,6 +40,7 @@ ComboBox {
         width: ListView.view ? ListView.view.width : control.width
         height: Theme.controlHeight
         highlighted: control.highlightedIndex === index
+        HoverHandler { cursorShape: Qt.PointingHandCursor }
         background: Rectangle {
             color: highlighted ? Theme.surfaceHover : "transparent"
         }
