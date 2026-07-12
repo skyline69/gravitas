@@ -20,12 +20,13 @@ def test_build_app_registers_context_properties(qapp: object) -> None:
         _app, engine = build_app(
             argv=[], default_addon_url="https://v3-cinemeta.strem.io/manifest.json"
         )
+        assert engine.rootObjects(), "Main.qml failed to load (QML parse/type error)"
         ctx = engine.rootContext()
         assert ctx.contextProperty("catalogController") is not None
         assert ctx.contextProperty("detailController") is not None
         assert ctx.contextProperty("playerController") is not None
         assert ctx.contextProperty("addonController") is not None
-        assert ctx.contextProperty("posterModel") is not None
+        assert ctx.contextProperty("catalogRowsModel") is not None
         assert ctx.contextProperty("streamModel") is not None
     finally:
         pending = asyncio.all_tasks(loop)

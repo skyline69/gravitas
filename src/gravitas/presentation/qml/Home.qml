@@ -5,6 +5,7 @@ import "components"
 Item {
     id: home
     signal openDetail(string type, string id)
+    signal seeAll(string type, string catalogId)
 
     Rectangle {
         id: addonBar
@@ -38,18 +39,24 @@ Item {
         }
     }
 
-    GridView {
+    ListView {
+        id: rowsView
         anchors.top: addonBar.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.margins: 24
-        cellWidth: 180; cellHeight: 280
-        model: posterModel
-        delegate: PosterCard {
-            title: model.name
-            posterUrl: model.poster ? model.poster : ""
-            onClicked: home.openDetail(model.type, model.id)
+        spacing: 28
+        clip: true
+        model: catalogRowsModel
+        delegate: CatalogRowStrip {
+            width: rowsView.width
+            title: model.title
+            type: model.type
+            catalogId: model.catalogId
+            posters: model.posters
+            onOpenDetail: (t, id) => home.openDetail(t, id)
+            onSeeAll: (t, cid) => home.seeAll(t, cid)
         }
     }
 
