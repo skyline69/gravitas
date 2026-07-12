@@ -140,3 +140,8 @@ def test_catalog_path_extra() -> None:
         catalog_path_extra(ref, "Sci-Fi & Fantasy", 0)
         == "catalog/movie/top/genre=Sci-Fi%20%26%20Fantasy.json"
     )
+    # a "/" in a genre must be percent-encoded, not injected as a path separator
+    assert (
+        catalog_path_extra(ref, "Action/Adventure", 0)
+        == "catalog/movie/top/genre=Action%2FAdventure.json"
+    )

@@ -147,7 +147,7 @@ def catalog_path(ref: CatalogRef) -> str:
 def catalog_path_extra(ref: CatalogRef, genre: str | None, skip: int) -> str:
     parts: list[str] = []
     if genre:
-        parts.append(f"genre={quote(genre)}")
+        parts.append(f"genre={quote(genre, safe='')}")
     if skip:
         parts.append(f"skip={skip}")
     if not parts:
