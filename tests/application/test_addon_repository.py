@@ -1,3 +1,4 @@
+from gravitas.application.addon_repository import AddonRepository
 from gravitas.domain.errors import AddonUnreachable
 from gravitas.domain.models import (
     AddonManifest,
@@ -7,7 +8,6 @@ from gravitas.domain.models import (
     MetaDetail,
     Stream,
 )
-from gravitas.infrastructure.addons.repository import AddonRepository
 
 
 class FakeSource:

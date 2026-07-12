@@ -1,5 +1,6 @@
 import pytest
 
+from gravitas.application.addon_repository import AddonRepository
 from gravitas.application.browse_catalog import BrowseCatalog, CatalogRow
 from gravitas.application.get_detail import GetDetail
 from gravitas.application.install_addon import InstallAddon
@@ -13,7 +14,6 @@ from gravitas.domain.models import (
     MetaDetail,
     Stream,
 )
-from gravitas.infrastructure.addons.repository import AddonRepository
 
 
 class FakeSource:

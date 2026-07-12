@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from gravitas.application.addon_repository import AddonRepository
 from gravitas.domain.models import MediaItem
-from gravitas.infrastructure.addons.repository import AddonRepository
 
 
 @dataclass(frozen=True, slots=True)

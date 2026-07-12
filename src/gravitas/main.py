@@ -13,13 +13,13 @@ from PySide6.QtGui import QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuick import QQuickWindow
 
+from gravitas.application.addon_repository import AddonRepository
 from gravitas.application.browse_catalog import BrowseCatalog
 from gravitas.application.get_detail import GetDetail
 from gravitas.application.install_addon import InstallAddon
 from gravitas.application.resolve_stream import ResolveStream
 from gravitas.domain.ports import MediaPlayer
 from gravitas.infrastructure.addons.client import AddonClient
-from gravitas.infrastructure.addons.repository import AddonRepository
 from gravitas.infrastructure.player.mpv_player import MpvPlayer
 from gravitas.presentation.controllers.catalog_controller import CatalogController
 from gravitas.presentation.controllers.detail_controller import DetailController

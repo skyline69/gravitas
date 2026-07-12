@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from gravitas.application.addon_repository import AddonRepository
 from gravitas.domain.models import AddonManifest
-from gravitas.infrastructure.addons.repository import AddonRepository
 
 
 class InstallAddon:
