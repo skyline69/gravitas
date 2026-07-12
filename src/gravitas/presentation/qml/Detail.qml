@@ -21,7 +21,14 @@ Item {
         asynchronous: true
         visible: false
     }
-    FastBlur { anchors.fill: parent; source: bgSrc; radius: 64 }
+    FastBlur {
+        anchors.fill: parent
+        source: bgSrc
+        radius: 64
+        // fade the art in once it has decoded instead of popping in
+        opacity: bgSrc.status === Image.Ready ? 1.0 : 0.0
+        Behavior on opacity { NumberAnimation { duration: 400; easing.type: Easing.OutCubic } }
+    }
     Rectangle { anchors.fill: parent; color: Qt.rgba(0.078, 0.078, 0.078, 0.86) }
 
     // floating back button, above the scrolling content
