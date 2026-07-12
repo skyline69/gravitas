@@ -4,6 +4,7 @@ from gravitas.domain.errors import InvalidManifest
 from gravitas.domain.models import CatalogRef
 from gravitas.infrastructure.addons.parsing import (
     catalog_path,
+    catalog_path_extra,
     meta_path,
     parse_catalog,
     parse_manifest,
@@ -127,3 +128,15 @@ def test_paths() -> None:
     assert catalog_path(CatalogRef(type="movie", id="top", name="T")) == "catalog/movie/top.json"
     assert meta_path("series", "tt2") == "meta/series/tt2.json"
     assert stream_path("movie", "tt1") == "stream/movie/tt1.json"
+
+
+def test_catalog_path_extra() -> None:
+    ref = CatalogRef(type="movie", id="top", name="T")
+    assert catalog_path_extra(ref, None, 0) == "catalog/movie/top.json"
+    assert catalog_path_extra(ref, "Action", 0) == "catalog/movie/top/genre=Action.json"
+    assert catalog_path_extra(ref, None, 100) == "catalog/movie/top/skip=100.json"
+    assert catalog_path_extra(ref, "Action", 100) == "catalog/movie/top/genre=Action&skip=100.json"
+    assert (
+        catalog_path_extra(ref, "Sci-Fi & Fantasy", 0)
+        == "catalog/movie/top/genre=Sci-Fi%20%26%20Fantasy.json"
+    )

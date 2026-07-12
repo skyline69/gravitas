@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, get_args
+from urllib.parse import quote
 
 from gravitas.domain.errors import InvalidManifest, InvalidResponse
 from gravitas.domain.models import (
@@ -141,6 +142,17 @@ def parse_streams(data: dict[str, Any]) -> list[Stream]:
 
 def catalog_path(ref: CatalogRef) -> str:
     return f"catalog/{ref.type}/{ref.id}.json"
+
+
+def catalog_path_extra(ref: CatalogRef, genre: str | None, skip: int) -> str:
+    parts: list[str] = []
+    if genre:
+        parts.append(f"genre={quote(genre)}")
+    if skip:
+        parts.append(f"skip={skip}")
+    if not parts:
+        return catalog_path(ref)
+    return f"catalog/{ref.type}/{ref.id}/{'&'.join(parts)}.json"
 
 
 def meta_path(type: MediaType, id: str) -> str:
