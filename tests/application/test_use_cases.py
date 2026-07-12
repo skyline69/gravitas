@@ -63,6 +63,7 @@ async def test_browse_catalog_builds_rows() -> None:
     assert rows == [
         CatalogRow(
             title="Top",
+            addon_id="fake",
             type="movie",
             catalog_id="top",
             items=[MediaItem(id="tt1", type="movie", name="A", poster=None)],

@@ -10,6 +10,7 @@ class FakeBrowse:
         return [
             CatalogRow(
                 title="Top",
+                addon_id="test",
                 type="movie",
                 catalog_id="top",
                 items=[MediaItem(id="tt1", type="movie", name="A", poster=None)],
