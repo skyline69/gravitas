@@ -20,7 +20,7 @@ Item {
             anchors.margins: 12
             spacing: 8
 
-            TextField {
+            AppTextField {
                 id: urlField
                 anchors.verticalCenter: parent.verticalCenter
                 width: parent.width - addButton.width - parent.spacing
