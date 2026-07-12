@@ -35,7 +35,7 @@ class FakePlayer:
 
 def test_play_and_controls(qapp: object) -> None:
     player = FakePlayer()
-    controller = PlayerController(player)
+    controller = PlayerController(lambda: player)
     controller.play("http://s/v.mkv")
     controller.pause()
     controller.resume()
@@ -44,20 +44,24 @@ def test_play_and_controls(qapp: object) -> None:
 
 
 def test_subtitle_tracks_exposed_as_dicts(qapp: object) -> None:
-    controller = PlayerController(FakePlayer())
+    player = FakePlayer()
+    controller = PlayerController(lambda: player)
+    assert controller.subtitleTracks() == []
+    controller.play("http://s/v.mkv")
     assert controller.subtitleTracks() == [{"id": 2, "title": "English"}]
 
 
 def test_select_subtitle(qapp: object) -> None:
     player = FakePlayer()
-    controller = PlayerController(player)
+    controller = PlayerController(lambda: player)
+    controller.play("http://s/v.mkv")
     controller.selectSubtitle(2)
     assert player.sub == 2
 
 
 def test_playback_error_emits_signal(qapp: object) -> None:
     player = FakePlayer(fail=True)
-    controller = PlayerController(player)
+    controller = PlayerController(lambda: player)
     received: list[str] = []
     controller.errorOccurred.connect(received.append)
     controller.play("http://s/v.mkv")

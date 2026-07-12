@@ -11,6 +11,9 @@ dependencies = [
     "platformdirs>=4.2",
 ]
 
+[project.scripts]
+gravitas = "gravitas.main:main"
+
 [dependency-groups]
 dev = [
     "pytest>=8",
