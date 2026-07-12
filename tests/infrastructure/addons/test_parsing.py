@@ -75,6 +75,54 @@ def test_parse_streams_direct_and_torrent() -> None:
     assert streams[1].file_idx == 2
 
 
+def test_parse_manifest_reads_modern_extra() -> None:
+    data = {
+        "id": "x",
+        "name": "X",
+        "catalogs": [
+            {
+                "type": "movie",
+                "id": "top",
+                "name": "Top",
+                "extra": [
+                    {"name": "genre", "options": ["Action", "Comedy"]},
+                    {"name": "skip"},
+                ],
+            }
+        ],
+    }
+    m = parse_manifest(data, base_url="https://x/")
+    ref = m.catalogs[0]
+    assert ref.genres == ("Action", "Comedy")
+    assert ref.supports_skip is True
+
+
+def test_parse_manifest_reads_legacy_extra() -> None:
+    data = {
+        "id": "x",
+        "name": "X",
+        "catalogs": [
+            {
+                "type": "movie",
+                "id": "top",
+                "name": "Top",
+                "extraSupported": ["genre", "skip"],
+                "genres": ["Drama"],
+            }
+        ],
+    }
+    ref = parse_manifest(data, base_url="https://x/").catalogs[0]
+    assert ref.genres == ("Drama",)
+    assert ref.supports_skip is True
+
+
+def test_parse_manifest_extra_absent_defaults() -> None:
+    data = {"id": "x", "name": "X", "catalogs": [{"type": "movie", "id": "top", "name": "Top"}]}
+    ref = parse_manifest(data, base_url="https://x/").catalogs[0]
+    assert ref.genres == ()
+    assert ref.supports_skip is False
+
+
 def test_paths() -> None:
     assert catalog_path(CatalogRef(type="movie", id="top", name="T")) == "catalog/movie/top.json"
     assert meta_path("series", "tt2") == "meta/series/tt2.json"

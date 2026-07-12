@@ -53,6 +53,8 @@ class CatalogRef:
     type: MediaType
     id: str
     name: str
+    genres: tuple[str, ...] = ()
+    supports_skip: bool = False
 
 
 @dataclass(frozen=True, slots=True)

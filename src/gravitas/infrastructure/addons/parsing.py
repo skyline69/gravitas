@@ -18,6 +18,26 @@ from gravitas.domain.models import (
 _VALID_TYPES: frozenset[str] = frozenset(get_args(MediaType))
 
 
+def _parse_catalog_extra(raw: dict[str, Any]) -> tuple[tuple[str, ...], bool]:
+    extra = raw.get("extra")
+    if isinstance(extra, list):
+        genres: tuple[str, ...] = ()
+        supports_skip = False
+        for entry in extra:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("name") == "genre":
+                genres = tuple(str(o) for o in entry.get("options", []))
+            elif entry.get("name") == "skip":
+                supports_skip = True
+        return genres, supports_skip
+    supported = raw.get("extraSupported")
+    if isinstance(supported, list):
+        genres = tuple(str(g) for g in raw.get("genres", [])) if "genre" in supported else ()
+        return genres, "skip" in supported
+    return (), False
+
+
 def _require(data: dict[str, Any], key: str, ctx: str) -> Any:
     if key not in data:
         raise InvalidManifest(f"missing '{key}' in {ctx}")
@@ -32,8 +52,15 @@ def parse_manifest(data: dict[str, Any], base_url: str) -> AddonManifest:
         c_type = raw.get("type")
         if c_type not in _VALID_TYPES:
             continue
+        genres, supports_skip = _parse_catalog_extra(raw)
         catalogs.append(
-            CatalogRef(type=c_type, id=raw.get("id", ""), name=raw.get("name", raw.get("id", "")))
+            CatalogRef(
+                type=c_type,
+                id=raw.get("id", ""),
+                name=raw.get("name", raw.get("id", "")),
+                genres=genres,
+                supports_skip=supports_skip,
+            )
         )
     return AddonManifest(
         id=str(manifest_id),

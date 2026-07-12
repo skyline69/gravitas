@@ -52,3 +52,11 @@ def test_manifest_catalogs() -> None:
         base_url="https://x/",
     )
     assert manifest.catalogs[0].name == "Top"
+
+
+def test_catalog_ref_extra_defaults() -> None:
+    from gravitas.domain.models import CatalogRef
+
+    ref = CatalogRef(type="movie", id="top", name="Top")
+    assert ref.genres == ()
+    assert ref.supports_skip is False
