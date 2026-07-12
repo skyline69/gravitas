@@ -4,11 +4,12 @@ import QtQuick.Controls
 Item {
     id: root
     property string title
+    property string addonId
     property string type
     property string catalogId
     property var posters
     signal openDetail(string type, string id)
-    signal seeAll(string type, string catalogId)
+    signal seeAll(string addonId, string type, string catalogId)
 
     implicitHeight: header.height + strip.anchors.topMargin + strip.height
 
@@ -37,7 +38,7 @@ Item {
             MouseArea {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
-                onClicked: root.seeAll(root.type, root.catalogId)
+                onClicked: root.seeAll(root.addonId, root.type, root.catalogId)
             }
         }
     }

@@ -38,3 +38,25 @@ def test_build_app_registers_context_properties(qapp: object) -> None:
             loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
         loop.close()
         asyncio.set_event_loop(None)
+
+
+def test_discover_qml_loads(qapp: object) -> None:
+    from pathlib import Path
+
+    from PySide6.QtCore import QObject
+    from PySide6.QtQml import QQmlComponent, QQmlEngine
+
+    import gravitas.main as gmain
+
+    engine = QQmlEngine()
+
+    class _StubModel(QObject):
+        pass
+
+    stub = _StubModel()
+    engine.rootContext().setContextProperty("discoverController", stub)
+    engine.rootContext().setContextProperty("discoverModel", stub)
+    qml = Path(gmain.__file__).parent / "presentation" / "qml" / "Discover.qml"
+    component = QQmlComponent(engine, str(qml))
+    obj = component.create()
+    assert obj is not None, f"Discover.qml failed to load: {component.errorString()}"

@@ -18,7 +18,10 @@ ApplicationWindow {
         id: homePage
         Home {
             onOpenDetail: (type, id) => stack.push(detailPage, {mediaType: type, mediaId: id})
-            onSeeAll: (type, catalogId) => { /* step 2: open Discover board pre-filtered by (type, catalogId) */ }
+            onSeeAll: (addonId, type, catalogId) => {
+                discoverController.open(addonId, type, catalogId)
+                stack.push(discoverPage)
+            }
         }
     }
     Component {
@@ -29,9 +32,20 @@ ApplicationWindow {
         id: playerPage
         Player { onBack: stack.pop() }
     }
+    Component {
+        id: discoverPage
+        Discover {
+            onOpenDetail: (type, id) => stack.push(detailPage, {mediaType: type, mediaId: id})
+            onBack: () => stack.pop()
+        }
+    }
 
     Connections {
         target: catalogController
+        function onErrorOccurred(msg) { errorBar.show(msg) }
+    }
+    Connections {
+        target: discoverController
         function onErrorOccurred(msg) { errorBar.show(msg) }
     }
     Connections {
