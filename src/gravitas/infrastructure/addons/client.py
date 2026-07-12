@@ -30,7 +30,10 @@ class AddonClient:
             response.raise_for_status()
         except httpx.HTTPError as exc:
             raise AddonUnreachable(f"GET {url} failed: {exc}") from exc
-        data = response.json()
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise InvalidResponse(f"non-JSON response from {url}") from exc
         if not isinstance(data, dict):
             raise InvalidResponse(f"expected JSON object from {url}")
         return data

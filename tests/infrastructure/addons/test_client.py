@@ -2,7 +2,7 @@ import httpx
 import pytest
 import respx
 
-from gravitas.domain.errors import AddonUnreachable
+from gravitas.domain.errors import AddonUnreachable, InvalidResponse
 from gravitas.domain.models import CatalogRef
 from gravitas.infrastructure.addons.client import AddonClient
 
@@ -62,3 +62,14 @@ async def test_transport_error_becomes_addon_unreachable() -> None:
         client = AddonClient(http)
         with pytest.raises(AddonUnreachable):
             await client.fetch_manifest("https://down/manifest.json")
+
+
+@respx.mock
+async def test_non_json_body_becomes_invalid_response() -> None:
+    respx.get("https://bad/manifest.json").mock(
+        return_value=httpx.Response(200, content=b"<html>not json</html>")
+    )
+    async with httpx.AsyncClient() as http:
+        client = AddonClient(http)
+        with pytest.raises(InvalidResponse):
+            await client.fetch_manifest("https://bad/manifest.json")
