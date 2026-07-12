@@ -43,8 +43,15 @@ class AddonClient:
         base_url = url[: -len(_MANIFEST_SUFFIX)] if url.endswith(_MANIFEST_SUFFIX) else url
         return parsing.parse_manifest(data, base_url=base_url)
 
-    async def fetch_catalog(self, manifest: AddonManifest, ref: CatalogRef) -> list[MediaItem]:
-        data = await self._get_json(manifest.base_url + parsing.catalog_path(ref))
+    async def fetch_catalog(
+        self, manifest: AddonManifest, ref: CatalogRef, *, genre: str | None = None, skip: int = 0
+    ) -> list[MediaItem]:
+        path = (
+            parsing.catalog_path_extra(ref, genre, skip)
+            if (genre or skip)
+            else parsing.catalog_path(ref)
+        )
+        data = await self._get_json(manifest.base_url + path)
         return parsing.parse_catalog(data)
 
     async def fetch_meta(self, manifest: AddonManifest, type: MediaType, id: str) -> MetaDetail:

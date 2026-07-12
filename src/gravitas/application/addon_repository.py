@@ -42,6 +42,11 @@ class AddonRepository:
             _log.warning("catalog fetch failed for %s/%s: %s", ref_owner.id, ref.id, exc)
             return []
 
+    async def fetch_catalog_page(
+        self, manifest: AddonManifest, ref: CatalogRef, *, genre: str | None = None, skip: int = 0
+    ) -> list[MediaItem]:
+        return await self._source.fetch_catalog(manifest, ref, genre=genre, skip=skip)
+
     async def meta(self, manifest: AddonManifest, type: MediaType, id: str) -> MetaDetail:
         return await self._source.fetch_meta(manifest, type, id)
 
