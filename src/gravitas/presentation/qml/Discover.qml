@@ -18,26 +18,29 @@ Item {
 
         AppButton { ghost: true; iconGlyph: Icons.arrowLeft; text: "Back"; onClicked: root.back() }
 
+        // discoverController is a context property; while StackView tears this
+        // page down on Back, queued binding re-evaluations can momentarily see
+        // it as null, so every reference is null-guarded.
         AppComboBox {
             id: typeBox
             width: 160
-            model: discoverController.typeOptions
-            currentIndex: discoverController.typeIndex
-            onActivated: (index) => discoverController.selectType(index)
+            model: discoverController ? discoverController.typeOptions : []
+            currentIndex: discoverController ? discoverController.typeIndex : 0
+            onActivated: (index) => { if (discoverController) discoverController.selectType(index) }
         }
         AppComboBox {
             id: catalogBox
             width: 220
-            model: discoverController.catalogOptions
-            currentIndex: discoverController.catalogIndex
-            onActivated: (index) => discoverController.selectCatalog(index)
+            model: discoverController ? discoverController.catalogOptions : []
+            currentIndex: discoverController ? discoverController.catalogIndex : 0
+            onActivated: (index) => { if (discoverController) discoverController.selectCatalog(index) }
         }
         AppComboBox {
             id: genreBox
             width: 200
-            model: discoverController.genreOptions
-            currentIndex: discoverController.genreIndex
-            onActivated: (index) => discoverController.selectGenre(index)
+            model: discoverController ? discoverController.genreOptions : []
+            currentIndex: discoverController ? discoverController.genreIndex : 0
+            onActivated: (index) => { if (discoverController) discoverController.selectGenre(index) }
         }
     }
 
@@ -62,7 +65,7 @@ Item {
             posterUrl: model.poster ? model.poster : ""
             onClicked: root.openDetail(model.type, model.id)
         }
-        onAtYEndChanged: if (atYEnd) discoverController.loadMore()
+        onAtYEndChanged: if (atYEnd && discoverController) discoverController.loadMore()
     }
 
     AppSpinner {
