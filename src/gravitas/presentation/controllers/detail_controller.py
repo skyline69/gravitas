@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, Signal, Slot
+from PySide6.QtCore import QObject, Signal
+from qasync import asyncSlot  # type: ignore[import-untyped]
 
 from gravitas.application.get_detail import GetDetail
 from gravitas.application.resolve_stream import ResolveStream
@@ -31,7 +32,7 @@ class DetailController(QObject):
     def bind_manifest(self, manifest: AddonManifest) -> None:
         self._manifest = manifest
 
-    @Slot(str, str)
+    @asyncSlot(str, str)  # type: ignore[untyped-decorator]
     async def load(self, type: str, item_id: str) -> None:
         if self._manifest is None:
             self.errorOccurred.emit("no addon installed")

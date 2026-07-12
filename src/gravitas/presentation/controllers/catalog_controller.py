@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, Signal, Slot
+from PySide6.QtCore import QObject, Signal
+from qasync import asyncSlot  # type: ignore[import-untyped]
 
 from gravitas.application.browse_catalog import BrowseCatalog
 from gravitas.domain.errors import GravitasError
@@ -18,7 +19,7 @@ class CatalogController(QObject):
         self._browse = browse
         self._model = model
 
-    @Slot()
+    @asyncSlot()  # type: ignore[untyped-decorator]
     async def refresh(self) -> None:
         self.loadingChanged.emit(True)
         try:
