@@ -6,8 +6,6 @@ Item {
     id: home
     signal openDetail(string type, string id)
 
-    Component.onCompleted: catalogController.refresh()
-
     GridView {
         anchors.fill: parent
         anchors.margins: 24

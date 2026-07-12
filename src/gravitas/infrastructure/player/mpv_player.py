@@ -8,13 +8,15 @@ from typing import Any
 
 from gravitas.domain.errors import PlaybackFailed
 
-# libmpv needs the C numeric locale; Qt may have changed it.
-locale.setlocale(locale.LC_NUMERIC, "C")
-
 MpvFactory = Callable[[int], Any]
 
 
 def _default_factory(window_id: int) -> Any:
+    # libmpv needs the C numeric locale; Qt may have changed it. Must run
+    # right before mpv.MPV() construction (after QGuiApplication init),
+    # not at import time.
+    locale.setlocale(locale.LC_NUMERIC, "C")
+
     import mpv  # type: ignore[import-untyped]
 
     return mpv.MPV(

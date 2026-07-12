@@ -67,6 +67,7 @@ def build_app(
     async def bootstrap() -> None:
         manifest = await InstallAddon(repo)(default_addon_url)
         detail_controller.bind_manifest(manifest)
+        await catalog_controller.load_catalog()
 
     engine.load(str(_QML_DIR / "Main.qml"))
 

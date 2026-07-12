@@ -19,8 +19,7 @@ class CatalogController(QObject):
         self._browse = browse
         self._model = model
 
-    @asyncSlot()  # type: ignore[untyped-decorator]
-    async def refresh(self) -> None:
+    async def load_catalog(self) -> None:
         self.loadingChanged.emit(True)
         try:
             rows = await self._browse()
@@ -30,3 +29,7 @@ class CatalogController(QObject):
             self.errorOccurred.emit(str(exc))
         finally:
             self.loadingChanged.emit(False)
+
+    @asyncSlot()  # type: ignore[untyped-decorator]
+    async def refresh(self) -> None:
+        await self.load_catalog()
