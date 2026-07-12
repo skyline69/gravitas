@@ -19,7 +19,7 @@ Item {
         spacing: 12
         AppButton { text: "Pause"; onClicked: playerController.pause() }
         AppButton { text: "Resume"; onClicked: playerController.resume() }
-        ComboBox {
+        AppComboBox {
             id: subs
             textRole: "title"
             model: []

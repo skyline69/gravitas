@@ -18,21 +18,21 @@ Item {
 
         AppButton { ghost: true; text: "‹ Back"; onClicked: root.back() }
 
-        ComboBox {
+        AppComboBox {
             id: typeBox
             width: 160
             model: discoverController.typeOptions
             currentIndex: discoverController.typeIndex
             onActivated: (index) => discoverController.selectType(index)
         }
-        ComboBox {
+        AppComboBox {
             id: catalogBox
             width: 220
             model: discoverController.catalogOptions
             currentIndex: discoverController.catalogIndex
             onActivated: (index) => discoverController.selectCatalog(index)
         }
-        ComboBox {
+        AppComboBox {
             id: genreBox
             width: 200
             model: discoverController.genreOptions
