@@ -22,12 +22,15 @@ Item {
         spacing: 6
         anchors.centerIn: parent
 
+        // scale the whole card (poster + title) as one unit on hover so the
+        // gap between them is preserved; shrink slightly on press
+        transformOrigin: Item.Center
+        scale: mouse.pressed ? 0.95 : (mouse.containsMouse ? 1.06 : 1.0)
+        Behavior on scale { NumberAnimation { duration: Theme.durMed; easing.type: Easing.OutCubic } }
+
         Item {
             id: cover
             width: 160; height: 220
-            transformOrigin: Item.Center
-            scale: mouse.pressed ? 0.95 : (mouse.containsMouse ? 1.06 : 1.0)
-            Behavior on scale { NumberAnimation { duration: Theme.durMed; easing.type: Easing.OutCubic } }
 
             // the poster, masked to a rounded rectangle
             Image {
@@ -70,13 +73,16 @@ Item {
         }
 
         Text {
+            id: label
             width: 160
             text: root.title
-            color: Theme.text
+            // brighten dim -> full on hover (scales with the card as one unit)
+            color: mouse.containsMouse ? Theme.text : Theme.textDim
             elide: Text.ElideRight
             maximumLineCount: 2
             wrapMode: Text.WordWrap
             horizontalAlignment: Text.AlignHCenter
+            Behavior on color { ColorAnimation { duration: Theme.durMed } }
         }
     }
 }
