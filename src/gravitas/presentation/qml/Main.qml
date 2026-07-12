@@ -43,36 +43,28 @@ ApplicationWindow {
 
     Connections {
         target: catalogController
-        function onErrorOccurred(msg) { errorBar.show(msg) }
+        function onErrorOccurred(msg) { toast.show(msg, true) }
     }
     Connections {
         target: discoverController
-        function onErrorOccurred(msg) { errorBar.show(msg) }
+        function onErrorOccurred(msg) { toast.show(msg, true) }
     }
     Connections {
         target: detailController
-        function onErrorOccurred(msg) { errorBar.show(msg) }
+        function onErrorOccurred(msg) { toast.show(msg, true) }
     }
     Connections {
         target: playerController
-        function onErrorOccurred(msg) { errorBar.show(msg) }
+        function onErrorOccurred(msg) { toast.show(msg, true) }
     }
     Connections {
         target: addonController
-        function onErrorOccurred(msg) { errorBar.show(msg) }
+        function onErrorOccurred(msg) { toast.show(msg, true) }
     }
     Connections {
         target: addonController
-        function onAddonInstalled(name) { errorBar.show("Installed: " + name) }
+        function onAddonInstalled(name) { toast.show("Installed: " + name, false) }
     }
 
-    Rectangle {
-        id: errorBar
-        function show(msg) { label.text = msg; visible = true; hideTimer.restart() }
-        visible: false
-        anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
-        height: 40; color: Theme.danger; z: 100
-        Text { id: label; anchors.centerIn: parent; color: Theme.text }
-        Timer { id: hideTimer; interval: 4000; onTriggered: errorBar.visible = false }
-    }
+    Toast { id: toast }
 }

@@ -12,4 +12,5 @@ QtObject {
     readonly property string play: String.fromCharCode(0xe3d0)
     readonly property string pause: String.fromCharCode(0xe39e)
     readonly property string search: String.fromCharCode(0xe30c)
+    readonly property string x: String.fromCharCode(0xe4f6)
 }
