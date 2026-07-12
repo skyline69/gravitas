@@ -5,7 +5,14 @@ from __future__ import annotations
 import logging
 
 from gravitas.domain.errors import GravitasError
-from gravitas.domain.models import AddonManifest, CatalogRef, MediaItem
+from gravitas.domain.models import (
+    AddonManifest,
+    CatalogRef,
+    MediaItem,
+    MediaType,
+    MetaDetail,
+    Stream,
+)
 from gravitas.domain.ports import AddonSource
 
 _log = logging.getLogger(__name__)
@@ -34,3 +41,9 @@ class AddonRepository:
         except GravitasError as exc:
             _log.warning("catalog fetch failed for %s/%s: %s", ref_owner.id, ref.id, exc)
             return []
+
+    async def meta(self, manifest: AddonManifest, type: MediaType, id: str) -> MetaDetail:
+        return await self._source.fetch_meta(manifest, type, id)
+
+    async def streams(self, manifest: AddonManifest, type: MediaType, id: str) -> list[Stream]:
+        return await self._source.fetch_streams(manifest, type, id)
