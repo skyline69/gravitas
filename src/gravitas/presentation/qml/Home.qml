@@ -13,21 +13,21 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         height: 56
-        color: "#1c1c1c"
+        color: Theme.surface
 
         Row {
             anchors.fill: parent
             anchors.margins: 12
             spacing: 8
 
-            TextField {
+            AppTextField {
                 id: urlField
                 anchors.verticalCenter: parent.verticalCenter
                 width: parent.width - addButton.width - parent.spacing
                 placeholderText: "Addon manifest URL…"
             }
 
-            Button {
+            AppButton {
                 id: addButton
                 anchors.verticalCenter: parent.verticalCenter
                 text: "Add"
@@ -61,7 +61,7 @@ Item {
         }
     }
 
-    BusyIndicator {
+    AppSpinner {
         id: busy
         anchors.centerIn: parent
         running: false

@@ -16,23 +16,23 @@ Item {
         height: 44
         spacing: 8
 
-        Button { text: "‹ Back"; onClicked: root.back() }
+        AppButton { ghost: true; iconGlyph: Icons.arrowLeft; text: "Back"; onClicked: root.back() }
 
-        ComboBox {
+        AppComboBox {
             id: typeBox
             width: 160
             model: discoverController.typeOptions
             currentIndex: discoverController.typeIndex
             onActivated: (index) => discoverController.selectType(index)
         }
-        ComboBox {
+        AppComboBox {
             id: catalogBox
             width: 220
             model: discoverController.catalogOptions
             currentIndex: discoverController.catalogIndex
             onActivated: (index) => discoverController.selectCatalog(index)
         }
-        ComboBox {
+        AppComboBox {
             id: genreBox
             width: 200
             model: discoverController.genreOptions
@@ -60,7 +60,7 @@ Item {
         onAtYEndChanged: if (atYEnd) discoverController.loadMore()
     }
 
-    BusyIndicator {
+    AppSpinner {
         id: busy
         anchors.centerIn: parent
         running: false

@@ -12,6 +12,7 @@ import qasync  # type: ignore[import-untyped]
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuick import QQuickWindow
+from PySide6.QtQuickControls2 import QQuickStyle
 
 from gravitas.application.addon_repository import AddonRepository
 from gravitas.application.browse_board import BrowseBoard
@@ -40,6 +41,12 @@ def build_app(
 ) -> tuple[QGuiApplication, QQmlApplicationEngine]:
     instance = QGuiApplication.instance()
     app = instance if isinstance(instance, QGuiApplication) else QGuiApplication(argv)
+
+    # The native (macOS/Windows) Quick Controls style silently ignores
+    # background/contentItem/indicator customization, so our themed App*
+    # components would fall back to native rendering. Basic is fully
+    # customizable. Must be set before any Controls type is instantiated.
+    QQuickStyle.setStyle("Basic")
 
     http = httpx.AsyncClient()
     source = AddonClient(http)

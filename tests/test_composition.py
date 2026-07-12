@@ -60,3 +60,19 @@ def test_discover_qml_loads(qapp: object) -> None:
     component = QQmlComponent(engine, str(qml))
     obj = component.create()
     assert obj is not None, f"Discover.qml failed to load: {component.errorString()}"
+
+
+def test_player_qml_loads(qapp: object) -> None:
+    from pathlib import Path
+
+    from PySide6.QtCore import QObject
+    from PySide6.QtQml import QQmlComponent, QQmlEngine
+
+    import gravitas.main as gmain
+
+    engine = QQmlEngine()
+    engine.rootContext().setContextProperty("playerController", QObject())
+    qml = Path(gmain.__file__).parent / "presentation" / "qml" / "Player.qml"
+    component = QQmlComponent(engine, str(qml))
+    obj = component.create()
+    assert obj is not None, f"Player.qml failed to load: {component.errorString()}"

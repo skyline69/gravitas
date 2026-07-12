@@ -1,12 +1,13 @@
 import QtQuick
 import QtQuick.Controls
+import "components"
 
 ApplicationWindow {
     id: window
     visible: true
     width: 1280; height: 800
     title: "Gravitas"
-    color: "#141414"
+    color: Theme.bg
 
     StackView {
         id: stack
@@ -70,8 +71,8 @@ ApplicationWindow {
         function show(msg) { label.text = msg; visible = true; hideTimer.restart() }
         visible: false
         anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
-        height: 40; color: "#902020"; z: 100
-        Text { id: label; anchors.centerIn: parent; color: "white" }
+        height: 40; color: Theme.danger; z: 100
+        Text { id: label; anchors.centerIn: parent; color: Theme.text }
         Timer { id: hideTimer; interval: 4000; onTriggered: errorBar.visible = false }
     }
 }
