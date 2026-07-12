@@ -16,7 +16,7 @@ Item {
         height: 44
         spacing: 8
 
-        Button { text: "‹ Back"; onClicked: root.back() }
+        AppButton { ghost: true; text: "‹ Back"; onClicked: root.back() }
 
         ComboBox {
             id: typeBox

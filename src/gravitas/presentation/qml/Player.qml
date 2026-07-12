@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import "components"
 
 Item {
     id: player
@@ -16,15 +17,15 @@ Item {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottomMargin: 24
         spacing: 12
-        Button { text: "Pause"; onClicked: playerController.pause() }
-        Button { text: "Resume"; onClicked: playerController.resume() }
+        AppButton { text: "Pause"; onClicked: playerController.pause() }
+        AppButton { text: "Resume"; onClicked: playerController.resume() }
         ComboBox {
             id: subs
             textRole: "title"
             model: []
             onActivated: playerController.selectSubtitle(model[currentIndex].id)
         }
-        Button { text: "Back"; onClicked: player.back() }
+        AppButton { text: "Back"; onClicked: player.back() }
     }
 
     Connections {

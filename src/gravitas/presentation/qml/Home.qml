@@ -27,7 +27,7 @@ Item {
                 placeholderText: "Addon manifest URL…"
             }
 
-            Button {
+            AppButton {
                 id: addButton
                 anchors.verticalCenter: parent.verticalCenter
                 text: "Add"
