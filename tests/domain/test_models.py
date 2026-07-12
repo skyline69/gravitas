@@ -1,0 +1,54 @@
+import dataclasses
+
+from gravitas.domain.models import (
+    AddonManifest,
+    CatalogRef,
+    MediaItem,
+    MetaDetail,
+    Stream,
+    Video,
+)
+
+
+def test_media_item_is_frozen() -> None:
+    item = MediaItem(id="tt1", type="movie", name="Film", poster=None)
+    assert item.name == "Film"
+    with_pytest_raises = dataclasses.FrozenInstanceError
+    try:
+        item.name = "Other"  # type: ignore[misc]
+        raise AssertionError("should be frozen")
+    except with_pytest_raises:
+        pass
+
+
+def test_stream_is_direct_when_url_present() -> None:
+    direct = Stream(name="1080p", title="src", url="http://x/v.mkv", info_hash=None, file_idx=None)
+    torrent = Stream(name="1080p", title="src", url=None, info_hash="abc", file_idx=0)
+    assert direct.is_direct is True
+    assert torrent.is_direct is False
+
+
+def test_meta_detail_holds_episode_videos() -> None:
+    meta = MetaDetail(
+        id="tt2",
+        type="series",
+        name="Show",
+        description="d",
+        poster=None,
+        background=None,
+        videos=(Video(id="tt2:1:1", title="Pilot", season=1, episode=1),),
+    )
+    assert meta.videos[0].episode == 1
+
+
+def test_manifest_catalogs() -> None:
+    manifest = AddonManifest(
+        id="a",
+        name="Cinemeta",
+        version="1.0",
+        resources=("catalog", "meta", "stream"),
+        types=("movie", "series"),
+        catalogs=(CatalogRef(type="movie", id="top", name="Top"),),
+        base_url="https://x/",
+    )
+    assert manifest.catalogs[0].name == "Top"
