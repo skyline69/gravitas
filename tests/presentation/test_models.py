@@ -19,6 +19,16 @@ def test_poster_model_role_names_are_stringified(qapp: object) -> None:
     assert {"id", "type", "name", "poster"} <= names
 
 
+def test_poster_model_append_items(qapp: object) -> None:
+    model = PosterGridModel()
+    model.set_items([MediaItem(id="tt1", type="movie", name="A", poster=None)])
+    model.append_items([MediaItem(id="tt2", type="movie", name="B", poster=None)])
+    assert model.rowCount() == 2
+    assert model.item_at(1).id == "tt2"
+    model.append_items([])  # no-op
+    assert model.rowCount() == 2
+
+
 def test_stream_model(qapp: object) -> None:
     model = StreamListModel()
     model.set_streams(
