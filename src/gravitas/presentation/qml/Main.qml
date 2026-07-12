@@ -16,7 +16,10 @@ ApplicationWindow {
 
     Component {
         id: homePage
-        Home { onOpenDetail: (type, id) => stack.push(detailPage, {mediaType: type, mediaId: id}) }
+        Home {
+            onOpenDetail: (type, id) => stack.push(detailPage, {mediaType: type, mediaId: id})
+            onSeeAll: (type, catalogId) => { /* step 2: open Discover board pre-filtered by (type, catalogId) */ }
+        }
     }
     Component {
         id: detailPage
