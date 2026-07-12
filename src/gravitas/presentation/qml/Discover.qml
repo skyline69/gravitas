@@ -53,7 +53,10 @@ Item {
         clip: true
         model: discoverModel
         delegate: PosterCard {
-            width: 160
+            // fill the whole cell and centre the poster inside it, so the
+            // hover scale-up grows into the cell's slack instead of past the
+            // grid's clip edge (fixes edge-column/row clipping)
+            width: 180
             height: 300
             title: model.name
             posterUrl: model.poster ? model.poster : ""

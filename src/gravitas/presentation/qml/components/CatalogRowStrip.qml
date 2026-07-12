@@ -53,6 +53,10 @@ Item {
         orientation: ListView.Horizontal
         spacing: 16
         clip: true
+        // inset the content from the clip edges so the first/last card has
+        // room to grow on hover without being clipped
+        leftMargin: 10
+        rightMargin: 10
         model: root.posters
         delegate: PosterCard {
             height: strip.height
