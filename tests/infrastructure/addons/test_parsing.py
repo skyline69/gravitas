@@ -1,0 +1,81 @@
+import pytest
+
+from gravitas.domain.errors import InvalidManifest
+from gravitas.domain.models import CatalogRef
+from gravitas.infrastructure.addons.parsing import (
+    catalog_path,
+    meta_path,
+    parse_catalog,
+    parse_manifest,
+    parse_meta,
+    parse_streams,
+    stream_path,
+)
+
+
+def test_parse_manifest_maps_fields() -> None:
+    data = {
+        "id": "com.linvo.cinemeta",
+        "name": "Cinemeta",
+        "version": "3.0.0",
+        "resources": ["catalog", "meta", "stream"],
+        "types": ["movie", "series"],
+        "catalogs": [{"type": "movie", "id": "top", "name": "Popular"}],
+    }
+    m = parse_manifest(data, base_url="https://v3-cinemeta.strem.io/")
+    assert m.id == "com.linvo.cinemeta"
+    assert m.base_url == "https://v3-cinemeta.strem.io/"
+    assert m.catalogs[0] == CatalogRef(type="movie", id="top", name="Popular")
+
+
+def test_parse_manifest_rejects_missing_id() -> None:
+    with pytest.raises(InvalidManifest):
+        parse_manifest({"name": "x"}, base_url="https://x/")
+
+
+def test_parse_catalog_skips_unknown_types() -> None:
+    data = {
+        "metas": [
+            {"id": "tt1", "type": "movie", "name": "A", "poster": "http://p/1.jpg"},
+            {"id": "c1", "type": "channel", "name": "skip"},
+        ]
+    }
+    items = parse_catalog(data)
+    assert len(items) == 1
+    assert items[0].id == "tt1"
+    assert items[0].poster == "http://p/1.jpg"
+
+
+def test_parse_meta_reads_videos() -> None:
+    data = {
+        "meta": {
+            "id": "tt2",
+            "type": "series",
+            "name": "Show",
+            "description": "d",
+            "videos": [
+                {"id": "tt2:1:1", "title": "Pilot", "season": 1, "episode": 1},
+            ],
+        }
+    }
+    meta = parse_meta(data)
+    assert meta.videos[0].episode == 1
+
+
+def test_parse_streams_direct_and_torrent() -> None:
+    data = {
+        "streams": [
+            {"name": "1080p", "title": "web", "url": "http://s/v.mkv"},
+            {"name": "720p", "title": "torr", "infoHash": "abc", "fileIdx": 2},
+        ]
+    }
+    streams = parse_streams(data)
+    assert streams[0].is_direct is True
+    assert streams[1].info_hash == "abc"
+    assert streams[1].file_idx == 2
+
+
+def test_paths() -> None:
+    assert catalog_path(CatalogRef(type="movie", id="top", name="T")) == "catalog/movie/top.json"
+    assert meta_path("series", "tt2") == "meta/series/tt2.json"
+    assert stream_path("movie", "tt1") == "stream/movie/tt1.json"
