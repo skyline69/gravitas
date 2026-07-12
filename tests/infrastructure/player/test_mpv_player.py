@@ -75,3 +75,11 @@ def test_set_tracks_changed_callback_registers_observer_and_invokes_callback() -
 
     handler("track-list", [])
     assert calls == [None]
+
+
+def test_set_tracks_changed_callback_registers_observer_only_once() -> None:
+    player, fake = _player()
+    player.set_tracks_changed_callback(lambda: None)
+    player.set_tracks_changed_callback(lambda: None)
+
+    assert len(fake.observers) == 1

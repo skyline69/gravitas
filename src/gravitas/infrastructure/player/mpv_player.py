@@ -32,6 +32,7 @@ def _default_factory(window_id: int) -> Any:
 class MpvPlayer:
     def __init__(self, window_id: int, factory: MpvFactory = _default_factory) -> None:
         self._tracks_changed_callback: Callable[[], None] | None = None
+        self._track_observer_registered = False
         try:
             self._mpv = factory(window_id)
         except Exception as exc:  # surface any libmpv init failure uniformly
@@ -64,6 +65,14 @@ class MpvPlayer:
 
     def set_tracks_changed_callback(self, callback: Callable[[], None] | None) -> None:
         self._tracks_changed_callback = callback
+        if callback is None:
+            # Leave any existing observer registered -- unobserve_property is
+            # fragile across python-mpv/libmpv versions, and _on_track_list
+            # is a no-op once the stored callback is cleared, so this is
+            # harmless.
+            return
+        if self._track_observer_registered:
+            return
         mpv = getattr(self, "_mpv", None)
         if mpv is None:
             return
@@ -72,6 +81,7 @@ class MpvPlayer:
         # crash the player — the callback simply won't fire.
         with contextlib.suppress(Exception):
             mpv.observe_property("track-list", self._on_track_list)
+            self._track_observer_registered = True
 
     def _on_track_list(self, _name: str, _value: object) -> None:
         if self._tracks_changed_callback is not None:
