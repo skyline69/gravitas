@@ -49,12 +49,13 @@ Item {
         anchors.topMargin: 8
         anchors.left: parent.left
         anchors.right: parent.right
-        height: 280
+        height: 300
         orientation: ListView.Horizontal
         spacing: 16
         clip: true
         model: root.posters
         delegate: PosterCard {
+            height: strip.height
             title: model.name
             posterUrl: model.poster ? model.poster : ""
             onClicked: root.openDetail(model.type, model.id)

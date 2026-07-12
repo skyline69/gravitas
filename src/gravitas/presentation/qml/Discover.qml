@@ -53,6 +53,8 @@ Item {
         clip: true
         model: discoverModel
         delegate: PosterCard {
+            width: 160
+            height: 300
             title: model.name
             posterUrl: model.poster ? model.poster : ""
             onClicked: root.openDetail(model.type, model.id)
