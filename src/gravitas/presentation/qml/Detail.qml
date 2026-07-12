@@ -73,7 +73,8 @@ Item {
             width: parent.width - 48
             spacing: 16
 
-            // title logo art, with a bold-text fallback
+            // title logo art with a bold-text fallback: the title shows while
+            // the logo loads, then the two crossfade (title stays if no logo)
             Item {
                 width: parent.width
                 height: 120
@@ -84,16 +85,18 @@ Item {
                     fillMode: Image.PreserveAspectFit
                     source: detailController && detailController.logo ? detailController.logo : ""
                     asynchronous: true
-                    visible: status === Image.Ready
+                    opacity: status === Image.Ready ? 1.0 : 0.0
+                    Behavior on opacity { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
                 }
                 Text {
                     anchors.centerIn: parent
-                    visible: !logo.visible
                     text: detailController ? detailController.title : ""
                     color: Theme.text
                     font.pixelSize: 32
                     font.bold: true
                     horizontalAlignment: Text.AlignHCenter
+                    opacity: logo.status === Image.Ready ? 0.0 : 1.0
+                    Behavior on opacity { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
                 }
             }
 
