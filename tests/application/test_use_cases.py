@@ -61,7 +61,12 @@ async def test_browse_catalog_builds_rows() -> None:
     repo = await _repo()
     rows = await BrowseCatalog(repo)()
     assert rows == [
-        CatalogRow(title="Top", items=[MediaItem(id="tt1", type="movie", name="A", poster=None)])
+        CatalogRow(
+            title="Top",
+            type="movie",
+            catalog_id="top",
+            items=[MediaItem(id="tt1", type="movie", name="A", poster=None)],
+        )
     ]
 
 
