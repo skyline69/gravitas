@@ -32,6 +32,42 @@ Item {
             id: cover
             width: 160; height: 220
 
+            // skeleton placeholder shown until the poster is ready: a surface
+            // fill with an animated shimmer sweep while the image loads
+            Rectangle {
+                id: skeleton
+                anchors.fill: parent
+                radius: 14
+                color: Theme.surface
+                clip: true
+                visible: img.status !== Image.Ready
+
+                Rectangle {
+                    id: shimmer
+                    height: parent.height * 2
+                    width: parent.width * 0.55
+                    y: -parent.height / 2
+                    rotation: 18
+                    gradient: Gradient {
+                        orientation: Gradient.Horizontal
+                        GradientStop { position: 0.0; color: "transparent" }
+                        GradientStop { position: 0.5; color: Qt.rgba(1, 1, 1, 0.07) }
+                        GradientStop { position: 1.0; color: "transparent" }
+                    }
+                    SequentialAnimation on x {
+                        loops: Animation.Infinite
+                        running: img.status === Image.Loading
+                        NumberAnimation {
+                            from: -skeleton.width * 0.6
+                            to: skeleton.width * 1.2
+                            duration: 1100
+                            easing.type: Easing.InOutQuad
+                        }
+                        PauseAnimation { duration: 350 }
+                    }
+                }
+            }
+
             // the poster, masked to a rounded rectangle
             Image {
                 id: img
@@ -51,6 +87,9 @@ Item {
                 anchors.fill: parent
                 source: img
                 maskSource: mask
+                // fade the poster in once it has decoded
+                opacity: img.status === Image.Ready ? 1.0 : 0.0
+                Behavior on opacity { NumberAnimation { duration: Theme.durMed } }
             }
 
             // rounded white frame — only on the active (hovered) poster
