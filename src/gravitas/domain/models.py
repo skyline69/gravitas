@@ -33,6 +33,13 @@ class MetaDetail:
     poster: str | None
     background: str | None
     videos: tuple[Video, ...]
+    logo: str | None = None
+    year: str | None = None
+    runtime: str | None = None
+    imdb_rating: str | None = None
+    genres: tuple[str, ...] = ()
+    cast: tuple[str, ...] = ()
+    directors: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

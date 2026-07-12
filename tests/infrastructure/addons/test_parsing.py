@@ -145,3 +145,42 @@ def test_catalog_path_extra() -> None:
         catalog_path_extra(ref, "Action/Adventure", 0)
         == "catalog/movie/top/genre=Action%2FAdventure.json"
     )
+
+
+def test_parse_meta_reads_enriched_fields() -> None:
+    data = {
+        "meta": {
+            "id": "tt1",
+            "type": "movie",
+            "name": "Toy Story 5",
+            "description": "desc",
+            "logo": "http://l/logo.png",
+            "background": "http://b/bg.jpg",
+            "releaseInfo": "2026",
+            "runtime": "102 min",
+            "imdbRating": "7.5",
+            "genres": ["Animation", "Comedy", 3],
+            "cast": ["Tom Hanks", "Tim Allen"],
+            "director": ["Andrew Stanton"],
+        }
+    }
+    m = parse_meta(data)
+    assert m.logo == "http://l/logo.png"
+    assert m.year == "2026"
+    assert m.runtime == "102 min"
+    assert m.imdb_rating == "7.5"
+    assert m.genres == ("Animation", "Comedy")  # non-string 3 skipped
+    assert m.cast == ("Tom Hanks", "Tim Allen")
+    assert m.directors == ("Andrew Stanton",)
+
+
+def test_parse_meta_year_falls_back_to_year_field() -> None:
+    data = {"meta": {"id": "tt1", "type": "movie", "name": "A", "year": "1999"}}
+    assert parse_meta(data).year == "1999"
+
+
+def test_parse_meta_missing_enriched_fields_default() -> None:
+    data = {"meta": {"id": "tt1", "type": "movie", "name": "A"}}
+    m = parse_meta(data)
+    assert m.logo is None and m.year is None and m.runtime is None
+    assert m.imdb_rating is None and m.genres == () and m.cast == () and m.directors == ()

@@ -60,3 +60,44 @@ def test_catalog_ref_extra_defaults() -> None:
     ref = CatalogRef(type="movie", id="top", name="Top")
     assert ref.genres == ()
     assert ref.supports_skip is False
+
+
+def test_meta_detail_enriched_defaults() -> None:
+    meta = MetaDetail(
+        id="tt1",
+        type="movie",
+        name="A",
+        description="d",
+        poster=None,
+        background=None,
+        videos=(),
+    )
+    assert meta.logo is None
+    assert meta.year is None
+    assert meta.runtime is None
+    assert meta.imdb_rating is None
+    assert meta.genres == ()
+    assert meta.cast == ()
+    assert meta.directors == ()
+
+
+def test_meta_detail_enriched_values() -> None:
+    meta = MetaDetail(
+        id="tt1",
+        type="movie",
+        name="A",
+        description="d",
+        poster=None,
+        background=None,
+        videos=(),
+        logo="l",
+        year="2026",
+        runtime="102 min",
+        imdb_rating="7.5",
+        genres=("Animation", "Comedy"),
+        cast=("Tom Hanks",),
+        directors=("Dir",),
+    )
+    assert meta.year == "2026"
+    assert meta.genres == ("Animation", "Comedy")
+    assert meta.directors == ("Dir",)

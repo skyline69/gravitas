@@ -62,6 +62,24 @@ def test_discover_qml_loads(qapp: object) -> None:
     assert obj is not None, f"Discover.qml failed to load: {component.errorString()}"
 
 
+def test_detail_qml_loads(qapp: object) -> None:
+    from pathlib import Path
+
+    from PySide6.QtCore import QObject
+    from PySide6.QtQml import QQmlComponent, QQmlEngine
+
+    import gravitas.main as gmain
+
+    engine = QQmlEngine()
+    stub = QObject()
+    engine.rootContext().setContextProperty("detailController", stub)
+    engine.rootContext().setContextProperty("streamModel", stub)
+    qml = Path(gmain.__file__).parent / "presentation" / "qml" / "Detail.qml"
+    component = QQmlComponent(engine, str(qml))
+    obj = component.create()
+    assert obj is not None, f"Detail.qml failed to load: {component.errorString()}"
+
+
 def test_player_qml_loads(qapp: object) -> None:
     from pathlib import Path
 
