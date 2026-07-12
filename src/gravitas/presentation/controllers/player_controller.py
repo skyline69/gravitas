@@ -12,6 +12,7 @@ from gravitas.domain.ports import MediaPlayer
 
 class PlayerController(QObject):
     errorOccurred = Signal(str)
+    subtitleTracksChanged = Signal()
 
     def __init__(self, player_factory: Callable[[], MediaPlayer]) -> None:
         super().__init__()
@@ -25,7 +26,13 @@ class PlayerController(QObject):
             except PlaybackFailed as exc:
                 self.errorOccurred.emit(str(exc))
                 return None
+            self._player.set_tracks_changed_callback(self._on_tracks_changed)
         return self._player
+
+    def _on_tracks_changed(self) -> None:
+        # May be invoked from mpv's own thread; Signal.emit() is safe to call
+        # from any thread and is delivered to QML via a queued connection.
+        self.subtitleTracksChanged.emit()
 
     @Slot(str)
     def play(self, url: str) -> None:

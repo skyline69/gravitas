@@ -21,9 +21,14 @@ Item {
         ComboBox {
             id: subs
             textRole: "title"
-            model: playerController.subtitleTracks()
+            model: []
             onActivated: playerController.selectSubtitle(model[currentIndex].id)
         }
         Button { text: "Back"; onClicked: player.back() }
+    }
+
+    Connections {
+        target: playerController
+        function onSubtitleTracksChanged() { subs.model = playerController.subtitleTracks() }
     }
 }

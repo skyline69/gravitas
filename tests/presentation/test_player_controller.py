@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from gravitas.presentation.controllers.player_controller import PlayerController
 
 
@@ -6,6 +8,8 @@ class FakePlayer:
         self.fail = fail
         self.calls: list[str] = []
         self.sub: int | None = -1
+        self._tracks: list[tuple[int, str]] = [(2, "English")]
+        self._tracks_changed_callback: Callable[[], None] | None = None
 
     def play(self, url: str) -> None:
         if self.fail:
@@ -27,7 +31,16 @@ class FakePlayer:
         self.sub = track_id
 
     def subtitle_tracks(self) -> list[tuple[int, str]]:
-        return [(2, "English")]
+        return self._tracks
+
+    def set_tracks_changed_callback(self, callback: Callable[[], None] | None) -> None:
+        self._tracks_changed_callback = callback
+
+    def trigger_tracks_changed(self, tracks: list[tuple[int, str]] | None = None) -> None:
+        if tracks is not None:
+            self._tracks = tracks
+        if self._tracks_changed_callback is not None:
+            self._tracks_changed_callback()
 
     def shutdown(self) -> None:
         self.calls.append("shutdown")
@@ -66,3 +79,20 @@ def test_playback_error_emits_signal(qapp: object) -> None:
     controller.errorOccurred.connect(received.append)
     controller.play("http://s/v.mkv")
     assert received == ["boom"]
+
+
+def test_subtitle_tracks_changed_signal_refreshes_tracks(qapp: object) -> None:
+    player = FakePlayer()
+    controller = PlayerController(lambda: player)
+    controller.play("http://s/v.mkv")
+
+    fired: list[None] = []
+    controller.subtitleTracksChanged.connect(lambda: fired.append(None))
+
+    player.trigger_tracks_changed([(5, "French"), (6, "German")])
+
+    assert fired == [None]
+    assert controller.subtitleTracks() == [
+        {"id": 5, "title": "French"},
+        {"id": 6, "title": "German"},
+    ]

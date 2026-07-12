@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import locale
 from collections.abc import Callable
 from typing import Any
@@ -30,6 +31,7 @@ def _default_factory(window_id: int) -> Any:
 
 class MpvPlayer:
     def __init__(self, window_id: int, factory: MpvFactory = _default_factory) -> None:
+        self._tracks_changed_callback: Callable[[], None] | None = None
         try:
             self._mpv = factory(window_id)
         except Exception as exc:  # surface any libmpv init failure uniformly
@@ -59,6 +61,21 @@ class MpvPlayer:
 
     def set_subtitle_track(self, track_id: int | None) -> None:
         self._mpv["sid"] = "no" if track_id is None else track_id
+
+    def set_tracks_changed_callback(self, callback: Callable[[], None] | None) -> None:
+        self._tracks_changed_callback = callback
+        mpv = getattr(self, "_mpv", None)
+        if mpv is None:
+            return
+        # python-mpv is untyped and libmpv may not be available in all
+        # environments; a failure to register the observer must not
+        # crash the player — the callback simply won't fire.
+        with contextlib.suppress(Exception):
+            mpv.observe_property("track-list", self._on_track_list)
+
+    def _on_track_list(self, _name: str, _value: object) -> None:
+        if self._tracks_changed_callback is not None:
+            self._tracks_changed_callback()
 
     def shutdown(self) -> None:
         self._mpv.terminate()

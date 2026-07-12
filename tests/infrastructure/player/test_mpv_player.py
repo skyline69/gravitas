@@ -8,6 +8,7 @@ class FakeMpv:
         self.props: dict[str, Any] = {}
         self.played: list[str] = []
         self.terminated = False
+        self.observers: list[tuple[str, Any]] = []
         self.track_list = [
             {"id": 1, "type": "video", "title": "v"},
             {"id": 2, "type": "sub", "title": "English"},
@@ -24,6 +25,9 @@ class FakeMpv:
         if name == "track_list":
             return object.__getattribute__(self, "__dict__")["track_list"]
         raise AttributeError(name)
+
+    def observe_property(self, name: str, handler: Any) -> None:
+        self.observers.append((name, handler))
 
     def terminate(self) -> None:
         self.terminated = True
@@ -58,3 +62,16 @@ def test_shutdown_terminates() -> None:
     player, fake = _player()
     player.shutdown()
     assert fake.terminated is True
+
+
+def test_set_tracks_changed_callback_registers_observer_and_invokes_callback() -> None:
+    player, fake = _player()
+    calls: list[None] = []
+    player.set_tracks_changed_callback(lambda: calls.append(None))
+
+    assert len(fake.observers) == 1
+    name, handler = fake.observers[0]
+    assert name == "track-list"
+
+    handler("track-list", [])
+    assert calls == [None]
