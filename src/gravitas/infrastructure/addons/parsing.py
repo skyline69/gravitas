@@ -45,6 +45,19 @@ def _require(data: dict[str, Any], key: str, ctx: str) -> Any:
     return data[key]
 
 
+def _str_or_none(v: Any) -> str | None:
+    if isinstance(v, (str, int, float)):
+        s = str(v)
+        return s if s else None
+    return None
+
+
+def _str_tuple(v: Any) -> tuple[str, ...]:
+    if isinstance(v, list):
+        return tuple(x for x in v if isinstance(x, str))
+    return ()
+
+
 def parse_manifest(data: dict[str, Any], base_url: str) -> AddonManifest:
     manifest_id = _require(data, "id", "manifest")
     name = _require(data, "name", "manifest")
@@ -119,6 +132,13 @@ def parse_meta(data: dict[str, Any]) -> MetaDetail:
         poster=meta.get("poster"),
         background=meta.get("background"),
         videos=videos,
+        logo=_str_or_none(meta.get("logo")),
+        year=_str_or_none(meta.get("releaseInfo")) or _str_or_none(meta.get("year")),
+        runtime=_str_or_none(meta.get("runtime")),
+        imdb_rating=_str_or_none(meta.get("imdbRating")),
+        genres=_str_tuple(meta.get("genres")),
+        cast=_str_tuple(meta.get("cast")),
+        directors=_str_tuple(meta.get("director")),
     )
 
 
