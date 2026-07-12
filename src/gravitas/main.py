@@ -21,6 +21,7 @@ from gravitas.application.resolve_stream import ResolveStream
 from gravitas.domain.ports import MediaPlayer
 from gravitas.infrastructure.addons.client import AddonClient
 from gravitas.infrastructure.player.mpv_player import MpvPlayer
+from gravitas.presentation.controllers.addon_controller import AddonController
 from gravitas.presentation.controllers.catalog_controller import CatalogController
 from gravitas.presentation.controllers.detail_controller import DetailController
 from gravitas.presentation.controllers.player_controller import PlayerController
@@ -46,6 +47,7 @@ def build_app(
 
     catalog_controller = CatalogController(BrowseCatalog(repo), poster_model)
     detail_controller = DetailController(GetDetail(repo), ResolveStream(repo), stream_model)
+    addon_controller = AddonController(InstallAddon(repo), detail_controller, catalog_controller)
 
     engine = QQmlApplicationEngine()
 
@@ -61,13 +63,18 @@ def build_app(
     ctx.setContextProperty("catalogController", catalog_controller)
     ctx.setContextProperty("detailController", detail_controller)
     ctx.setContextProperty("playerController", player_controller)
+    ctx.setContextProperty("addonController", addon_controller)
     ctx.setContextProperty("posterModel", poster_model)
     ctx.setContextProperty("streamModel", stream_model)
 
     async def bootstrap() -> None:
-        manifest = await InstallAddon(repo)(default_addon_url)
-        detail_controller.bind_manifest(manifest)
-        await catalog_controller.load_catalog()
+        # Reuse the same install-bind-refresh path AddonController.addAddon
+        # exposes to QML, so there is a single deterministic code path for
+        # installing an addon and bringing the UI up to date. addAddon is a
+        # qasync asyncSlot, which returns the underlying asyncio Task -- await
+        # it here to keep cold-start ordering deterministic (manifest bound
+        # and catalog loaded before bootstrap() returns).
+        await addon_controller.addAddon(default_addon_url)
 
     engine.load(str(_QML_DIR / "Main.qml"))
 
@@ -83,6 +90,7 @@ def build_app(
         catalog_controller,
         detail_controller,
         player_controller,
+        addon_controller,
         poster_model,
         stream_model,
     )

@@ -39,6 +39,14 @@ ApplicationWindow {
         target: playerController
         function onErrorOccurred(msg) { errorBar.show(msg) }
     }
+    Connections {
+        target: addonController
+        function onErrorOccurred(msg) { errorBar.show(msg) }
+    }
+    Connections {
+        target: addonController
+        function onAddonInstalled(name) { errorBar.show("Installed: " + name) }
+    }
 
     Rectangle {
         id: errorBar
