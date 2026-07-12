@@ -25,7 +25,7 @@ def test_build_app_registers_context_properties(qapp: object) -> None:
         assert ctx.contextProperty("detailController") is not None
         assert ctx.contextProperty("playerController") is not None
         assert ctx.contextProperty("addonController") is not None
-        assert ctx.contextProperty("posterModel") is not None
+        assert ctx.contextProperty("catalogRowsModel") is not None
         assert ctx.contextProperty("streamModel") is not None
     finally:
         pending = asyncio.all_tasks(loop)

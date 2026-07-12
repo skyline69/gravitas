@@ -1,4 +1,4 @@
-"""QObject bridge: run BrowseCatalog and populate the poster grid model."""
+"""QObject bridge: run BrowseCatalog and populate the catalog rows model."""
 
 from __future__ import annotations
 
@@ -7,14 +7,14 @@ from qasync import asyncSlot  # type: ignore[import-untyped]
 
 from gravitas.application.browse_catalog import BrowseCatalog
 from gravitas.domain.errors import GravitasError
-from gravitas.presentation.models.poster_grid_model import PosterGridModel
+from gravitas.presentation.models.catalog_rows_model import CatalogRowsModel
 
 
 class CatalogController(QObject):
     errorOccurred = Signal(str)
     loadingChanged = Signal(bool)
 
-    def __init__(self, browse: BrowseCatalog, model: PosterGridModel) -> None:
+    def __init__(self, browse: BrowseCatalog, model: CatalogRowsModel) -> None:
         super().__init__()
         self._browse = browse
         self._model = model
@@ -23,8 +23,7 @@ class CatalogController(QObject):
         self.loadingChanged.emit(True)
         try:
             rows = await self._browse()
-            items = [item for row in rows for item in row.items]
-            self._model.set_items(items)
+            self._model.set_rows(rows)
         except GravitasError as exc:
             self.errorOccurred.emit(str(exc))
         finally:
