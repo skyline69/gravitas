@@ -17,15 +17,15 @@ Item {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottomMargin: 24
         spacing: 12
-        AppButton { text: "Pause"; onClicked: playerController.pause() }
-        AppButton { text: "Resume"; onClicked: playerController.resume() }
+        AppButton { iconGlyph: Icons.pause; onClicked: playerController.pause() }
+        AppButton { iconGlyph: Icons.play; onClicked: playerController.resume() }
         AppComboBox {
             id: subs
             textRole: "title"
             model: []
             onActivated: playerController.selectSubtitle(model[currentIndex].id)
         }
-        AppButton { text: "Back"; onClicked: player.back() }
+        AppButton { iconGlyph: Icons.arrowLeft; text: "Back"; onClicked: player.back() }
     }
 
     Connections {

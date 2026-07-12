@@ -5,6 +5,7 @@ import "."
 Button {
     id: control
     property bool ghost: false
+    property string iconGlyph: ""
 
     implicitHeight: Theme.controlHeight
     padding: Theme.spacing * 1.5
@@ -21,12 +22,29 @@ Button {
         Behavior on color { ColorAnimation { duration: Theme.durFast } }
     }
 
-    contentItem: Text {
-        text: control.text
-        color: Theme.text
-        font.pixelSize: Theme.fontBody
-        horizontalAlignment: Text.AlignHCenter
-        verticalAlignment: Text.AlignVCenter
-        elide: Text.ElideRight
+    contentItem: Item {
+        implicitWidth: row.implicitWidth
+        implicitHeight: row.implicitHeight
+        Row {
+            id: row
+            anchors.centerIn: parent
+            spacing: (control.iconGlyph.length && control.text.length) ? Theme.spacing / 2 : 0
+            AppIcon {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: control.iconGlyph.length > 0
+                glyph: control.iconGlyph
+                color: Theme.text
+                font.pixelSize: Theme.fontBody
+            }
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: control.text.length > 0
+                text: control.text
+                color: Theme.text
+                font.pixelSize: Theme.fontBody
+                verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight
+            }
+        }
     }
 }

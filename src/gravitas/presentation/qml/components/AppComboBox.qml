@@ -26,12 +26,10 @@ ComboBox {
         elide: Text.ElideRight
     }
 
-    indicator: Text {
+    indicator: AppIcon {
         x: control.width - width - Theme.spacing
         y: control.topPadding + (control.availableHeight - height) / 2
-        text: "⌄"
-        color: Theme.textDim
-        font.pixelSize: Theme.fontTitle
+        glyph: Icons.caretDown
         rotation: control.popup.visible ? 180 : 0
         Behavior on rotation { NumberAnimation { duration: Theme.durFast } }
     }
