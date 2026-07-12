@@ -60,7 +60,7 @@ Item {
         onAtYEndChanged: if (atYEnd) discoverController.loadMore()
     }
 
-    BusyIndicator {
+    AppSpinner {
         id: busy
         anchors.centerIn: parent
         running: false

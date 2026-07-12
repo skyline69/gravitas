@@ -5,3 +5,4 @@ StreamRow 1.0 StreamRow.qml
 AppButton 1.0 AppButton.qml
 AppTextField 1.0 AppTextField.qml
 AppComboBox 1.0 AppComboBox.qml
+AppSpinner 1.0 AppSpinner.qml

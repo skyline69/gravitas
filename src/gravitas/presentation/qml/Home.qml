@@ -61,7 +61,7 @@ Item {
         }
     }
 
-    BusyIndicator {
+    AppSpinner {
         id: busy
         anchors.centerIn: parent
         running: false
