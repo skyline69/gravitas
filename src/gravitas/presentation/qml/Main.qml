@@ -35,6 +35,10 @@ ApplicationWindow {
         target: detailController
         function onErrorOccurred(msg) { errorBar.show(msg) }
     }
+    Connections {
+        target: playerController
+        function onErrorOccurred(msg) { errorBar.show(msg) }
+    }
 
     Rectangle {
         id: errorBar

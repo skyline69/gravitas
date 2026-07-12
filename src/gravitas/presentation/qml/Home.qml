@@ -21,11 +21,12 @@ Item {
     }
 
     BusyIndicator {
+        id: busy
         anchors.centerIn: parent
         running: false
         Connections {
             target: catalogController
-            function onLoadingChanged(loading) { parent.running = loading }
+            function onLoadingChanged(loading) { busy.running = loading }
         }
     }
 }
