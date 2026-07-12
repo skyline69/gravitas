@@ -13,7 +13,7 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         height: 56
-        color: "#1c1c1c"
+        color: Theme.surface
 
         Row {
             anchors.fill: parent
