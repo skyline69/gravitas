@@ -14,6 +14,7 @@ from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuick import QQuickWindow
 
 from gravitas.application.addon_repository import AddonRepository
+from gravitas.application.browse_board import BrowseBoard
 from gravitas.application.browse_catalog import BrowseCatalog
 from gravitas.application.get_detail import GetDetail
 from gravitas.application.install_addon import InstallAddon
@@ -24,8 +25,10 @@ from gravitas.infrastructure.player.mpv_player import MpvPlayer
 from gravitas.presentation.controllers.addon_controller import AddonController
 from gravitas.presentation.controllers.catalog_controller import CatalogController
 from gravitas.presentation.controllers.detail_controller import DetailController
+from gravitas.presentation.controllers.discover_controller import DiscoverController
 from gravitas.presentation.controllers.player_controller import PlayerController
 from gravitas.presentation.models.catalog_rows_model import CatalogRowsModel
+from gravitas.presentation.models.poster_grid_model import PosterGridModel
 from gravitas.presentation.models.stream_list_model import StreamListModel
 
 _QML_DIR = Path(__file__).parent / "presentation" / "qml"
@@ -44,6 +47,9 @@ def build_app(
 
     rows_model = CatalogRowsModel()
     stream_model = StreamListModel()
+
+    discover_model = PosterGridModel()
+    discover_controller = DiscoverController(BrowseBoard(repo), repo, discover_model)
 
     catalog_controller = CatalogController(BrowseCatalog(repo), rows_model)
     detail_controller = DetailController(GetDetail(repo), ResolveStream(repo), stream_model)
@@ -66,6 +72,8 @@ def build_app(
     ctx.setContextProperty("addonController", addon_controller)
     ctx.setContextProperty("catalogRowsModel", rows_model)
     ctx.setContextProperty("streamModel", stream_model)
+    ctx.setContextProperty("discoverController", discover_controller)
+    ctx.setContextProperty("discoverModel", discover_model)
 
     async def bootstrap() -> None:
         # Reuse the same install-bind-refresh path AddonController.addAddon
@@ -91,7 +99,9 @@ def build_app(
         detail_controller,
         player_controller,
         addon_controller,
+        discover_controller,
         rows_model,
+        discover_model,
         stream_model,
     )
     engine._gravitas_bootstrap = bootstrap  # type: ignore[attr-defined]

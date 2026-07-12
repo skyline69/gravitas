@@ -4,6 +4,7 @@ from gravitas.domain.errors import InvalidManifest
 from gravitas.domain.models import CatalogRef
 from gravitas.infrastructure.addons.parsing import (
     catalog_path,
+    catalog_path_extra,
     meta_path,
     parse_catalog,
     parse_manifest,
@@ -75,7 +76,72 @@ def test_parse_streams_direct_and_torrent() -> None:
     assert streams[1].file_idx == 2
 
 
+def test_parse_manifest_reads_modern_extra() -> None:
+    data = {
+        "id": "x",
+        "name": "X",
+        "catalogs": [
+            {
+                "type": "movie",
+                "id": "top",
+                "name": "Top",
+                "extra": [
+                    {"name": "genre", "options": ["Action", "Comedy"]},
+                    {"name": "skip"},
+                ],
+            }
+        ],
+    }
+    m = parse_manifest(data, base_url="https://x/")
+    ref = m.catalogs[0]
+    assert ref.genres == ("Action", "Comedy")
+    assert ref.supports_skip is True
+
+
+def test_parse_manifest_reads_legacy_extra() -> None:
+    data = {
+        "id": "x",
+        "name": "X",
+        "catalogs": [
+            {
+                "type": "movie",
+                "id": "top",
+                "name": "Top",
+                "extraSupported": ["genre", "skip"],
+                "genres": ["Drama"],
+            }
+        ],
+    }
+    ref = parse_manifest(data, base_url="https://x/").catalogs[0]
+    assert ref.genres == ("Drama",)
+    assert ref.supports_skip is True
+
+
+def test_parse_manifest_extra_absent_defaults() -> None:
+    data = {"id": "x", "name": "X", "catalogs": [{"type": "movie", "id": "top", "name": "Top"}]}
+    ref = parse_manifest(data, base_url="https://x/").catalogs[0]
+    assert ref.genres == ()
+    assert ref.supports_skip is False
+
+
 def test_paths() -> None:
     assert catalog_path(CatalogRef(type="movie", id="top", name="T")) == "catalog/movie/top.json"
     assert meta_path("series", "tt2") == "meta/series/tt2.json"
     assert stream_path("movie", "tt1") == "stream/movie/tt1.json"
+
+
+def test_catalog_path_extra() -> None:
+    ref = CatalogRef(type="movie", id="top", name="T")
+    assert catalog_path_extra(ref, None, 0) == "catalog/movie/top.json"
+    assert catalog_path_extra(ref, "Action", 0) == "catalog/movie/top/genre=Action.json"
+    assert catalog_path_extra(ref, None, 100) == "catalog/movie/top/skip=100.json"
+    assert catalog_path_extra(ref, "Action", 100) == "catalog/movie/top/genre=Action&skip=100.json"
+    assert (
+        catalog_path_extra(ref, "Sci-Fi & Fantasy", 0)
+        == "catalog/movie/top/genre=Sci-Fi%20%26%20Fantasy.json"
+    )
+    # a "/" in a genre must be percent-encoded, not injected as a path separator
+    assert (
+        catalog_path_extra(ref, "Action/Adventure", 0)
+        == "catalog/movie/top/genre=Action%2FAdventure.json"
+    )

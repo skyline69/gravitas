@@ -5,7 +5,7 @@ import "components"
 Item {
     id: home
     signal openDetail(string type, string id)
-    signal seeAll(string type, string catalogId)
+    signal seeAll(string addonId, string type, string catalogId)
 
     Rectangle {
         id: addonBar
@@ -52,11 +52,12 @@ Item {
         delegate: CatalogRowStrip {
             width: rowsView.width
             title: model.title
+            addonId: model.addonId
             type: model.type
             catalogId: model.catalogId
             posters: model.posters
             onOpenDetail: (t, id) => home.openDetail(t, id)
-            onSeeAll: (t, cid) => home.seeAll(t, cid)
+            onSeeAll: (aid, t, cid) => home.seeAll(aid, t, cid)
         }
     }
 

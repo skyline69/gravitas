@@ -3,7 +3,7 @@ import pytest
 import respx
 
 from gravitas.domain.errors import AddonUnreachable, InvalidResponse
-from gravitas.domain.models import CatalogRef
+from gravitas.domain.models import AddonManifest, CatalogRef
 from gravitas.infrastructure.addons.client import AddonClient
 
 
@@ -73,3 +73,25 @@ async def test_non_json_body_becomes_invalid_response() -> None:
         client = AddonClient(http)
         with pytest.raises(InvalidResponse):
             await client.fetch_manifest("https://bad/manifest.json")
+
+
+@respx.mock
+async def test_fetch_catalog_builds_extra_path() -> None:
+    respx.get("https://a/catalog/movie/top/genre=Action&skip=100.json").mock(
+        return_value=httpx.Response(
+            200, json={"metas": [{"id": "tt1", "type": "movie", "name": "A"}]}
+        )
+    )
+    manifest = AddonManifest(
+        id="a",
+        name="A",
+        version="1",
+        resources=("catalog",),
+        types=("movie",),
+        catalogs=(CatalogRef(type="movie", id="top", name="T"),),
+        base_url="https://a/",
+    )
+    async with httpx.AsyncClient() as http:
+        client = AddonClient(http)
+        items = await client.fetch_catalog(manifest, manifest.catalogs[0], genre="Action", skip=100)
+    assert items[0].id == "tt1"

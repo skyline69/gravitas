@@ -7,6 +7,7 @@ from gravitas.presentation.models.poster_grid_model import PosterGridModel
 def _row(title: str, catalog_id: str, name: str) -> CatalogRow:
     return CatalogRow(
         title=title,
+        addon_id="a",
         type="movie",
         catalog_id=catalog_id,
         items=[MediaItem(id="tt1", type="movie", name=name, poster="http://p/1.jpg")],
@@ -19,6 +20,7 @@ def test_set_rows_exposes_roles(qapp: object) -> None:
     assert model.rowCount() == 1
     index = model.index(0, 0)
     assert model.data(index, CatalogRowsModel.TitleRole) == "Top"
+    assert model.data(index, CatalogRowsModel.AddonIdRole) == "a"
     assert model.data(index, CatalogRowsModel.TypeRole) == "movie"
     assert model.data(index, CatalogRowsModel.CatalogIdRole) == "top"
 
@@ -45,4 +47,4 @@ def test_set_rows_resets(qapp: object) -> None:
 def test_role_names_are_stringified(qapp: object) -> None:
     model = CatalogRowsModel()
     names = {bytes(v).decode() for v in model.roleNames().values()}
-    assert {"title", "type", "catalogId", "posters"} <= names
+    assert {"title", "addonId", "type", "catalogId", "posters"} <= names

@@ -32,6 +32,14 @@ class PosterGridModel(QAbstractListModel):
         self._items = list(items)
         self.endResetModel()
 
+    def append_items(self, items: list[MediaItem]) -> None:
+        if not items:
+            return
+        start = len(self._items)
+        self.beginInsertRows(_ROOT_INDEX, start, start + len(items) - 1)
+        self._items.extend(items)
+        self.endInsertRows()
+
     def item_at(self, row: int) -> MediaItem:
         return self._items[row]
 

@@ -11,6 +11,7 @@ from gravitas.domain.models import MediaItem, MediaType
 @dataclass(frozen=True, slots=True)
 class CatalogRow:
     title: str
+    addon_id: str
     type: MediaType
     catalog_id: str
     items: list[MediaItem]
@@ -27,6 +28,7 @@ class BrowseCatalog:
             rows.append(
                 CatalogRow(
                     title=ref.name,
+                    addon_id=manifest.id,
                     type=ref.type,
                     catalog_id=ref.id,
                     items=items,

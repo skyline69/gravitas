@@ -20,24 +20,25 @@ _ROOT_INDEX = QModelIndex()
 
 class CatalogRowsModel(QAbstractListModel):
     TitleRole = Qt.ItemDataRole.UserRole + 1
-    TypeRole = Qt.ItemDataRole.UserRole + 2
-    CatalogIdRole = Qt.ItemDataRole.UserRole + 3
-    PostersRole = Qt.ItemDataRole.UserRole + 4
+    AddonIdRole = Qt.ItemDataRole.UserRole + 2
+    TypeRole = Qt.ItemDataRole.UserRole + 3
+    CatalogIdRole = Qt.ItemDataRole.UserRole + 4
+    PostersRole = Qt.ItemDataRole.UserRole + 5
 
     def __init__(self) -> None:
         super().__init__()
-        # (title, type, catalog_id, poster_model). Holding the PosterGridModel
+        # (title, addon_id, type, catalog_id, poster_model). Holding the PosterGridModel
         # here keeps a Python reference alive so QML can bind it as an inner
         # ListView model without it being garbage-collected.
-        self._rows: list[tuple[str, str, str, PosterGridModel]] = []
+        self._rows: list[tuple[str, str, str, str, PosterGridModel]] = []
 
     def set_rows(self, rows: list[CatalogRow]) -> None:
         self.beginResetModel()
-        built: list[tuple[str, str, str, PosterGridModel]] = []
+        built: list[tuple[str, str, str, str, PosterGridModel]] = []
         for row in rows:
             poster_model = PosterGridModel()
             poster_model.set_items(row.items)
-            built.append((row.title, row.type, row.catalog_id, poster_model))
+            built.append((row.title, row.addon_id, row.type, row.catalog_id, poster_model))
         self._rows = built
         self.endResetModel()
 
@@ -51,10 +52,12 @@ class CatalogRowsModel(QAbstractListModel):
     ) -> Any:
         if not index.isValid():
             return None
-        title, type_, catalog_id, posters = self._rows[index.row()]
+        title, addon_id, type_, catalog_id, posters = self._rows[index.row()]
         match role:
             case CatalogRowsModel.TitleRole:
                 return title
+            case CatalogRowsModel.AddonIdRole:
+                return addon_id
             case CatalogRowsModel.TypeRole:
                 return type_
             case CatalogRowsModel.CatalogIdRole:
@@ -66,6 +69,7 @@ class CatalogRowsModel(QAbstractListModel):
     def roleNames(self) -> dict[int, QByteArray]:
         return {
             CatalogRowsModel.TitleRole: QByteArray(b"title"),
+            CatalogRowsModel.AddonIdRole: QByteArray(b"addonId"),
             CatalogRowsModel.TypeRole: QByteArray(b"type"),
             CatalogRowsModel.CatalogIdRole: QByteArray(b"catalogId"),
             CatalogRowsModel.PostersRole: QByteArray(b"posters"),
