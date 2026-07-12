@@ -98,6 +98,9 @@ class DetailController(QObject):
         try:
             self._meta = await self._get_detail(self._manifest, media_type, item_id)
             self.metaChanged.emit()
+            # clear the previous item's streams before resolving so a failed
+            # stream fetch never leaves stale sources under the new meta
+            self._stream_model.set_streams([])
             streams = await self._resolve_stream(self._manifest, media_type, item_id)
             self._stream_model.set_streams(streams)
         except GravitasError as exc:

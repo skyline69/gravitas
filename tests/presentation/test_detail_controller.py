@@ -88,3 +88,26 @@ async def test_load_error_emits(qapp: object) -> None:
     ctl.errorOccurred.connect(errors.append)
     await ctl.load("movie", "tt1")
     assert errors == ["boom"]
+
+
+class FailResolve:
+    async def __call__(self, *a, **k):
+        raise AddonUnreachable("no streams")
+
+
+async def test_stale_streams_cleared_when_resolve_fails(qapp: object) -> None:
+    # first item resolves streams; second item's meta loads but its stream
+    # fetch fails -> the previous item's streams must not linger
+    model = StreamListModel()
+    ctl = DetailController(FakeGetDetail(), FakeResolve(), model)  # type: ignore[arg-type]
+    ctl.bind_manifest(_manifest())
+    await ctl.load("movie", "tt1")
+    assert model.rowCount() == 1
+
+    ctl._resolve_stream = FailResolve()  # type: ignore[assignment]
+    errors: list[str] = []
+    ctl.errorOccurred.connect(errors.append)
+    await ctl.load("movie", "tt2")
+
+    assert errors == ["no streams"]
+    assert model.rowCount() == 0
