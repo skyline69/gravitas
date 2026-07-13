@@ -133,6 +133,11 @@ Item {
         Text {
             id: label
             width: 160
+            // Reserve a constant two-line height so a wrapping (2-line) title
+            // doesn't make the centred Column taller and shove the poster up.
+            // Short titles top-align in this fixed box.
+            height: 2 * (fontMetrics.height)
+            verticalAlignment: Text.AlignTop
             text: root.title
             // brighten dim -> full on hover (scales with the card as one unit)
             color: mouse.containsMouse ? Theme.text : Theme.textDim
@@ -141,6 +146,8 @@ Item {
             wrapMode: Text.WordWrap
             horizontalAlignment: Text.AlignHCenter
             Behavior on color { ColorAnimation { duration: Theme.durMed } }
+
+            FontMetrics { id: fontMetrics; font: label.font }
         }
     }
 }
