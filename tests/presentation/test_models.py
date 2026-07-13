@@ -1,4 +1,5 @@
-from gravitas.domain.models import MediaItem, Stream
+from gravitas.domain.models import AddonManifest, MediaItem, Stream
+from gravitas.presentation.models.addon_list_model import AddonListModel
 from gravitas.presentation.models.poster_grid_model import PosterGridModel
 from gravitas.presentation.models.stream_list_model import StreamListModel
 
@@ -39,3 +40,30 @@ def test_stream_model(qapp: object) -> None:
     index = model.index(0, 0)
     assert model.data(index, StreamListModel.NameRole) == "1080p"
     assert model.stream_at(0).url == "http://s/v.mkv"
+
+
+def _manifest(id_: str, name: str) -> AddonManifest:
+    return AddonManifest(
+        id=id_,
+        name=name,
+        version="1",
+        resources=("catalog",),
+        types=("movie",),
+        catalogs=(),
+        base_url="https://x/",
+    )
+
+
+def test_addon_list_model_exposes_rows_and_removable(qapp: object) -> None:
+    model = AddonListModel()
+    model.set_addons(
+        [_manifest("cinemeta", "Cinemeta"), _manifest("other", "Other")],
+        {"cinemeta"},
+    )
+    assert model.rowCount() == 2
+    i0 = model.index(0, 0)
+    assert model.data(i0, AddonListModel.NameRole) == "Cinemeta"
+    assert model.data(i0, AddonListModel.IdRole) == "cinemeta"
+    assert model.data(i0, AddonListModel.RemovableRole) is False
+    i1 = model.index(1, 0)
+    assert model.data(i1, AddonListModel.RemovableRole) is True
