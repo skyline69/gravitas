@@ -7,6 +7,21 @@ Item {
     signal openDetail(string type, string id)
     signal openResults()
 
+    // True while the input holds keyboard focus (drives the width + dropdown).
+    readonly property alias searchActive: field.activeFocus
+
+    // Drop keyboard focus. Moving active focus to the (non-text) root Item is
+    // what actually blurs a TextField — setting `field.focus = false` alone
+    // does not reliably release active focus.
+    function unfocus() { bar.forceActiveFocus() }
+
+    // Clear the query and blur. Defined on the root so `field` resolves — the
+    // dropdown delegate is in the Popup's own scope and can't see `field`.
+    function reset() {
+        field.text = ""
+        bar.unfocus()
+    }
+
     implicitHeight: 36
     // Animate wider on focus.
     width: field.activeFocus ? 360 : 240
@@ -106,8 +121,12 @@ Item {
                             width: 36
                             height: 52
                             fillMode: Image.PreserveAspectCrop
-                            source: resultRow.poster
+                            // Tiny thumbnail — request a small variant, not the
+                            // full poster.
+                            source: Img.sized(resultRow.poster, 90)
+                            sourceSize.width: 90
                             asynchronous: true
+                            cache: true
                         }
                         Column {
                             anchors.verticalCenter: parent.verticalCenter
@@ -131,8 +150,7 @@ Item {
                     TapHandler {
                         onTapped: {
                             bar.openDetail(resultRow.type, resultRow.mediaId)
-                            field.text = ""
-                            field.focus = false
+                            bar.reset()
                         }
                     }
                 }

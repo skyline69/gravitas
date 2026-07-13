@@ -97,7 +97,12 @@ Rectangle {
         }
     }
 
+    // Exposed so Main's click-catcher can query focus state and blur the input.
+    readonly property bool searchActive: searchBar.searchActive
+    function unfocusSearch() { searchBar.unfocus() }
+
     SearchBar {
+        id: searchBar
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.verticalCenter: parent.verticalCenter
         onOpenDetail: (type, id) => bar.openDetail(type, id)

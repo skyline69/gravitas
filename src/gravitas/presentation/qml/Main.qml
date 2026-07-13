@@ -48,6 +48,25 @@ ApplicationWindow {
         }
     }
 
+    // Blurs the searchbar when the user presses anywhere in the content area
+    // while it's focused. Sits above the page content (z) so its TapHandler
+    // gets the press even over Flickable grids that would swallow it, but only
+    // covers the region BELOW the bar (so the input itself stays interactive),
+    // and is enabled only while the search input is focused. A plain Item +
+    // passive TapHandler: doesn't consume clicks or affect cursor/hover.
+    Item {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.top: topBar.visible ? topBar.bottom : parent.top
+        z: 2
+        enabled: topBar.searchActive
+        TapHandler {
+            gesturePolicy: TapHandler.DragThreshold
+            onPressedChanged: if (pressed) topBar.unfocusSearch()
+        }
+    }
+
     StackView {
         id: stack
         // Fills the whole window; the floating bar overlays the top. Pages that
