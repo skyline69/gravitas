@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 import Qt5Compat.GraphicalEffects
 import "."
 
@@ -36,14 +37,21 @@ Rectangle {
         { label: "Trending", mode: "trending", icon: Icons.fire, color: "#F97316" }
     ]
 
-    Row {
-        id: tabsRow
+    // RowLayout (not anchor math + width Behavior) so the search field tracks
+    // the free gap instantly during live window resizes.
+    RowLayout {
         anchors.left: parent.left
+        anchors.right: parent.right
         anchors.leftMargin: 16
+        anchors.rightMargin: 16
         anchors.verticalCenter: parent.verticalCenter
-        spacing: 8
+        spacing: 16
 
-        Repeater {
+        Row {
+            id: tabsRow
+            spacing: 8
+
+            Repeater {
             model: bar.tabs
             delegate: Item {
                 required property var modelData
@@ -111,33 +119,27 @@ Rectangle {
         }
     }
 
+        // Soaks up the whole gap between the tabs and the gear; the layout
+        // resizes it immediately, so live window resizes track 1:1.
+        SearchBar {
+            id: searchBar
+            Layout.fillWidth: true
+            Layout.minimumWidth: 120
+            onOpenDetail: (type, id) => bar.openDetail(type, id)
+            onOpenResults: bar.openResults()
+        }
+
+        AppButton {
+            id: gearButton
+            ghost: true
+            iconGlyph: Icons.gear
+            tooltip: "Settings"
+            selected: bar.settingsActive
+            onClicked: bar.openSettings()
+        }
+    }
+
     // Exposed so Main's click-catcher can query focus state and blur the input.
     readonly property bool searchActive: searchBar.searchActive
     function unfocusSearch() { searchBar.unfocus() }
-
-    // Fills the whole gap between the tabs and the gear, so it uses the
-    // available width and shrinks on narrow windows without overlapping.
-    SearchBar {
-        id: searchBar
-        anchors.verticalCenter: parent.verticalCenter
-        readonly property real gapStart: tabsRow.x + tabsRow.width + 16
-        readonly property real gapEnd: gearButton.x - 16
-        x: gapStart
-        width: Math.max(120, gapEnd - gapStart)
-        Behavior on width { NumberAnimation { duration: Theme.durMed; easing.type: Easing.OutCubic } }
-        onOpenDetail: (type, id) => bar.openDetail(type, id)
-        onOpenResults: bar.openResults()
-    }
-
-    AppButton {
-        id: gearButton
-        ghost: true
-        iconGlyph: Icons.gear
-        tooltip: "Settings"
-        selected: bar.settingsActive
-        anchors.right: parent.right
-        anchors.rightMargin: 16
-        anchors.verticalCenter: parent.verticalCenter
-        onClicked: bar.openSettings()
-    }
 }
