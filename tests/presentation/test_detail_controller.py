@@ -1,4 +1,4 @@
-from gravitas.domain.errors import AddonUnreachable
+from gravitas.domain.errors import AddonUnreachable, NoStreams
 from gravitas.domain.models import MetaDetail, Stream
 from gravitas.presentation.controllers.detail_controller import DetailController
 from gravitas.presentation.models.stream_list_model import StreamListModel
@@ -41,6 +41,11 @@ class FailResolve:
         raise AddonUnreachable("no streams")
 
 
+class NoStreamsResolve:
+    async def __call__(self, *a, **k):
+        raise NoStreams("no direct-URL streams for tt1")
+
+
 async def test_load_populates_meta(qapp: object) -> None:
     model = StreamListModel()
     ctl = DetailController(FakeGetDetail(), FakeResolve(), model)  # type: ignore[arg-type]
@@ -71,6 +76,21 @@ async def test_load_error_emits(qapp: object) -> None:
     await ctl.load("movie", "tt1")
     assert errors == ["boom"]
     assert ctl.hasMeta is False
+
+
+async def test_no_streams_is_silent_empty_state(qapp: object) -> None:
+    # meta loads, but there are no direct streams -> Sources stays empty and
+    # NO error toast is emitted (this is a normal "nothing configured" state)
+    model = StreamListModel()
+    ctl = DetailController(FakeGetDetail(), NoStreamsResolve(), model)  # type: ignore[arg-type]
+    errors: list[str] = []
+    ctl.errorOccurred.connect(errors.append)
+
+    await ctl.load("movie", "tt1")
+
+    assert errors == []
+    assert ctl.hasMeta is True
+    assert model.rowCount() == 0
 
 
 async def test_stale_streams_cleared_when_resolve_fails(qapp: object) -> None:
