@@ -41,14 +41,6 @@ class UnreachableSource(FakeSource):
         raise AddonUnreachable("boom")
 
 
-class FakeDetailController:
-    def __init__(self) -> None:
-        self.bound: list[AddonManifest] = []
-
-    def bind_manifest(self, manifest: AddonManifest) -> None:
-        self.bound.append(manifest)
-
-
 class FakeCatalogController:
     def __init__(self) -> None:
         self.refresh_calls = 0
@@ -59,9 +51,8 @@ class FakeCatalogController:
 
 async def test_add_addon_success(qapp: object) -> None:
     repo = AddonRepository(FakeSource())
-    detail = FakeDetailController()
     catalog = FakeCatalogController()
-    controller = AddonController(InstallAddon(repo), detail, catalog)  # type: ignore[arg-type]
+    controller = AddonController(InstallAddon(repo), catalog)  # type: ignore[arg-type]
 
     installed: list[str] = []
     controller.addonInstalled.connect(installed.append)
@@ -69,16 +60,14 @@ async def test_add_addon_success(qapp: object) -> None:
     await controller.addAddon("https://a/manifest.json")
 
     assert repo.installed()[0].id == "fake"
-    assert detail.bound[0].id == "fake"
     assert catalog.refresh_calls == 1
     assert installed == ["Fake Addon"]
 
 
 async def test_add_addon_error_emits_signal(qapp: object) -> None:
     repo = AddonRepository(UnreachableSource())
-    detail = FakeDetailController()
     catalog = FakeCatalogController()
-    controller = AddonController(InstallAddon(repo), detail, catalog)  # type: ignore[arg-type]
+    controller = AddonController(InstallAddon(repo), catalog)  # type: ignore[arg-type]
 
     errors: list[str] = []
     controller.errorOccurred.connect(errors.append)
@@ -86,6 +75,5 @@ async def test_add_addon_error_emits_signal(qapp: object) -> None:
     await controller.addAddon("https://a/manifest.json")
 
     assert errors == ["boom"]
-    assert detail.bound == []
     assert catalog.refresh_calls == 0
     assert repo.installed() == []

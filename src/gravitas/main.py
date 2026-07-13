@@ -60,7 +60,7 @@ def build_app(
 
     catalog_controller = CatalogController(BrowseCatalog(repo), rows_model)
     detail_controller = DetailController(GetDetail(repo), ResolveStream(repo), stream_model)
-    addon_controller = AddonController(InstallAddon(repo), detail_controller, catalog_controller)
+    addon_controller = AddonController(InstallAddon(repo), catalog_controller)
 
     engine = QQmlApplicationEngine()
 

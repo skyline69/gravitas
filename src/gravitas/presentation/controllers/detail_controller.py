@@ -8,7 +8,7 @@ from qasync import asyncSlot  # type: ignore[import-untyped]
 from gravitas.application.get_detail import GetDetail
 from gravitas.application.resolve_stream import ResolveStream
 from gravitas.domain.errors import GravitasError
-from gravitas.domain.models import AddonManifest, MediaType, MetaDetail
+from gravitas.domain.models import MediaType, MetaDetail
 from gravitas.presentation.models.stream_list_model import StreamListModel
 
 
@@ -26,11 +26,7 @@ class DetailController(QObject):
         self._get_detail = get_detail
         self._resolve_stream = resolve_stream
         self._stream_model = stream_model
-        self._manifest: AddonManifest | None = None
         self._meta: MetaDetail | None = None
-
-    def bind_manifest(self, manifest: AddonManifest) -> None:
-        self._manifest = manifest
 
     @Property(bool, notify=metaChanged)
     def hasMeta(self) -> bool:
@@ -91,17 +87,14 @@ class DetailController(QObject):
 
     @asyncSlot(str, str)  # type: ignore[untyped-decorator]
     async def load(self, type: str, item_id: str) -> None:
-        if self._manifest is None:
-            self.errorOccurred.emit("no addon installed")
-            return
         media_type: MediaType = "series" if type == "series" else "movie"
         try:
-            self._meta = await self._get_detail(self._manifest, media_type, item_id)
+            self._meta = await self._get_detail(media_type, item_id)
             self.metaChanged.emit()
             # clear the previous item's streams before resolving so a failed
             # stream fetch never leaves stale sources under the new meta
             self._stream_model.set_streams([])
-            streams = await self._resolve_stream(self._manifest, media_type, item_id)
+            streams = await self._resolve_stream(media_type, item_id)
             self._stream_model.set_streams(streams)
         except GravitasError as exc:
             self.errorOccurred.emit(str(exc))

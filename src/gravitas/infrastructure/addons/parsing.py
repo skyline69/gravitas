@@ -45,6 +45,19 @@ def _require(data: dict[str, Any], key: str, ctx: str) -> Any:
     return data[key]
 
 
+def _resource_names(raw: Any) -> tuple[str, ...]:
+    # Stremio resources are either short strings ("stream") or full objects
+    # ({"name": "stream", "types": [...], "idPrefixes": [...]}); collect names.
+    names: list[str] = []
+    if isinstance(raw, list):
+        for r in raw:
+            if isinstance(r, str):
+                names.append(r)
+            elif isinstance(r, dict) and isinstance(r.get("name"), str):
+                names.append(r["name"])
+    return tuple(names)
+
+
 def _str_or_none(v: Any) -> str | None:
     if isinstance(v, (str, int, float)):
         s = str(v)
@@ -80,7 +93,7 @@ def parse_manifest(data: dict[str, Any], base_url: str) -> AddonManifest:
         id=str(manifest_id),
         name=str(name),
         version=str(data.get("version", "0.0.0")),
-        resources=tuple(str(r) for r in data.get("resources", [])),
+        resources=_resource_names(data.get("resources", [])),
         types=tuple(str(t) for t in data.get("types", [])),
         catalogs=tuple(catalogs),
         base_url=base_url if base_url.endswith("/") else base_url + "/",

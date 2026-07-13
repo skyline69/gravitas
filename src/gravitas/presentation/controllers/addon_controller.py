@@ -9,11 +9,6 @@ from qasync import asyncSlot  # type: ignore[import-untyped]
 
 from gravitas.application.install_addon import InstallAddon
 from gravitas.domain.errors import GravitasError
-from gravitas.domain.models import AddonManifest
-
-
-class _BindsManifest(Protocol):
-    def bind_manifest(self, manifest: AddonManifest) -> None: ...
 
 
 class _RefreshesCatalog(Protocol):
@@ -27,12 +22,10 @@ class AddonController(QObject):
     def __init__(
         self,
         install: InstallAddon,
-        detail_controller: _BindsManifest,
         catalog_controller: _RefreshesCatalog,
     ) -> None:
         super().__init__()
         self._install = install
-        self._detail_controller = detail_controller
         self._catalog_controller = catalog_controller
 
     @asyncSlot(str)  # type: ignore[untyped-decorator]
@@ -45,7 +38,6 @@ class AddonController(QObject):
         except GravitasError as exc:
             self.errorOccurred.emit(str(exc))
             return
-        self._detail_controller.bind_manifest(manifest)
         # Deterministic refresh: await load_catalog() directly (same path
         # bootstrap uses in main.py) rather than firing the asyncSlot
         # refresh() and letting it race with the rest of this coroutine.
