@@ -6,6 +6,7 @@ Item {
     id: root
     property string title
     property string posterUrl
+    property string mediaType: "" // "movie" | "series" — picks the filler icon
     signal clicked()
     width: 160
     height: 260
@@ -34,13 +35,28 @@ Item {
 
             // skeleton placeholder shown until the poster is ready: a surface
             // fill with an animated shimmer sweep while the image loads
+            // Filler for missing/broken posters: a surface panel with a media
+            // glyph (film for movies, tv for series).
+            Rectangle {
+                anchors.fill: parent
+                radius: 14
+                color: Theme.surface
+                visible: !root.posterUrl || img.status === Image.Error
+                AppIcon {
+                    anchors.centerIn: parent
+                    glyph: root.mediaType === "series" ? Icons.liveTv : Icons.theaters
+                    font.pixelSize: 44
+                    color: Theme.borderStrong
+                }
+            }
+
             Rectangle {
                 id: skeleton
                 anchors.fill: parent
                 radius: 14
                 color: Theme.surface
                 clip: true
-                visible: img.status !== Image.Ready
+                visible: img.status === Image.Loading
 
                 Rectangle {
                     id: shimmer

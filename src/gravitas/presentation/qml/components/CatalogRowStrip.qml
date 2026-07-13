@@ -62,6 +62,7 @@ Item {
             height: strip.height
             title: model.name
             posterUrl: model.poster ? model.poster : ""
+            mediaType: model.type
             onClicked: root.openDetail(model.type, model.id)
         }
 
