@@ -47,9 +47,7 @@ GLYPHS = [
     "forward_10",
 ]
 
-OUT = Path(__file__).parent.parent / (
-    "src/gravitas/presentation/qml/assets/MaterialSymbols.ttf"
-)
+OUT = Path(__file__).parent.parent / ("src/gravitas/presentation/qml/assets/MaterialSymbols.ttf")
 
 
 def main() -> int:
@@ -69,9 +67,7 @@ def main() -> int:
         font = TTFont(io.BytesIO(resp.read()))
 
     print("instancing FILL=1 wght=400 GRAD=0 opsz=24…")
-    instantiateVariableFont(
-        font, {"FILL": 1, "wght": 400, "GRAD": 0, "opsz": 24}, inplace=True
-    )
+    instantiateVariableFont(font, {"FILL": 1, "wght": 400, "GRAD": 0, "opsz": 24}, inplace=True)
 
     print("subsetting…")
     options = subset.Options()

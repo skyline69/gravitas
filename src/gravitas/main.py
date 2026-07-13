@@ -10,8 +10,7 @@ from pathlib import Path
 import httpx
 import qasync  # type: ignore[import-untyped]
 from PySide6.QtGui import QFont, QFontDatabase, QGuiApplication
-from PySide6.QtQml import QQmlApplicationEngine
-from PySide6.QtQuick import QQuickWindow
+from PySide6.QtQml import QQmlApplicationEngine, qmlRegisterType
 from PySide6.QtQuickControls2 import QQuickStyle
 
 from gravitas.application.addon_repository import AddonRepository
@@ -118,13 +117,15 @@ def build_app(
         repo.search_stream,
     )
 
+    # Must be registered before the engine parses any QML that mentions it.
+    from gravitas.presentation.video.mpv_item import MpvVideoItem
+
+    qmlRegisterType(MpvVideoItem, "Gravitas", 1, 0, "MpvVideo")  # type: ignore[call-overload]
+
     engine = QQmlApplicationEngine()
 
     def make_player() -> MediaPlayer:
-        root_objects = engine.rootObjects()
-        window = root_objects[0] if root_objects else None
-        window_id = int(window.winId()) if isinstance(window, QQuickWindow) else 0
-        return MpvPlayer(window_id=window_id)
+        return MpvPlayer()
 
     player_controller = PlayerController(make_player)
 

@@ -1,10 +1,10 @@
-"""QObject bridge exposing playback controls to QML."""
+"""QObject bridge exposing playback state and controls to QML."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QObject, Signal, Slot
+from PySide6.QtCore import Property, QObject, Signal, Slot
 
 from gravitas.domain.errors import PlaybackFailed
 from gravitas.domain.ports import MediaPlayer
@@ -13,6 +13,7 @@ from gravitas.domain.ports import MediaPlayer
 class PlayerController(QObject):
     errorOccurred = Signal(str)
     subtitleTracksChanged = Signal()
+    stateChanged = Signal()
 
     def __init__(self, player_factory: Callable[[], MediaPlayer]) -> None:
         super().__init__()
@@ -27,12 +28,52 @@ class PlayerController(QObject):
                 self.errorOccurred.emit(str(exc))
                 return None
             self._player.set_tracks_changed_callback(self._on_tracks_changed)
+            self._player.set_state_changed_callback(self._on_state_changed)
         return self._player
 
     def _on_tracks_changed(self) -> None:
         # May be invoked from mpv's own thread; Signal.emit() is safe to call
         # from any thread and is delivered to QML via a queued connection.
         self.subtitleTracksChanged.emit()
+
+    def _on_state_changed(self) -> None:
+        self.stateChanged.emit()
+
+    # --- playback state (notify: stateChanged) ---
+
+    @Property(bool, notify=stateChanged)
+    def paused(self) -> bool:
+        return self._player.is_paused() if self._player is not None else False
+
+    @Property(float, notify=stateChanged)
+    def duration(self) -> float:
+        return self._player.duration() if self._player is not None else 0.0
+
+    @Property(float, notify=stateChanged)
+    def volume(self) -> float:
+        return self._player.volume() if self._player is not None else 100.0
+
+    @Property(bool, notify=stateChanged)
+    def muted(self) -> bool:
+        return self._player.is_muted() if self._player is not None else False
+
+    @Slot(result=float)
+    def position(self) -> float:
+        """Polled by a QML Timer while the player page is open — cheaper than
+        observing time-pos, which fires many times a second."""
+        return self._player.position() if self._player is not None else 0.0
+
+    # --- renderer bridge ---
+
+    @Slot(QObject)
+    def attachVideo(self, item: QObject) -> None:
+        """Hand the opaque mpv handle to the in-scene video item."""
+        player = self._ensure()
+        if player is None:
+            return
+        item.setProperty("handle", player.render_handle())
+
+    # --- controls ---
 
     @Slot(str)
     def play(self, url: str) -> None:
@@ -43,18 +84,32 @@ class PlayerController(QObject):
             player.play(url)
         except PlaybackFailed as exc:
             self.errorOccurred.emit(str(exc))
+        self.stateChanged.emit()
+
+    @Slot()
+    def stop(self) -> None:
+        if self._player is not None:
+            self._player.stop()
 
     @Slot()
     def pause(self) -> None:
-        if self._player is None:
-            return
-        self._player.pause()
+        if self._player is not None:
+            self._player.pause()
 
     @Slot()
     def resume(self) -> None:
+        if self._player is not None:
+            self._player.resume()
+
+    @Slot()
+    def togglePause(self) -> None:
         if self._player is None:
             return
-        self._player.resume()
+        if self._player.is_paused():
+            self._player.resume()
+        else:
+            self._player.pause()
+        self.stateChanged.emit()
 
     @Slot(float)
     def seek(self, seconds: float) -> None:
@@ -62,14 +117,52 @@ class PlayerController(QObject):
             return
         self._player.seek(seconds)
 
+    @Slot(float)
+    def seekBy(self, delta: float) -> None:
+        if self._player is None:
+            return
+        target = max(0.0, self._player.position() + delta)
+        duration = self._player.duration()
+        if duration > 0:
+            target = min(target, duration)
+        self._player.seek(target)
+
+    @Slot(float)
+    def setVolume(self, volume: float) -> None:
+        if self._player is None:
+            return
+        self._player.set_volume(volume)
+        self.stateChanged.emit()
+
+    @Slot()
+    def toggleMute(self) -> None:
+        if self._player is None:
+            return
+        self._player.set_muted(not self._player.is_muted())
+        self.stateChanged.emit()
+
+    # --- tracks ---
+
     @Slot(int)
     def selectSubtitle(self, track_id: int) -> None:
         if self._player is None:
             return
         self._player.set_subtitle_track(None if track_id < 0 else track_id)
 
+    @Slot(int)
+    def selectAudio(self, track_id: int) -> None:
+        if self._player is None:
+            return
+        self._player.set_audio_track(None if track_id < 0 else track_id)
+
     @Slot(result="QVariantList")
     def subtitleTracks(self) -> list[dict[str, object]]:
         if self._player is None:
             return []
         return [{"id": tid, "title": title} for tid, title in self._player.subtitle_tracks()]
+
+    @Slot(result="QVariantList")
+    def audioTracks(self) -> list[dict[str, object]]:
+        if self._player is None:
+            return []
+        return [{"id": tid, "title": title} for tid, title in self._player.audio_tracks()]

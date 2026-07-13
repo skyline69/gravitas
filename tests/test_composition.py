@@ -96,10 +96,13 @@ def test_player_qml_loads(qapp: object) -> None:
     from pathlib import Path
 
     from PySide6.QtCore import QObject
-    from PySide6.QtQml import QQmlComponent, QQmlEngine
+    from PySide6.QtQml import QQmlComponent, QQmlEngine, qmlRegisterType
 
     import gravitas.main as gmain
+    from gravitas.presentation.video.mpv_item import MpvVideoItem
 
+    # Registration is idempotent per process; needed when this test runs alone.
+    qmlRegisterType(MpvVideoItem, "Gravitas", 1, 0, "MpvVideo")  # type: ignore[call-overload]
     engine = QQmlEngine()
     engine.rootContext().setContextProperty("playerController", QObject())
     qml = Path(gmain.__file__).parent / "presentation" / "qml" / "Player.qml"
