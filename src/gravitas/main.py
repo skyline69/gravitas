@@ -37,6 +37,7 @@ from gravitas.presentation.controllers.settings_controller import SettingsContro
 from gravitas.presentation.models.addon_list_model import AddonListModel
 from gravitas.presentation.models.catalog_rows_model import CatalogRowsModel
 from gravitas.presentation.models.poster_grid_model import PosterGridModel
+from gravitas.presentation.models.poster_grid_proxy import PosterGridProxy
 from gravitas.presentation.models.search_results_model import SearchResultsModel
 from gravitas.presentation.models.stream_list_model import StreamListModel
 
@@ -77,6 +78,7 @@ def build_app(
     stream_model = StreamListModel()
 
     discover_model = PosterGridModel()
+    discover_proxy = PosterGridProxy(discover_model)
     discover_controller = DiscoverController(BrowseBoard(repo), repo, discover_model)
 
     catalog_controller = CatalogController(BrowseCatalog(repo), rows_model)
@@ -119,6 +121,7 @@ def build_app(
     ctx.setContextProperty("streamModel", stream_model)
     ctx.setContextProperty("discoverController", discover_controller)
     ctx.setContextProperty("discoverModel", discover_model)
+    ctx.setContextProperty("discoverProxy", discover_proxy)
     ctx.setContextProperty("settingsController", settings_controller)
     ctx.setContextProperty("addonListModel", addon_list_model)
     ctx.setContextProperty("searchController", search_controller)
@@ -153,6 +156,7 @@ def build_app(
         search_controller,
         rows_model,
         discover_model,
+        discover_proxy,
         stream_model,
         addon_list_model,
         search_results_model,

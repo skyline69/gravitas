@@ -41,7 +41,7 @@ async def test_open_loads_first_page_and_options(qapp: object) -> None:
     assert model.rowCount() == 100
     assert list(ctl.typeOptions) == ["movie", "series"]
     assert list(ctl.catalogOptions) == ["Top"]
-    assert list(ctl.genreOptions) == ["All", "Action"]
+    assert list(ctl.genreOptions) == ["All genres", "Action"]
     assert browse.calls[-1] == ("a", "movie", "top", None, 0)
 
 

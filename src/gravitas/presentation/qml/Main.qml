@@ -6,6 +6,10 @@ ApplicationWindow {
     id: window
     visible: true
     width: 1280; height: 800
+    // Below this the Discover filter bar's controls can't fit even at their
+    // minimum widths.
+    minimumWidth: 720
+    minimumHeight: 480
     title: "Gravitas"
     color: Theme.bg
 

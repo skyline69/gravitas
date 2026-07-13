@@ -30,6 +30,7 @@ def test_build_app_registers_context_properties(qapp: object) -> None:
         assert ctx.contextProperty("streamModel") is not None
         assert ctx.contextProperty("discoverController") is not None
         assert ctx.contextProperty("discoverModel") is not None
+        assert ctx.contextProperty("discoverProxy") is not None
     finally:
         pending = asyncio.all_tasks(loop)
         for task in pending:
@@ -65,6 +66,7 @@ def test_discover_qml_loads(qapp: object) -> None:
     stub = _StubModel()
     engine.rootContext().setContextProperty("discoverController", stub)
     engine.rootContext().setContextProperty("discoverModel", stub)
+    engine.rootContext().setContextProperty("discoverProxy", stub)
     qml = Path(gmain.__file__).parent / "presentation" / "qml" / "Discover.qml"
     component = QQmlComponent(engine, str(qml))
     obj = component.create()

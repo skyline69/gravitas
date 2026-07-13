@@ -7,6 +7,27 @@ ComboBox {
     implicitHeight: Theme.controlHeight
     font.pixelSize: Theme.fontBody
 
+    // Size the closed field (and the popup) to the longest entry, capped at
+    // sizeCap — past the cap the text elides instead of growing the control.
+    property real sizeCap: 320
+    property real contentNeed: 90
+    TextMetrics { id: itemMetrics; font: control.font }
+    // Imperative (not a binding): a binding that writes itemMetrics.text and
+    // reads advanceWidth depends on its own side effect and loops.
+    function _measure() {
+        var longest = 0
+        for (var i = 0; i < control.count; i++) {
+            itemMetrics.text = control.textAt(i)
+            longest = Math.max(longest, itemMetrics.advanceWidth)
+        }
+        // left text padding + glyph slack + caret indicator + its margin
+        contentNeed = longest + Theme.spacing * 3 + Theme.fontBody + Theme.spacing * 2
+    }
+    onModelChanged: _measure()
+    onCountChanged: _measure()
+    Component.onCompleted: _measure()
+    implicitWidth: Math.min(sizeCap, Math.max(90, contentNeed))
+
     // Don't retain the keyboard-focus ring after a mouse click; Tab only.
     focusPolicy: Qt.TabFocus
 
@@ -60,7 +81,9 @@ ComboBox {
 
     popup: Popup {
         y: control.height + 4
-        width: control.width
+        // At least as wide as the field; grows to show full entries even when
+        // an explicit narrow width was forced on the control, up to sizeCap.
+        width: Math.max(control.width, Math.min(control.contentNeed, control.sizeCap))
         implicitHeight: Math.min(contentItem.implicitHeight, 280)
         padding: 1
 

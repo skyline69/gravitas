@@ -43,8 +43,8 @@ class DiscoverController(QObject):
     def _genre_options(self) -> list[str]:
         cats = self._catalogs_for_type()
         if not cats or self._catalog_idx >= len(cats):
-            return ["All"]
-        return ["All", *cats[self._catalog_idx].genres]
+            return ["All genres"]
+        return ["All genres", *cats[self._catalog_idx].genres]
 
     @Property("QVariantList", notify=optionsChanged)  # type: ignore[arg-type]
     def typeOptions(self) -> list[str]:
