@@ -18,7 +18,7 @@ Item {
         anchors.bottomMargin: 24
         spacing: 12
         AppButton { iconGlyph: Icons.pause; tooltip: "Pause"; onClicked: playerController.pause() }
-        AppButton { iconGlyph: Icons.play; tooltip: "Play"; onClicked: playerController.resume() }
+        AppButton { iconGlyph: Icons.play; tooltip: "Play"; tone: "positive"; onClicked: playerController.resume() }
         AppComboBox {
             id: subs
             textRole: "title"

@@ -47,6 +47,7 @@ Item {
             AppButton {
                 id: addButton
                 text: "Add"
+                tone: "positive"
                 onClicked: {
                     addonController.addAddon(urlField.text)
                     urlField.text = ""
@@ -82,6 +83,7 @@ Item {
                     ghost: true
                     iconGlyph: Icons.trash
                     tooltip: "Remove addon"
+                    tone: "negative"
                     visible: parent.removable
                     anchors.right: parent.right
                     anchors.rightMargin: 8

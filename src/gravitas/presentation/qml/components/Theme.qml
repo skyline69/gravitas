@@ -14,6 +14,9 @@ QtObject {
     readonly property color text: "#f0f0f0"
     readonly property color textDim: "#9aa0a6"
     readonly property color danger: "#902020"
+    // Semantic action tones (for buttons etc.)
+    readonly property color positive: "#22C55E"
+    readonly property color negative: "#EF4444"
     // metrics
     readonly property int radius: 8
     readonly property int radiusSmall: 6

@@ -8,6 +8,13 @@ Button {
     property string iconGlyph: ""
     // Optional hover tooltip (mainly for icon-only buttons). Empty = none.
     property string tooltip: ""
+    // Semantic tone: "neutral" | "positive" | "negative" | "accent". Tints the
+    // label/icon and the hover/press wash.
+    property string tone: "neutral"
+    readonly property color toneColor: tone === "positive" ? Theme.positive
+        : tone === "negative" ? Theme.negative
+        : tone === "accent" ? Theme.accent
+        : Theme.text
 
     // A mouse click should not leave the keyboard-focus ring behind; only
     // Tab navigation shows it. StrongFocus (the default) grabs focus on click.
@@ -38,11 +45,19 @@ Button {
 
     background: Rectangle {
         radius: Theme.radius
-        color: control.ghost
-            ? (control.pressed ? Theme.surfacePress : control.hovered ? Theme.surfaceHover : "transparent")
-            : (control.pressed ? Theme.surfacePress : control.hovered ? Theme.surfaceHover : Theme.surface)
-        // Borderless soft chip, matching the nav tabs: no resting outline,
-        // just a hover/press wash. Accent ring appears only on keyboard focus.
+        // Borderless soft chip, matching the nav tabs: no resting outline, just
+        // a hover/press wash. Toned buttons wash in their own colour.
+        readonly property color hoverWash: control.tone === "neutral"
+            ? Theme.surfaceHover
+            : Qt.rgba(control.toneColor.r, control.toneColor.g, control.toneColor.b, 0.16)
+        readonly property color pressWash: control.tone === "neutral"
+            ? Theme.surfacePress
+            : Qt.rgba(control.toneColor.r, control.toneColor.g, control.toneColor.b, 0.26)
+        color: control.pressed
+            ? pressWash
+            : control.hovered
+                ? hoverWash
+                : (control.ghost ? "transparent" : Theme.surface)
         border.width: control.activeFocus ? 2 : 0
         border.color: Theme.accent
         Behavior on color { ColorAnimation { duration: Theme.durFast } }
@@ -66,7 +81,8 @@ Button {
                 anchors.verticalCenter: parent.verticalCenter
                 visible: control.iconGlyph.length > 0
                 glyph: control.iconGlyph
-                color: Theme.text
+                color: control.toneColor
+                Behavior on color { ColorAnimation { duration: Theme.durFast } }
                 font.pixelSize: Theme.fontBody
                 // Extra glyph-shrink press feedback ONLY for icon-only buttons;
                 // labeled buttons already scale uniformly, so shrinking just the
@@ -78,7 +94,8 @@ Button {
                 anchors.verticalCenter: parent.verticalCenter
                 visible: control.text.length > 0
                 text: control.text
-                color: Theme.text
+                color: control.toneColor
+                Behavior on color { ColorAnimation { duration: Theme.durFast } }
                 font.pixelSize: Theme.fontBody
                 verticalAlignment: Text.AlignVCenter
                 elide: Text.ElideRight
