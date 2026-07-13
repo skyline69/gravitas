@@ -5,7 +5,8 @@ from gravitas.application.browse_catalog import BrowseCatalog, CatalogRow
 from gravitas.application.get_detail import GetDetail
 from gravitas.application.install_addon import InstallAddon
 from gravitas.application.resolve_stream import ResolveStream
-from gravitas.domain.errors import NoStreams
+from gravitas.application.uninstall_addon import UninstallAddon
+from gravitas.domain.errors import AddonRemovalError, NoStreams
 from gravitas.domain.models import (
     AddonManifest,
     CatalogRef,
@@ -93,3 +94,20 @@ async def test_resolve_stream_raises_when_no_direct() -> None:
     await repo.install("https://a/")
     with pytest.raises(NoStreams):
         await ResolveStream(repo)("movie", "tt1")
+
+
+async def test_uninstall_addon_removes() -> None:
+    from .test_addon_repository import FakeSource
+
+    repo = AddonRepository(FakeSource())
+    manifest = await repo.install("https://a/")
+    await UninstallAddon(repo)(manifest.id)
+    assert repo.installed() == []
+
+
+async def test_uninstall_addon_propagates_error() -> None:
+    from .test_addon_repository import FakeSource
+
+    repo = AddonRepository(FakeSource())
+    with pytest.raises(AddonRemovalError):
+        await UninstallAddon(repo)("nope")
