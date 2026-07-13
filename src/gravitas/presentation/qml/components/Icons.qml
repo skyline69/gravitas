@@ -2,17 +2,18 @@ pragma Singleton
 import QtQuick
 
 QtObject {
-    property FontLoader loader: FontLoader { source: "../assets/Phosphor.ttf" }
+    property FontLoader loader: FontLoader { source: "../assets/MaterialSymbols.ttf" }
     readonly property string family: loader.name
 
-    // Phosphor (regular) glyph codepoints, kept as ASCII escapes so the
-    // source stays readable/diffable (no raw private-use glyphs in the file).
-    readonly property string caretDown: String.fromCharCode(0xe136)
-    readonly property string arrowLeft: String.fromCharCode(0xe058)
-    readonly property string play: String.fromCharCode(0xe3d0)
-    readonly property string pause: String.fromCharCode(0xe39e)
-    readonly property string search: String.fromCharCode(0xe30c)
-    readonly property string x: String.fromCharCode(0xe4f6)
-    readonly property string gear: String.fromCharCode(0xe270)
-    readonly property string trash: String.fromCharCode(0xe4a6)
+    // Material Symbols Rounded (filled) glyph codepoints, kept as ASCII escapes
+    // so the source stays readable/diffable (no raw private-use glyphs in the
+    // file). The bundled font is a static FILL=1 instance subset to just these.
+    readonly property string caretDown: String.fromCharCode(0xe313) // keyboard_arrow_down
+    readonly property string arrowLeft: String.fromCharCode(0xe5c4) // arrow_back
+    readonly property string play: String.fromCharCode(0xe037) // play_arrow
+    readonly property string pause: String.fromCharCode(0xe034) // pause
+    readonly property string search: String.fromCharCode(0xe8b6) // search
+    readonly property string x: String.fromCharCode(0xe14c) // close
+    readonly property string gear: String.fromCharCode(0xe8b8) // settings
+    readonly property string trash: String.fromCharCode(0xe872) // delete
 }

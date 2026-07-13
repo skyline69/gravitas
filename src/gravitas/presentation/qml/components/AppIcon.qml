@@ -10,5 +10,8 @@ Text {
     color: Theme.textDim
     verticalAlignment: Text.AlignVCenter
     horizontalAlignment: Text.AlignHCenter
-    renderType: Text.NativeRendering
+    // QtRendering (distance-field) stays crisp under scale transforms and
+    // animation; NativeRendering blurs badly when the glyph is scaled (e.g.
+    // the button press-shrink).
+    renderType: Text.QtRendering
 }

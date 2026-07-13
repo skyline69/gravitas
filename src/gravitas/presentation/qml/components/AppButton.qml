@@ -45,6 +45,10 @@ Button {
                 glyph: control.iconGlyph
                 color: Theme.text
                 font.pixelSize: Theme.fontBody
+                // Pronounced press feedback on the glyph itself (on top of the
+                // button's own scale), so icon-only buttons read as "pressed".
+                scale: control.pressed ? 0.9 : 1.0
+                Behavior on scale { NumberAnimation { duration: Theme.durFast; easing.type: Easing.OutCubic } }
             }
             Text {
                 anchors.verticalCenter: parent.verticalCenter
