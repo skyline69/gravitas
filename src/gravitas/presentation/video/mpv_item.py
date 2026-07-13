@@ -60,9 +60,9 @@ class MpvVideoItem(QQuickFramebufferObject):
     def __init__(self, parent: QQuickItem | None = None) -> None:
         super().__init__(parent)
         self._handle: Any = None
-        # mpv renders bottom-up; mirror instead of flipping inside mpv so the
-        # FBO contents and Qt's sampling agree.
-        self.setMirrorVertically(True)
+        # GL FBO origin (bottom-left) already matches mpv's output here —
+        # adding mirrorVertically or flip_y on top shows the video upside
+        # down. If a platform ever disagrees, toggle exactly ONE of the two.
 
     def _get_handle(self) -> Any:
         return self._handle
