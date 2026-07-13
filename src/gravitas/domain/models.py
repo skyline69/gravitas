@@ -14,6 +14,16 @@ class MediaItem:
     type: MediaType
     name: str
     poster: str | None
+    year: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedMedia:
+    imdb_id: str
+    type: MediaType
+    name: str
+    poster: str | None
+    year: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +72,7 @@ class CatalogRef:
     name: str
     genres: tuple[str, ...] = ()
     supports_skip: bool = False
+    supports_search: bool = False
 
 
 @dataclass(frozen=True, slots=True)

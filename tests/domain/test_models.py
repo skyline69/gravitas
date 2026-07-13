@@ -101,3 +101,21 @@ def test_meta_detail_enriched_values() -> None:
     assert meta.year == "2026"
     assert meta.genres == ("Animation", "Comedy")
     assert meta.directors == ("Dir",)
+
+
+def test_media_item_year_defaults_none() -> None:
+    item = MediaItem(id="tt1", type="movie", name="A", poster=None)
+    assert item.year is None
+    assert MediaItem(id="tt1", type="movie", name="A", poster=None, year="1999").year == "1999"
+
+
+def test_catalog_ref_supports_search_defaults_false() -> None:
+    assert CatalogRef(type="movie", id="top", name="Top").supports_search is False
+    assert CatalogRef(type="movie", id="s", name="S", supports_search=True).supports_search is True
+
+
+def test_resolved_media_constructs() -> None:
+    from gravitas.domain.models import ResolvedMedia
+
+    r = ResolvedMedia(imdb_id="tt5", type="series", name="X", poster=None, year="2020")
+    assert r.imdb_id == "tt5" and r.type == "series"

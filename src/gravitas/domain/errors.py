@@ -27,3 +27,7 @@ class AddonRemovalError(GravitasError):
 
 class PlaybackFailed(GravitasError):
     """The media player failed to start or continue playback."""
+
+
+class TmdbUnavailable(GravitasError):
+    """TMDB could not resolve an external id (no API key, or the lookup failed)."""

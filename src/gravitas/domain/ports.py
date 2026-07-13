@@ -11,6 +11,7 @@ from gravitas.domain.models import (
     MediaItem,
     MediaType,
     MetaDetail,
+    ResolvedMedia,
     Stream,
 )
 
@@ -49,3 +50,8 @@ class DebridResolver(Protocol):
     """Later milestone: resolve an infoHash stream to a direct URL. Unused in MVP."""
 
     async def resolve(self, stream: Stream) -> str: ...
+
+
+@runtime_checkable
+class ExternalIdResolver(Protocol):
+    async def resolve(self, source: str, external_id: str) -> ResolvedMedia: ...
