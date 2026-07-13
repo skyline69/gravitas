@@ -91,7 +91,12 @@ Item {
         delegate: StreamRow {
             width: list.width
             name: model.name
-            subtitle: model.title
+            subtitle: model.subtitle
+            resolution: model.resolution
+            instant: model.instant
+            tags: model.tags
+            stars: model.stars
+            detail: model.detail
             onClicked: if (model.url) sources.playUrl(model.url)
         }
         // Rows pop in as the resolve finishes.

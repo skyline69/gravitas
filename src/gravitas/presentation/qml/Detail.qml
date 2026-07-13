@@ -293,7 +293,12 @@ Item {
                     StreamRow {
                         width: content.width
                         name: model.name
-                        subtitle: model.title
+                        subtitle: model.subtitle
+                        resolution: model.resolution
+                        instant: model.instant
+                        tags: model.tags
+                        stars: model.stars
+                        detail: model.detail
                         onClicked: if (model.url) detail.playUrl(model.url)
                     }
                 }

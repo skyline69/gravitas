@@ -31,6 +31,51 @@ def test_poster_model_append_items(qapp: object) -> None:
     assert model.rowCount() == 2
 
 
+def test_stream_display_parses_structured_tokens(qapp: object) -> None:
+    from gravitas.presentation.models.stream_list_model import parse_stream_display
+
+    display = parse_stream_display("4K ⚡ ⟨Web-dl⟩ ★★ MediaFusion", "4K ⚡ ⟨Web-dl⟩ ★★ MediaFusion")
+    assert display.resolution == "4K"
+    assert display.instant is True
+    assert display.tags == ["Web-dl"]
+    assert display.stars == 2
+    assert display.detail == "MediaFusion"
+    assert display.subtitle == ""  # identical title adds nothing
+
+    display = parse_stream_display("Torrentio 1080p", "Movie.2026.WEB · 👤 92 · 2.1 GB")
+    assert display.resolution == "1080P"
+    assert display.instant is False
+    assert display.tags == []
+    assert display.subtitle == "Movie.2026.WEB · 👤 92 · 2.1 GB"
+
+    plain = parse_stream_display("My Addon", "")
+    assert plain.resolution == ""
+    assert plain.detail == "My Addon"
+
+
+def test_stream_model_display_roles(qapp: object) -> None:
+    model = StreamListModel()
+    model.set_streams(
+        [
+            Stream(
+                name="4K ⚡ ⟨Bluray⟩ ★",
+                title="4K ⚡ ⟨Bluray⟩ ★",
+                url="http://s/v.mkv",
+                info_hash=None,
+                file_idx=None,
+            )
+        ]
+    )
+    index = model.index(0, 0)
+    assert model.data(index, StreamListModel.ResolutionRole) == "4K"
+    assert model.data(index, StreamListModel.InstantRole) is True
+    assert model.data(index, StreamListModel.TagsRole) == ["Bluray"]
+    assert model.data(index, StreamListModel.StarsRole) == 1
+    assert model.data(index, StreamListModel.SubtitleRole) == ""
+    names = {bytes(v).decode() for v in model.roleNames().values()}
+    assert {"resolution", "instant", "tags", "stars", "detail", "subtitle"} <= names
+
+
 def test_stream_model(qapp: object) -> None:
     model = StreamListModel()
     model.set_streams(
