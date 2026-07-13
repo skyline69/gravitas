@@ -65,6 +65,7 @@ Item {
         contentHeight: content.implicitHeight + 48
         clip: true
         boundsBehavior: Flickable.StopAtBounds
+        ScrollBar.vertical: AppScrollBar {}
 
         Column {
             id: content
