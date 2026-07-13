@@ -23,7 +23,10 @@ ApplicationWindow {
             while (stack.depth > 1) stack.pop()
             catalogController.setFilter(mode)
         }
-        onOpenSettings: stack.push(settingsPage)
+        onOpenSettings: {
+            if (stack.currentItem.objectName !== "settingsPage")
+                stack.push(settingsPage)
+        }
     }
 
     StackView {

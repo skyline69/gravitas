@@ -101,12 +101,17 @@ Item {
                 font.pixelSize: Theme.fontBody
             }
             Text {
+                text: "Version 0.1.0"
+                color: Theme.textDim
+                font.pixelSize: Theme.fontSmall
+            }
+            Text {
                 text: "A memory-efficient, Linux-first media center."
                 color: Theme.textDim
                 font.pixelSize: Theme.fontSmall
             }
             Text {
-                text: "github.com/…/gravitas"
+                text: "github.com/skyline69/gravitas"
                 color: Theme.textDim
                 font.pixelSize: Theme.fontSmall
             }
