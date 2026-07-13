@@ -6,6 +6,8 @@ Button {
     id: control
     property bool ghost: false
     property string iconGlyph: ""
+    // Icon glyph size — glyphs are font outlines, so any size stays crisp.
+    property real iconSize: Theme.fontBody
     // Optional hover tooltip (mainly for icon-only buttons). Empty = none.
     property string tooltip: ""
     // Semantic tone: "neutral" | "positive" | "negative" | "accent". Tints the
@@ -91,7 +93,7 @@ Button {
                 glyph: control.iconGlyph
                 color: control.selected ? control.selectedColor : control.toneColor
                 Behavior on color { ColorAnimation { duration: Theme.durFast } }
-                font.pixelSize: Theme.fontBody
+                font.pixelSize: control.iconSize
                 // Extra glyph-shrink press feedback ONLY for icon-only buttons;
                 // labeled buttons already scale uniformly, so shrinking just the
                 // icon there would desync it from the label.

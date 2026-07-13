@@ -189,18 +189,21 @@ Item {
 
                     AppButton {
                         ghost: true
+                        iconSize: 24
                         iconGlyph: playerController && playerController.paused ? Icons.play : Icons.pause
                         tooltip: playerController && playerController.paused ? "Play" : "Pause"
                         onClicked: playerController.togglePause()
                     }
                     AppButton {
                         ghost: true
+                        iconSize: 24
                         iconGlyph: Icons.replay10
                         tooltip: "Back 10s"
                         onClicked: playerController.seekBy(-10)
                     }
                     AppButton {
                         ghost: true
+                        iconSize: 24
                         iconGlyph: Icons.forward10
                         tooltip: "Forward 10s"
                         onClicked: playerController.seekBy(10)
@@ -222,6 +225,7 @@ Item {
                     AppButton {
                         id: audioBtn
                         ghost: true
+                        iconSize: 24
                         iconGlyph: Icons.audio
                         tooltip: "Audio track"
                         onClicked: {
@@ -241,6 +245,7 @@ Item {
                     AppButton {
                         id: subsBtn
                         ghost: true
+                        iconSize: 24
                         iconGlyph: Icons.subtitles
                         tooltip: "Subtitles"
                         onClicked: {
@@ -259,6 +264,7 @@ Item {
                     }
                     AppButton {
                         ghost: true
+                        iconSize: 24
                         iconGlyph: (playerController && (playerController.muted || playerController.volume === 0))
                             ? Icons.volumeOff : Icons.volumeUp
                         tooltip: "Mute"
@@ -282,6 +288,7 @@ Item {
                     }
                     AppButton {
                         ghost: true
+                        iconSize: 24
                         iconGlyph: player.isFullscreen ? Icons.fullscreenExit : Icons.fullscreen
                         tooltip: "Fullscreen"
                         onClicked: player.toggleFullscreen()
