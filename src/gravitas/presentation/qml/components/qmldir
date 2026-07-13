@@ -1,5 +1,6 @@
 singleton Theme 1.0 Theme.qml
 singleton Icons 1.0 Icons.qml
+singleton Img 1.0 Img.qml
 AppIcon 1.0 AppIcon.qml
 PosterCard 1.0 PosterCard.qml
 CatalogRowStrip 1.0 CatalogRowStrip.qml

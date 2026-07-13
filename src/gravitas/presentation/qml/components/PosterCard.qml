@@ -72,9 +72,12 @@ Item {
             Image {
                 id: img
                 anchors.fill: parent
-                source: root.posterUrl ? root.posterUrl : ""
+                // Request/decode a poster sized for this card, not full-res art.
+                source: Img.sized(root.posterUrl, 220)
+                sourceSize.width: 220
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
+                cache: true
                 visible: false
             }
             Rectangle {
