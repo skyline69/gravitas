@@ -62,17 +62,43 @@ async def test_install_addon() -> None:
 
 
 async def test_browse_catalog_builds_rows() -> None:
+    # Row titles carry the media type: addons reuse one catalog name across
+    # types (Cinemeta's "Popular" exists for movie AND series), which showed
+    # as indistinguishable duplicate rows on Home.
     repo = await _repo()
     rows = await BrowseCatalog(repo)()
     assert rows == [
         CatalogRow(
-            title="Top",
+            title="Top Movies",
             addon_id="fake",
             type="movie",
             catalog_id="top",
             items=[MediaItem(id="tt1", type="movie", name="A", poster=None)],
         )
     ]
+
+
+async def test_browse_catalog_keeps_title_with_type_word() -> None:
+    class TypedNameSource(FakeSource):
+        async def fetch_manifest(self, url: str) -> AddonManifest:
+            manifest = await super().fetch_manifest(url)
+            return AddonManifest(
+                id=manifest.id,
+                name=manifest.name,
+                version=manifest.version,
+                resources=manifest.resources,
+                types=("movie", "series"),
+                catalogs=(
+                    CatalogRef(type="movie", id="top", name="Best Movies"),
+                    CatalogRef(type="series", id="top", name="Top"),
+                ),
+                base_url=manifest.base_url,
+            )
+
+    repo = AddonRepository(TypedNameSource())
+    await repo.install("https://a/")
+    rows = await BrowseCatalog(repo)()
+    assert [r.title for r in rows] == ["Best Movies", "Top Series"]
 
 
 async def test_get_detail() -> None:
