@@ -45,10 +45,25 @@ Rectangle {
                     font.pixelSize: Theme.fontTitle
                     color: bar.activeMode === modelData.mode ? Theme.accent : Theme.text
                 }
-                HoverHandler { id: tabHover; cursorShape: Qt.PointingHandCursor }
-                ToolTip.text: modelData.label
-                ToolTip.visible: tabHover.hovered
-                ToolTip.delay: 400
+                HoverHandler {
+                    id: tabHover
+                    cursorShape: Qt.PointingHandCursor
+                    onHoveredChanged: {
+                        if (tabHover.hovered)
+                            tipTimer.restart()
+                        else {
+                            tipTimer.stop()
+                            tip.close()
+                        }
+                    }
+                }
+                Timer { id: tipTimer; interval: 400; onTriggered: tip.open() }
+                AppToolTip {
+                    id: tip
+                    text: modelData.label
+                    x: (parent.width - width) / 2
+                    y: parent.height + 8
+                }
                 TapHandler {
                     onTapped: {
                         bar.activeMode = modelData.mode

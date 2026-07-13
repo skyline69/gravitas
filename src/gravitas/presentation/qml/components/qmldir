@@ -10,3 +10,4 @@ AppComboBox 1.0 AppComboBox.qml
 AppSpinner 1.0 AppSpinner.qml
 Toast 1.0 Toast.qml
 AppChip 1.0 AppChip.qml
+AppToolTip 1.0 AppToolTip.qml
