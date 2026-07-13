@@ -49,6 +49,16 @@ Rectangle {
                     font.pixelSize: Theme.fontTitle
                     color: active ? activeColor : Theme.text
                     Behavior on color { ColorAnimation { duration: Theme.durFast } }
+                    // Springy pop when the tab becomes active; settles back when
+                    // it goes inactive.
+                    scale: active ? 1.18 : 1.0
+                    Behavior on scale {
+                        NumberAnimation {
+                            duration: Theme.durMed
+                            easing.type: Easing.OutBack
+                            easing.overshoot: 3.5
+                        }
+                    }
                 }
                 HoverHandler {
                     id: tabHover
