@@ -27,10 +27,12 @@ class CatalogRowsModel(QAbstractListModel):
 
     def __init__(self) -> None:
         super().__init__()
-        # (title, addon_id, type, catalog_id, poster_model). Holding the PosterGridModel
-        # here keeps a Python reference alive so QML can bind it as an inner
-        # ListView model without it being garbage-collected.
+        # Full row set and the currently-visible (filtered) subset. Rows are
+        # (title, addon_id, type, catalog_id, poster_model); the PosterGridModel
+        # reference is held here to keep it alive for QML binding.
+        self._all_rows: list[tuple[str, str, str, str, PosterGridModel]] = []
         self._rows: list[tuple[str, str, str, str, PosterGridModel]] = []
+        self._filter = "all"
 
     def set_rows(self, rows: list[CatalogRow]) -> None:
         self.beginResetModel()
@@ -39,8 +41,28 @@ class CatalogRowsModel(QAbstractListModel):
             poster_model = PosterGridModel()
             poster_model.set_items(row.items)
             built.append((row.title, row.addon_id, row.type, row.catalog_id, poster_model))
-        self._rows = built
+        self._all_rows = built
+        self._rows = self._filtered(self._all_rows, self._filter)
         self.endResetModel()
+
+    def set_filter(self, mode: str) -> None:
+        self.beginResetModel()
+        self._filter = mode
+        self._rows = self._filtered(self._all_rows, mode)
+        self.endResetModel()
+
+    @staticmethod
+    def _filtered(
+        rows: list[tuple[str, str, str, str, PosterGridModel]], mode: str
+    ) -> list[tuple[str, str, str, str, PosterGridModel]]:
+        if mode in ("movie", "series"):
+            return [r for r in rows if r[2] == mode]
+        if mode == "trending":
+            keywords = ("top", "trending", "popular")
+            return [
+                r for r in rows if any(k in r[0].lower() or k in r[3].lower() for k in keywords)
+            ]
+        return list(rows)
 
     def rowCount(self, parent: QModelIndex | QPersistentModelIndex = _ROOT_INDEX) -> int:
         return len(self._rows)

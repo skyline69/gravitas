@@ -51,3 +51,13 @@ async def test_load_catalog_emits_error_and_still_clears_loading(qapp: object) -
     assert errors == ["boom"]
     assert loading == [True, False]
     assert model.rowCount() == 0
+
+
+async def test_set_filter_narrows_rows(qapp: object) -> None:
+    model = CatalogRowsModel()
+    controller = CatalogController(FakeBrowse(), model)  # type: ignore[arg-type]
+    await controller.load_catalog()
+    controller.setFilter("series")
+    assert model.rowCount() == 0  # FakeBrowse yields a single movie row
+    controller.setFilter("movie")
+    assert model.rowCount() == 1

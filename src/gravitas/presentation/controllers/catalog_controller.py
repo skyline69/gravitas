@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Signal, Slot
 from qasync import asyncSlot  # type: ignore[import-untyped]
 
 from gravitas.application.browse_catalog import BrowseCatalog
@@ -32,3 +32,7 @@ class CatalogController(QObject):
     @asyncSlot()  # type: ignore[untyped-decorator]
     async def refresh(self) -> None:
         await self.load_catalog()
+
+    @Slot(str)
+    def setFilter(self, mode: str) -> None:
+        self._model.set_filter(mode)

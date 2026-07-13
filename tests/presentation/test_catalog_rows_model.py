@@ -48,3 +48,64 @@ def test_role_names_are_stringified(qapp: object) -> None:
     model = CatalogRowsModel()
     names = {bytes(v).decode() for v in model.roleNames().values()}
     assert {"title", "addonId", "type", "catalogId", "posters"} <= names
+
+
+def _row(title: str, type_: str, catalog_id: str) -> CatalogRow:
+    return CatalogRow(
+        title=title,
+        addon_id="a",
+        type=type_,  # type: ignore[arg-type]
+        catalog_id=catalog_id,
+        items=[MediaItem(id="tt1", type=type_, name="X", poster=None)],  # type: ignore[arg-type]
+    )
+
+
+_ROWS = [
+    _row("Popular Movies", "movie", "top"),
+    _row("New Series", "series", "year"),
+    _row("Trending Now", "movie", "trending"),
+    _row("Documentaries", "series", "docs"),
+]
+
+
+def _titles(model: CatalogRowsModel) -> list[str]:
+    return [
+        model.data(model.index(i, 0), CatalogRowsModel.TitleRole) for i in range(model.rowCount())
+    ]
+
+
+def test_filter_all_shows_every_row(qapp: object) -> None:
+    model = CatalogRowsModel()
+    model.set_rows(_ROWS)
+    assert model.rowCount() == 4
+
+
+def test_filter_movie(qapp: object) -> None:
+    model = CatalogRowsModel()
+    model.set_rows(_ROWS)
+    model.set_filter("movie")
+    assert _titles(model) == ["Popular Movies", "Trending Now"]
+
+
+def test_filter_series(qapp: object) -> None:
+    model = CatalogRowsModel()
+    model.set_rows(_ROWS)
+    model.set_filter("series")
+    assert _titles(model) == ["New Series", "Documentaries"]
+
+
+def test_filter_trending_matches_title_or_catalog_id_case_insensitive(
+    qapp: object,
+) -> None:
+    model = CatalogRowsModel()
+    model.set_rows(_ROWS)
+    model.set_filter("trending")
+    # "Popular Movies" (title kw), "Trending Now" (title + catalog_id kw)
+    assert _titles(model) == ["Popular Movies", "Trending Now"]
+
+
+def test_filter_persists_across_set_rows(qapp: object) -> None:
+    model = CatalogRowsModel()
+    model.set_filter("series")
+    model.set_rows(_ROWS)
+    assert _titles(model) == ["New Series", "Documentaries"]
