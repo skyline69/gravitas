@@ -5,6 +5,7 @@ from gravitas.application.browse_catalog import BrowseCatalog, CatalogRow
 from gravitas.application.get_detail import GetDetail
 from gravitas.application.install_addon import InstallAddon
 from gravitas.application.resolve_stream import ResolveStream
+from gravitas.application.search_media import SearchMedia
 from gravitas.application.uninstall_addon import UninstallAddon
 from gravitas.domain.errors import AddonRemovalError, NoStreams
 from gravitas.domain.models import (
@@ -111,3 +112,26 @@ async def test_uninstall_addon_propagates_error() -> None:
     repo = AddonRepository(FakeSource())
     with pytest.raises(AddonRemovalError):
         await UninstallAddon(repo)("nope")
+
+
+class _FakeSearchRepo:
+    def __init__(self, items: list) -> None:
+        self._items = items
+        self.calls: list[str] = []
+
+    async def search(self, query: str) -> list:
+        self.calls.append(query)
+        return self._items
+
+
+async def test_search_media_empty_query_returns_empty() -> None:
+    repo = _FakeSearchRepo(["x"])
+    assert await SearchMedia(repo)("   ") == []  # type: ignore[arg-type]
+    assert repo.calls == []
+
+
+async def test_search_media_delegates() -> None:
+    items = [MediaItem(id="tt1", type="movie", name="A", poster=None)]
+    repo = _FakeSearchRepo(items)
+    assert await SearchMedia(repo)("matrix") == items  # type: ignore[arg-type]
+    assert repo.calls == ["matrix"]

@@ -72,6 +72,29 @@ class AddonRepository:
     ) -> list[MediaItem]:
         return await self._source.fetch_catalog(manifest, ref, genre=genre, skip=skip)
 
+    async def search(self, query: str) -> list[MediaItem]:
+        # Aggregate across every searchable catalog of every installed addon,
+        # fault-isolated per addon; dedup by id (keep first); cap the total.
+        collected: list[MediaItem] = []
+        seen: set[str] = set()
+        for manifest in self._manifests:
+            for ref in manifest.catalogs:
+                if not ref.supports_search:
+                    continue
+                try:
+                    items = await self._source.fetch_catalog(manifest, ref, search=query)
+                except GravitasError as exc:
+                    _log.warning("search failed for %s/%s: %s", manifest.id, ref.id, exc)
+                    continue
+                for item in items:
+                    if item.id in seen:
+                        continue
+                    seen.add(item.id)
+                    collected.append(item)
+                    if len(collected) >= 60:
+                        return collected
+        return collected
+
     async def meta(self, type: MediaType, id: str) -> MetaDetail:
         # Try each metadata-capable addon in install order; the first that
         # succeeds wins (e.g. an addon whose meta covers only "library" 404s

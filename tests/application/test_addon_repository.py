@@ -27,7 +27,15 @@ class FakeSource:
             base_url=url,
         )
 
-    async def fetch_catalog(self, manifest: AddonManifest, ref: CatalogRef) -> list[MediaItem]:
+    async def fetch_catalog(
+        self,
+        manifest: AddonManifest,
+        ref: CatalogRef,
+        *,
+        genre: str | None = None,
+        skip: int = 0,
+        search: str | None = None,
+    ) -> list[MediaItem]:
         if self.fail_catalog:
             raise AddonUnreachable("down")
         return [MediaItem(id="tt1", type="movie", name="A", poster=None)]
@@ -230,3 +238,52 @@ async def test_install_default_not_protected() -> None:
     repo = AddonRepository(FakeSource())
     manifest = await repo.install("https://a/")
     assert repo.is_protected(manifest.id) is False
+
+
+async def test_search_aggregates_searchable_catalogs_dedup() -> None:
+    class SearchSource(FakeSource):
+        async def fetch_catalog(self, manifest, ref, *, genre=None, skip=0, search=None):  # type: ignore[override]
+            if not search:
+                return []
+            return [
+                MediaItem(id="tt1", type="movie", name=f"{search}-1", poster=None),
+                MediaItem(id="tt1", type="movie", name="dup", poster=None),
+                MediaItem(id="tt2", type="movie", name=f"{search}-2", poster=None),
+            ]
+
+    repo = AddonRepository(SearchSource())
+    await repo.install("https://a/")  # FakeSource manifest catalog 'top' — mark searchable below
+    # Rebuild an installed manifest whose catalog supports search:
+    manifest = AddonManifest(
+        id="s",
+        name="S",
+        version="1",
+        resources=("catalog",),
+        types=("movie",),
+        catalogs=(CatalogRef(type="movie", id="top", name="Top", supports_search=True),),
+        base_url="https://a/",
+    )
+    repo._manifests = [manifest]  # test-only: inject a searchable manifest
+    results = await repo.search("matrix")
+    ids = [r.id for r in results]
+    assert ids == ["tt1", "tt2"]  # deduped by id, order preserved
+
+
+async def test_search_skips_non_searchable_and_faults() -> None:
+    class Boom(FakeSource):
+        async def fetch_catalog(self, manifest, ref, *, genre=None, skip=0, search=None):  # type: ignore[override]
+            raise AddonUnreachable("down")
+
+    repo = AddonRepository(Boom())
+    repo._manifests = [
+        AddonManifest(
+            id="s",
+            name="S",
+            version="1",
+            resources=("catalog",),
+            types=("movie",),
+            catalogs=(CatalogRef(type="movie", id="top", name="Top", supports_search=True),),
+            base_url="https://a/",
+        )
+    ]
+    assert await repo.search("x") == []  # fault-isolated -> empty, no raise
