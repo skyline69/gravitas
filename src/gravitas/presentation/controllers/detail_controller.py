@@ -27,6 +27,10 @@ class DetailController(QObject):
         self._resolve_stream = resolve_stream
         self._stream_model = stream_model
         self._meta: MetaDetail | None = None
+        # bumped on every load(); an in-flight load whose token no longer
+        # matches is stale (a newer selection started) and must not apply its
+        # result — otherwise a slow earlier load clobbers a newer one.
+        self._seq = 0
 
     @Property(bool, notify=metaChanged)
     def hasMeta(self) -> bool:
@@ -88,17 +92,27 @@ class DetailController(QObject):
     @asyncSlot(str, str)  # type: ignore[untyped-decorator]
     async def load(self, type: str, item_id: str) -> None:
         media_type: MediaType = "series" if type == "series" else "movie"
+        self._seq += 1
+        token = self._seq
+        # reset immediately so the new page never flashes the previous item's
+        # meta/streams while this load is in flight
+        self._meta = None
+        self.metaChanged.emit()
+        self._stream_model.set_streams([])
         try:
-            self._meta = await self._get_detail(media_type, item_id)
+            meta = await self._get_detail(media_type, item_id)
+            if token != self._seq:
+                return  # a newer load started; drop this stale result
+            self._meta = meta
             self.metaChanged.emit()
-            # clear the previous item's streams before resolving so a failed
-            # stream fetch never leaves stale sources under the new meta
-            self._stream_model.set_streams([])
             streams = await self._resolve_stream(media_type, item_id)
+            if token != self._seq:
+                return
             self._stream_model.set_streams(streams)
         except NoStreams:
             # a normal empty state (no stream addon configured, or none for
             # this title) — leave Sources empty, don't raise a red error toast
             pass
         except GravitasError as exc:
-            self.errorOccurred.emit(str(exc))
+            if token == self._seq:
+                self.errorOccurred.emit(str(exc))

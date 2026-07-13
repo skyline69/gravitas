@@ -1,3 +1,5 @@
+import asyncio
+
 from gravitas.domain.errors import AddonUnreachable, NoStreams
 from gravitas.domain.models import MetaDetail, Stream
 from gravitas.presentation.controllers.detail_controller import DetailController
@@ -29,6 +31,29 @@ class FakeResolve:
         return [
             Stream(name="1080p", title="web", url="http://s/v.mkv", info_hash=None, file_idx=None)
         ]
+
+
+class GatedGetDetail:
+    """Each call blocks on a per-id gate so the test controls completion order."""
+
+    def __init__(self) -> None:
+        self.gates: dict[str, asyncio.Event] = {}
+        self.entered = asyncio.Event()
+
+    async def __call__(self, type, item_id):
+        ev = asyncio.Event()
+        self.gates[item_id] = ev
+        self.entered.set()
+        await ev.wait()
+        return MetaDetail(
+            id=item_id,
+            type="movie",
+            name=item_id,
+            description="d",
+            poster=None,
+            background=None,
+            videos=(),
+        )
 
 
 class FailGetDetail:
@@ -76,6 +101,28 @@ async def test_load_error_emits(qapp: object) -> None:
     await ctl.load("movie", "tt1")
     assert errors == ["boom"]
     assert ctl.hasMeta is False
+
+
+async def test_stale_load_does_not_clobber_newer_one(qapp: object) -> None:
+    # click A (slow), go back, click B (completes first): B must win even
+    # though A's fetch finishes LAST
+    gated = GatedGetDetail()
+    model = StreamListModel()
+    ctl = DetailController(gated, FakeResolve(), model)  # type: ignore[arg-type]
+
+    task_a = asyncio.ensure_future(ctl.load("movie", "A"))
+    await gated.entered.wait()
+    gated.entered.clear()
+    task_b = asyncio.ensure_future(ctl.load("movie", "B"))
+    await gated.entered.wait()
+
+    # B completes first, then the stale A completes
+    gated.gates["B"].set()
+    await task_b
+    gated.gates["A"].set()
+    await task_a
+
+    assert ctl.title == "B"  # newest selection wins, not the last-to-finish
 
 
 async def test_no_streams_is_silent_empty_state(qapp: object) -> None:
