@@ -36,17 +36,29 @@ class AddonRepository:
         self._source = source
         self._manifests: list[AddonManifest] = []
         self._protected: set[str] = set()
+        # id -> manifest URL it was installed from, for persistence.
+        self._urls: dict[str, str] = {}
 
     async def install(self, url: str, *, protected: bool = False) -> AddonManifest:
         manifest = await self._source.fetch_manifest(url)
         self._manifests = [m for m in self._manifests if m.id != manifest.id]
         self._manifests.append(manifest)
+        self._urls[manifest.id] = url
         if protected:
             self._protected.add(manifest.id)
         return manifest
 
     def installed(self) -> list[AddonManifest]:
         return list(self._manifests)
+
+    def user_addon_urls(self) -> list[str]:
+        """Manifest URLs of user-installed (non-protected) addons, in install
+        order — the set worth persisting; bootstrap reinstalls protected ones."""
+        return [
+            self._urls[m.id]
+            for m in self._manifests
+            if m.id not in self._protected and m.id in self._urls
+        ]
 
     def uninstall(self, addon_id: str) -> None:
         if addon_id in self._protected:
@@ -55,6 +67,7 @@ class AddonRepository:
         if len(remaining) == len(self._manifests):
             raise AddonRemovalError(f"no installed addon with id {addon_id}")
         self._manifests = remaining
+        self._urls.pop(addon_id, None)
 
     def is_protected(self, addon_id: str) -> bool:
         return addon_id in self._protected

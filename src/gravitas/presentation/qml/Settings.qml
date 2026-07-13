@@ -174,6 +174,7 @@ Item {
                     AppTextField {
                         width: parent.width - savedTick.width - parent.spacing
                         placeholderText: "TMDB API key (optional — needed to open TVDB links)"
+                        text: settingsController.tmdbKey
                         onEditingFinished: {
                             settingsController.setTmdbKey(text)
                             savedFade.restart()

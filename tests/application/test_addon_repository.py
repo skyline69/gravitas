@@ -234,6 +234,24 @@ async def test_uninstall_absent_raises() -> None:
         repo.uninstall("nope")
 
 
+async def test_user_addon_urls_tracks_installs_and_removals() -> None:
+    repo = AddonRepository(FakeSource())
+    await repo.install("https://default/", protected=True)
+    await repo.install("https://a/")
+    await repo.install("https://b/")
+    # protected addons are excluded: bootstrap reinstalls them itself
+    assert repo.user_addon_urls() == ["https://a/", "https://b/"]
+    repo.uninstall("https://a/")
+    assert repo.user_addon_urls() == ["https://b/"]
+
+
+async def test_user_addon_urls_reinstall_keeps_latest_url() -> None:
+    repo = AddonRepository(FakeSource())
+    await repo.install("https://a/")
+    await repo.install("https://a/")  # same id installed twice
+    assert repo.user_addon_urls() == ["https://a/"]
+
+
 async def test_install_default_not_protected() -> None:
     repo = AddonRepository(FakeSource())
     manifest = await repo.install("https://a/")

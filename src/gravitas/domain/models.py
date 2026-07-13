@@ -85,3 +85,12 @@ class AddonManifest:
     types: tuple[str, ...]
     catalogs: tuple[CatalogRef, ...]
     base_url: str
+
+
+@dataclass(frozen=True, slots=True)
+class PersistedSettings:
+    """User state restored across launches. Protected (built-in) addons are
+    re-installed by bootstrap and never persisted."""
+
+    addon_urls: tuple[str, ...] = ()
+    tmdb_key: str | None = None

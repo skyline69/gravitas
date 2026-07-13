@@ -74,3 +74,42 @@ async def test_set_tmdb_key_updates_holder(qapp: object) -> None:
     )
     c.setTmdbKey("ABC")
     assert holder.key == "ABC"
+
+
+class _FakeStore:
+    def __init__(self) -> None:
+        self.saved: list[object] = []
+
+    def load(self) -> object:
+        raise NotImplementedError
+
+    def save(self, settings: object) -> None:
+        self.saved.append(settings)
+
+
+async def test_set_tmdb_key_persists(qapp: object) -> None:
+    from gravitas.domain.models import PersistedSettings
+
+    repo = AddonRepository(FakeSource())
+    holder = _KeyHolder()
+    store = _FakeStore()
+    c = SettingsController(
+        UninstallAddon(repo), repo, AddonListModel(), FakeCatalogController(), holder, store
+    )
+    c.setTmdbKey("ABC")
+    assert store.saved == [PersistedSettings(addon_urls=(), tmdb_key="ABC")]
+    assert c.tmdbKey == "ABC"
+
+
+async def test_remove_addon_persists_remaining_urls(qapp: object) -> None:
+    from gravitas.domain.models import PersistedSettings
+
+    repo = AddonRepository(FakeSource())
+    await repo.install("https://a/")
+    await repo.install("https://b/")
+    store = _FakeStore()
+    c = SettingsController(
+        UninstallAddon(repo), repo, AddonListModel(), FakeCatalogController(), None, store
+    )
+    await c.removeAddon("https://a/")
+    assert store.saved == [PersistedSettings(addon_urls=("https://b/",), tmdb_key=None)]

@@ -23,10 +23,12 @@ from gravitas.application.resolve_media_link import ResolveMediaLink
 from gravitas.application.resolve_stream import ResolveStream
 from gravitas.application.search_media import SearchMedia
 from gravitas.application.uninstall_addon import UninstallAddon
+from gravitas.domain.errors import GravitasError
 from gravitas.domain.ports import MediaPlayer
 from gravitas.infrastructure.addons.client import AddonClient
 from gravitas.infrastructure.metadata.tmdb_resolver import TmdbResolver
 from gravitas.infrastructure.player.mpv_player import MpvPlayer
+from gravitas.infrastructure.settings.json_store import JsonSettingsStore
 from gravitas.presentation.controllers.addon_controller import AddonController
 from gravitas.presentation.controllers.catalog_controller import CatalogController
 from gravitas.presentation.controllers.detail_controller import DetailController
@@ -71,7 +73,11 @@ def build_app(
     class _TmdbKeyHolder:
         key: str | None = None
 
+    settings_store = JsonSettingsStore()
+    persisted = settings_store.load()
+
     tmdb_key = _TmdbKeyHolder()
+    tmdb_key.key = persisted.tmdb_key
     tmdb_resolver = TmdbResolver(http, lambda: tmdb_key.key)
 
     rows_model = CatalogRowsModel()
@@ -87,10 +93,16 @@ def build_app(
     addon_controller = AddonController(install_addon, catalog_controller)
     addon_list_model = AddonListModel()
     settings_controller = SettingsController(
-        UninstallAddon(repo), repo, addon_list_model, catalog_controller, tmdb_key
+        UninstallAddon(repo), repo, addon_list_model, catalog_controller, tmdb_key, settings_store
     )
-    # Keep the Settings list in sync after a user installs a new addon.
-    addon_controller.addonInstalled.connect(lambda _name: settings_controller.refreshAddons())
+
+    # Keep the Settings list in sync — and the settings file current — after a
+    # user installs a new addon.
+    def _on_addon_installed(_name: str) -> None:
+        settings_controller.refreshAddons()
+        settings_controller.persist()
+
+    addon_controller.addonInstalled.connect(_on_addon_installed)
 
     search_results_model = SearchResultsModel()
     search_page_model = SearchResultsModel()
@@ -129,10 +141,18 @@ def build_app(
     ctx.setContextProperty("searchPageModel", search_page_model)
 
     async def bootstrap() -> None:
-        # Install the default addon as protected (non-removable), then bring
-        # the UI up to date deterministically: load the catalog rows and prime
-        # the Settings addon list before bootstrap() returns.
+        # Install the default addon as protected (non-removable), restore the
+        # user's persisted addons, then bring the UI up to date
+        # deterministically: load the catalog rows and prime the Settings
+        # addon list before bootstrap() returns.
         await install_addon(default_addon_url, protected=True)
+        for url in persisted.addon_urls:
+            try:
+                await install_addon(url)
+            except GravitasError as exc:
+                # A dead addon must not block startup; it stays in the settings
+                # file so a later successful launch restores it.
+                addon_controller.errorOccurred.emit(f"Could not restore addon: {exc}")
         await catalog_controller.load_catalog()
         settings_controller.refreshAddons()
 

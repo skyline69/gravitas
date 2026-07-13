@@ -11,6 +11,7 @@ from gravitas.domain.models import (
     MediaItem,
     MediaType,
     MetaDetail,
+    PersistedSettings,
     ResolvedMedia,
     Stream,
 )
@@ -61,3 +62,12 @@ class DebridResolver(Protocol):
 @runtime_checkable
 class ExternalIdResolver(Protocol):
     async def resolve(self, source: str, external_id: str) -> ResolvedMedia: ...
+
+
+@runtime_checkable
+class SettingsStore(Protocol):
+    """Durable store for user settings. load() must never raise on missing or
+    corrupt data — it returns defaults instead."""
+
+    def load(self) -> PersistedSettings: ...
+    def save(self, settings: PersistedSettings) -> None: ...
