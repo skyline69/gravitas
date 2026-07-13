@@ -1,5 +1,6 @@
 singleton Theme 1.0 Theme.qml
 singleton Icons 1.0 Icons.qml
+singleton Scroll 1.0 Scroll.qml
 singleton Img 1.0 Img.qml
 AppIcon 1.0 AppIcon.qml
 PosterCard 1.0 PosterCard.qml
@@ -13,3 +14,4 @@ Toast 1.0 Toast.qml
 AppChip 1.0 AppChip.qml
 AppToolTip 1.0 AppToolTip.qml
 SearchBar 1.0 SearchBar.qml
+AppScrollBar 1.0 AppScrollBar.qml

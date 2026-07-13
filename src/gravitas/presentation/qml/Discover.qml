@@ -46,14 +46,18 @@ Item {
 
     GridView {
         id: grid
+        maximumFlickVelocity: 12000
+        flickDeceleration: 8000
         anchors.top: filters.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.margins: 24
+        anchors.rightMargin: 0
         cellWidth: 180
         cellHeight: 300
         clip: true
+        ScrollBar.vertical: AppScrollBar {}
         model: discoverModel
         delegate: PosterCard {
             // fill the whole cell and centre the poster inside it, so the
@@ -67,6 +71,14 @@ Item {
             onClicked: root.openDetail(model.type, model.id)
         }
         onAtYEndChanged: if (atYEnd && discoverController) discoverController.loadMore()
+    }
+
+    Item {
+        anchors.fill: grid
+        WheelHandler {
+            acceptedDevices: PointerDevice.Mouse
+            onWheel: (w) => Scroll.wheel(grid, w)
+        }
     }
 
     AppSpinner {
