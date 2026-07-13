@@ -53,3 +53,13 @@ async def test_stale_request_does_not_clobber(qapp: object) -> None:
     c._req = 5  # type: ignore[attr-defined]
     await c._perform_with_id("old", 4)  # older id -> ignored
     assert model.rowCount() == 0
+
+
+async def test_clear_invalidates_inflight(qapp: object) -> None:
+    items = [MediaItem(id="tt1", type="movie", name="A", poster=None)]
+    c, model = _build(items, items[0])
+    token = c._req  # type: ignore[attr-defined]
+    c.clear()  # bumps _req, invalidating the in-flight token
+    assert c._req != token  # type: ignore[attr-defined]
+    await c._perform_with_id("q", token)  # in-flight completes with the pre-clear token
+    assert model.rowCount() == 0

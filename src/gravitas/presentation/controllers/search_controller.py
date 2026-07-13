@@ -43,6 +43,7 @@ class SearchController(QObject):
         self._pending = text.strip()
         if not self._pending:
             self._timer.stop()
+            self._req += 1
             self._model.set_items([])
             self.resultsChanged.emit()
             return
@@ -52,6 +53,7 @@ class SearchController(QObject):
     def clear(self) -> None:
         self._timer.stop()
         self._pending = ""
+        self._req += 1
         self._model.set_items([])
         self.resultsChanged.emit()
 
