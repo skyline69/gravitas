@@ -4,16 +4,18 @@ from gravitas.application.addon_repository import AddonRepository
 from gravitas.application.browse_catalog import BrowseCatalog, CatalogRow
 from gravitas.application.get_detail import GetDetail
 from gravitas.application.install_addon import InstallAddon
+from gravitas.application.resolve_media_link import ResolveMediaLink
 from gravitas.application.resolve_stream import ResolveStream
 from gravitas.application.search_media import SearchMedia
 from gravitas.application.uninstall_addon import UninstallAddon
-from gravitas.domain.errors import AddonRemovalError, NoStreams
+from gravitas.domain.errors import AddonRemovalError, AddonUnreachable, NoStreams, TmdbUnavailable
 from gravitas.domain.models import (
     AddonManifest,
     CatalogRef,
     MediaItem,
     MediaType,
     MetaDetail,
+    ResolvedMedia,
     Stream,
 )
 
@@ -135,3 +137,69 @@ async def test_search_media_delegates() -> None:
     repo = _FakeSearchRepo(items)
     assert await SearchMedia(repo)("matrix") == items  # type: ignore[arg-type]
     assert repo.calls == ["matrix"]
+
+
+# ResolveMediaLink tests
+
+
+def _meta(id_: str, type_: str) -> MetaDetail:
+    return MetaDetail(
+        id=id_,
+        type=type_,  # type: ignore[arg-type]
+        name="Title",
+        description=None,
+        poster="p",
+        background=None,
+        videos=(),
+        year="1999",
+    )
+
+
+class _FakeMetaRepo:
+    def __init__(self, movie: bool = True, series: bool = False) -> None:
+        self._movie, self._series = movie, series
+
+    async def meta(self, type: str, id: str) -> MetaDetail:
+        if type == "movie" and self._movie:
+            return _meta(id, "movie")
+        if type == "series" and self._series:
+            return _meta(id, "series")
+        raise AddonUnreachable("no meta")
+
+
+class _FakeResolver:
+    def __init__(self, result: ResolvedMedia | None = None) -> None:
+        self._result = result
+
+    async def resolve(self, source: str, external_id: str) -> ResolvedMedia:
+        if self._result is None:
+            raise TmdbUnavailable("no key")
+        return self._result
+
+
+async def test_resolve_imdb_movie() -> None:
+    item = await ResolveMediaLink(_FakeMetaRepo(movie=True), _FakeResolver())("imdb", "tt1")  # type: ignore[arg-type]
+    assert item == MediaItem(id="tt1", type="movie", name="Title", poster="p", year="1999")
+
+
+async def test_resolve_imdb_falls_back_to_series() -> None:
+    repo = _FakeMetaRepo(movie=False, series=True)
+    item = await ResolveMediaLink(repo, _FakeResolver())("imdb", "tt9")  # type: ignore[arg-type]
+    assert item.type == "series"
+
+
+async def test_resolve_imdb_none_raises() -> None:
+    with pytest.raises(AddonUnreachable):
+        repo = _FakeMetaRepo(movie=False, series=False)
+        await ResolveMediaLink(repo, _FakeResolver())("imdb", "tt0")  # type: ignore[arg-type]
+
+
+async def test_resolve_tvdb_via_resolver() -> None:
+    resolved = ResolvedMedia(imdb_id="tt42", type="series", name="Show", poster="ps", year="2020")
+    item = await ResolveMediaLink(_FakeMetaRepo(), _FakeResolver(resolved))("tvdb", "81189")  # type: ignore[arg-type]
+    assert item == MediaItem(id="tt42", type="series", name="Show", poster="ps", year="2020")
+
+
+async def test_resolve_tvdb_no_key_raises() -> None:
+    with pytest.raises(TmdbUnavailable):
+        await ResolveMediaLink(_FakeMetaRepo(), _FakeResolver(None))("tvdb", "1")  # type: ignore[arg-type]
