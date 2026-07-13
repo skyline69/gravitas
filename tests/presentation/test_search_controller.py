@@ -63,3 +63,13 @@ async def test_clear_invalidates_inflight(qapp: object) -> None:
     assert c._req != token  # type: ignore[attr-defined]
     await c._perform_with_id("q", token)  # in-flight completes with the pre-clear token
     assert model.rowCount() == 0
+
+
+async def test_commit_to_page_snapshots(qapp: object) -> None:
+    items = [MediaItem(id="tt1", type="movie", name="A", poster=None)]
+    page = SearchResultsModel()
+    c = SearchController(_FakeSearch(items), _FakeResolve(items[0]), SearchResultsModel(), page)
+    await c._perform("matrix")
+    assert page.rowCount() == 0  # not committed yet
+    c.commitToPage()
+    assert page.rowCount() == 1

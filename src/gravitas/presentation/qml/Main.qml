@@ -23,7 +23,7 @@ ApplicationWindow {
         anchors.top: parent.top
         anchors.topMargin: 12
         anchors.horizontalCenter: parent.horizontalCenter
-        width: Math.min(parent.width - 24, 820)
+        width: Math.min(parent.width - 24, 1040)
         visible: {
             var it = stack.currentItem
             return it !== null
@@ -130,6 +130,10 @@ ApplicationWindow {
     }
     Connections {
         target: settingsController
+        function onErrorOccurred(msg) { toast.show(msg, true) }
+    }
+    Connections {
+        target: searchController
         function onErrorOccurred(msg) { toast.show(msg, true) }
     }
 

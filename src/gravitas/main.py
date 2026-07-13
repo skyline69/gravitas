@@ -91,8 +91,12 @@ def build_app(
     addon_controller.addonInstalled.connect(lambda _name: settings_controller.refreshAddons())
 
     search_results_model = SearchResultsModel()
+    search_page_model = SearchResultsModel()
     search_controller = SearchController(
-        SearchMedia(repo), ResolveMediaLink(repo, tmdb_resolver), search_results_model
+        SearchMedia(repo),
+        ResolveMediaLink(repo, tmdb_resolver),
+        search_results_model,
+        search_page_model,
     )
 
     engine = QQmlApplicationEngine()
@@ -118,6 +122,7 @@ def build_app(
     ctx.setContextProperty("addonListModel", addon_list_model)
     ctx.setContextProperty("searchController", search_controller)
     ctx.setContextProperty("searchResultsModel", search_results_model)
+    ctx.setContextProperty("searchPageModel", search_page_model)
 
     async def bootstrap() -> None:
         # Install the default addon as protected (non-removable), then bring
@@ -150,6 +155,7 @@ def build_app(
         stream_model,
         addon_list_model,
         search_results_model,
+        search_page_model,
     )
     engine._gravitas_bootstrap = bootstrap  # type: ignore[attr-defined]
     engine._gravitas_http = http  # type: ignore[attr-defined]

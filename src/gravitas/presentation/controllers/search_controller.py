@@ -26,13 +26,21 @@ class SearchController(QObject):
     loadingChanged = Signal(bool)
     errorOccurred = Signal(str)
 
-    def __init__(self, search: _Search, resolve: _Resolve, model: SearchResultsModel) -> None:
+    def __init__(
+        self,
+        search: _Search,
+        resolve: _Resolve,
+        model: SearchResultsModel,
+        page_model: SearchResultsModel | None = None,
+    ) -> None:
         super().__init__()
         self._search = search
         self._resolve = resolve
         self._model = model
+        self._page_model = page_model
         self._pending = ""
         self._req = 0
+        self._last_items: list[MediaItem] = []
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.setInterval(350)
@@ -44,6 +52,7 @@ class SearchController(QObject):
         if not self._pending:
             self._timer.stop()
             self._req += 1
+            self._last_items = []
             self._model.set_items([])
             self.resultsChanged.emit()
             return
@@ -54,8 +63,14 @@ class SearchController(QObject):
         self._timer.stop()
         self._pending = ""
         self._req += 1
+        self._last_items = []
         self._model.set_items([])
         self.resultsChanged.emit()
+
+    @Slot()
+    def commitToPage(self) -> None:
+        if self._page_model is not None:
+            self._page_model.set_items(self._last_items)
 
     @asyncSlot()  # type: ignore[untyped-decorator]
     async def _fire(self) -> None:
@@ -81,5 +96,6 @@ class SearchController(QObject):
             if req == self._req:
                 self.loadingChanged.emit(False)
         if req == self._req:
+            self._last_items = items
             self._model.set_items(items)
             self.resultsChanged.emit()

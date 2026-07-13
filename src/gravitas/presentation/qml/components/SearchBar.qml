@@ -40,7 +40,7 @@ Item {
             selectedTextColor: Theme.text
             background: null
             onTextChanged: searchController.queueSearch(text)
-            onAccepted: if (text.length > 0) bar.openResults()
+            onAccepted: if (text.length > 0) { searchController.commitToPage(); bar.openResults() }
             Keys.onEscapePressed: { text = ""; field.focus = false }
         }
     }

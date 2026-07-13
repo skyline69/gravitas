@@ -135,6 +135,7 @@ def test_search_context_properties_present(qapp: object) -> None:
     ctx = engine.rootContext()
     assert ctx.contextProperty("searchController") is not None
     assert ctx.contextProperty("searchResultsModel") is not None
+    assert ctx.contextProperty("searchPageModel") is not None
 
 
 def test_search_results_qml_loads(qapp: object) -> None:
@@ -147,6 +148,7 @@ def test_search_results_qml_loads(qapp: object) -> None:
 
     engine = QQmlEngine()
     engine.rootContext().setContextProperty("searchResultsModel", QObject())
+    engine.rootContext().setContextProperty("searchPageModel", QObject())
     qml = Path(gmain.__file__).parent / "presentation" / "qml" / "SearchResults.qml"
     component = QQmlComponent(engine, str(qml))
     obj = component.create()

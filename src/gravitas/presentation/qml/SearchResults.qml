@@ -18,7 +18,7 @@ Item {
         cellWidth: 180
         cellHeight: 300
         clip: true
-        model: searchResultsModel
+        model: searchPageModel
         delegate: PosterCard {
             width: 180
             height: 300
