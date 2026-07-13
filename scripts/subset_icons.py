@@ -1,8 +1,10 @@
-"""Regenerate the bundled Material Symbols icon font subset.
+"""Regenerate the bundled icon font subset.
 
-Downloads the Material Symbols Rounded variable font, pins it to the filled
-style (FILL=1, wght=400, GRAD=0, opsz=24), and subsets it to exactly the
-glyphs named in GLYPHS. Keep GLYPHS in sync with Icons.qml.
+Uses classic Material Icons Round (static, filled) — the family the app's
+original glyphs came from; the newer variable "Material Symbols" family has
+noticeably different (thinner) shapes. Subsets to exactly the glyphs named in
+GLYPHS and prints the codepoint for each — keep Icons.qml in sync with that
+output.
 
 Run:  uv run --with fonttools python scripts/subset_icons.py
 """
@@ -16,14 +18,13 @@ from pathlib import Path
 
 from fontTools import subset
 from fontTools.ttLib import TTFont
-from fontTools.varLib.instancer import instantiateVariableFont
 
-REPO = "https://github.com/google/material-design-icons/raw/master/variablefont"
-FONT_URL = f"{REPO}/MaterialSymbolsRounded%5BFILL%2CGRAD%2Copsz%2Cwght%5D.ttf"
-CODEPOINTS_URL = f"{REPO}/MaterialSymbolsRounded%5BFILL%2CGRAD%2Copsz%2Cwght%5D.codepoints"
+REPO = "https://github.com/google/material-design-icons/raw/master/font"
+FONT_URL = f"{REPO}/MaterialIconsRound-Regular.otf"
+CODEPOINTS_URL = f"{REPO}/MaterialIconsRound-Regular.codepoints"
 
 GLYPHS = [
-    # existing set (Icons.qml)
+    # navigation / chrome
     "keyboard_arrow_down",
     "arrow_back",
     "play_arrow",
@@ -62,12 +63,9 @@ def main() -> int:
     for glyph in GLYPHS:
         print(f"  {glyph} = 0x{pairs[glyph]}")
 
-    print("downloading variable font…")
+    print("downloading font…")
     with urllib.request.urlopen(FONT_URL) as resp:
         font = TTFont(io.BytesIO(resp.read()))
-
-    print("instancing FILL=1 wght=400 GRAD=0 opsz=24…")
-    instantiateVariableFont(font, {"FILL": 1, "wght": 400, "GRAD": 0, "opsz": 24}, inplace=True)
 
     print("subsetting…")
     options = subset.Options()
