@@ -87,14 +87,16 @@ Item {
             }
             NumberAnimation { target: volFader; property: "v"; to: 0; duration: 240 }
         }
-        ScriptAction {
-            script: {
-                playerController.stop()
-                // Restore the user's volume silently for the next playback.
-                playerController.setVolume(player._restoreVol)
-                player.back()
-            }
-        }
+        // Pop immediately when the fade lands; stopping mpv here would stall
+        // the GUI thread for a beat and make the page switch feel like a cut.
+        // The audio is already faded to zero, so playback keeps "running"
+        // inaudibly through the pop transition and stops at teardown.
+        ScriptAction { script: player.back() }
+    }
+    Component.onDestruction: {
+        playerController.stop()
+        // Restore the user's volume silently for the next playback.
+        playerController.setVolume(player._restoreVol)
     }
     function fmt(s) {
         s = Math.max(0, Math.floor(s))
