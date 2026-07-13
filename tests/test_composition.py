@@ -103,3 +103,26 @@ def test_player_qml_loads(qapp: object) -> None:
     component = QQmlComponent(engine, str(qml))
     obj = component.create()
     assert obj is not None, f"Player.qml failed to load: {component.errorString()}"
+
+
+def test_settings_qml_loads(qapp: object) -> None:
+    from pathlib import Path
+
+    from PySide6.QtCore import QObject
+    from PySide6.QtQml import QQmlComponent, QQmlEngine
+
+    import gravitas.main as gmain
+
+    engine = QQmlEngine()
+
+    class _StubModel(QObject):
+        pass
+
+    stub = _StubModel()
+    engine.rootContext().setContextProperty("addonController", stub)
+    engine.rootContext().setContextProperty("settingsController", stub)
+    engine.rootContext().setContextProperty("addonListModel", stub)
+    qml = Path(gmain.__file__).parent / "presentation" / "qml" / "Settings.qml"
+    component = QQmlComponent(engine, str(qml))
+    obj = component.create()
+    assert obj is not None, f"Settings.qml failed to load: {component.errorString()}"

@@ -9,9 +9,29 @@ ApplicationWindow {
     title: "Gravitas"
     color: Theme.bg
 
+    TopBar {
+        id: topBar
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        visible: {
+            var it = stack.currentItem
+            return it !== null
+                && (it.objectName === "homePage" || it.objectName === "settingsPage")
+        }
+        onTabSelected: (mode) => {
+            while (stack.depth > 1) stack.pop()
+            catalogController.setFilter(mode)
+        }
+        onOpenSettings: stack.push(settingsPage)
+    }
+
     StackView {
         id: stack
-        anchors.fill: parent
+        anchors.top: topBar.visible ? topBar.bottom : parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
         initialItem: homePage
     }
 
@@ -43,6 +63,10 @@ ApplicationWindow {
             onBack: () => stack.pop()
         }
     }
+    Component {
+        id: settingsPage
+        Settings { onBack: stack.pop() }
+    }
 
     Connections {
         target: catalogController
@@ -67,6 +91,10 @@ ApplicationWindow {
     Connections {
         target: addonController
         function onAddonInstalled(name) { toast.show("Installed: " + name, false) }
+    }
+    Connections {
+        target: settingsController
+        function onErrorOccurred(msg) { toast.show(msg, true) }
     }
 
     Toast { id: toast }

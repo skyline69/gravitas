@@ -4,44 +4,13 @@ import "components"
 
 Item {
     id: home
+    objectName: "homePage"
     signal openDetail(string type, string id)
     signal seeAll(string addonId, string type, string catalogId)
 
-    Rectangle {
-        id: addonBar
-        anchors.top: parent.top
-        anchors.left: parent.left
-        anchors.right: parent.right
-        height: 56
-        color: Theme.surface
-
-        Row {
-            anchors.fill: parent
-            anchors.margins: 12
-            spacing: 8
-
-            AppTextField {
-                id: urlField
-                anchors.verticalCenter: parent.verticalCenter
-                width: parent.width - addButton.width - parent.spacing
-                placeholderText: "Addon manifest URL…"
-            }
-
-            AppButton {
-                id: addButton
-                anchors.verticalCenter: parent.verticalCenter
-                text: "Add"
-                onClicked: {
-                    addonController.addAddon(urlField.text)
-                    urlField.text = ""
-                }
-            }
-        }
-    }
-
     ListView {
         id: rowsView
-        anchors.top: addonBar.bottom
+        anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
