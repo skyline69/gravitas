@@ -7,12 +7,16 @@ PlayerController.attachVideo(); until then the item renders nothing.
 
 from __future__ import annotations
 
+import contextlib
+import logging
 from typing import Any
 
 from PySide6.QtCore import Property, QMetaObject, QSize, Qt, Slot
 from PySide6.QtGui import QOpenGLContext
 from PySide6.QtOpenGL import QOpenGLFramebufferObject
 from PySide6.QtQuick import QQuickFramebufferObject, QQuickItem
+
+_log = logging.getLogger(__name__)
 
 
 class _Renderer(QQuickFramebufferObject.Renderer):
@@ -24,27 +28,44 @@ class _Renderer(QQuickFramebufferObject.Renderer):
 
     def createFramebufferObject(self, size: QSize) -> QOpenGLFramebufferObject:
         # First call happens on the render thread with the GL context current —
-        # the only safe place to create the mpv render context.
+        # the only safe place to create the mpv render context. Any failure
+        # must be swallowed: an exception escaping this override hands Qt a
+        # null FBO and the process dies with SIGSEGV; a black video item is
+        # the acceptable degraded mode.
         if self._ctx is None and self._item.handle is not None:
-            import mpv  # type: ignore[import-untyped]
-
-            def get_proc_address(_ctx: Any, name: bytes) -> int:
-                glctx = QOpenGLContext.currentContext()
-                if glctx is None:
-                    return 0
-                addr = glctx.getProcAddress(name)
-                return int(addr) if addr else 0
-
-            self._get_proc = mpv.MpvGlGetProcAddressFn(get_proc_address)
-            self._ctx = mpv.MpvRenderContext(
-                self._item.handle,
-                "opengl",
-                opengl_init_params={"get_proc_address": self._get_proc},
-            )
-            # Fires on mpv's thread whenever a new frame is ready; hop to the
-            # GUI thread to schedule a repaint.
-            self._ctx.update_cb = self._item.scheduleUpdate
+            try:
+                self._create_context()
+            except Exception:
+                _log.exception("mpv render context creation failed; video disabled")
         return super().createFramebufferObject(size)
+
+    def _create_context(self) -> None:
+        import mpv  # type: ignore[import-untyped]
+
+        def get_proc_address(_ctx: Any, name: bytes) -> int:
+            glctx = QOpenGLContext.currentContext()
+            if glctx is None:
+                return 0
+            addr = glctx.getProcAddress(name)
+            return int(addr) if addr else 0
+
+        self._get_proc = mpv.MpvGlGetProcAddressFn(get_proc_address)
+        self._ctx = mpv.MpvRenderContext(
+            self._item.handle,
+            "opengl",
+            opengl_init_params={"get_proc_address": self._get_proc},
+        )
+        # Fires on mpv's thread whenever a new frame is ready; hop to the
+        # GUI thread to schedule a repaint.
+        self._ctx.update_cb = self._item.scheduleUpdate
+
+    def __del__(self) -> None:
+        # Free the render context before the mpv core can go away; leaking it
+        # segfaults inside libmpv at teardown.
+        ctx, self._ctx = self._ctx, None
+        if ctx is not None:
+            with contextlib.suppress(Exception):
+                ctx.free()
 
     def render(self) -> None:
         if self._ctx is None:

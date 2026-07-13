@@ -11,6 +11,7 @@ import httpx
 import qasync  # type: ignore[import-untyped]
 from PySide6.QtGui import QFont, QFontDatabase, QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine, qmlRegisterType
+from PySide6.QtQuick import QQuickWindow, QSGRendererInterface
 from PySide6.QtQuickControls2 import QQuickStyle
 
 from gravitas.application.addon_repository import AddonRepository
@@ -58,6 +59,11 @@ def build_app(
     # components would fall back to native rendering. Basic is fully
     # customizable. Must be set before any Controls type is instantiated.
     QQuickStyle.setStyle("Basic")
+
+    # The in-scene mpv renderer (QQuickFramebufferObject + MpvRenderContext)
+    # only works on the OpenGL scene-graph backend; don't let Qt pick another
+    # RHI. Must run before the first QQuickWindow is created.
+    QQuickWindow.setGraphicsApi(QSGRendererInterface.GraphicsApi.OpenGL)
 
     # Bundle a clean UI font (Inter) and make it the application default so
     # every QML Text inherits it without per-component wiring.
