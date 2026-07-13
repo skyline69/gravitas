@@ -20,7 +20,13 @@ from gravitas.domain.models import (
 class AddonSource(Protocol):
     async def fetch_manifest(self, url: str) -> AddonManifest: ...
     async def fetch_catalog(
-        self, manifest: AddonManifest, ref: CatalogRef, *, genre: str | None = None, skip: int = 0
+        self,
+        manifest: AddonManifest,
+        ref: CatalogRef,
+        *,
+        genre: str | None = None,
+        skip: int = 0,
+        search: str | None = None,
     ) -> list[MediaItem]: ...
     async def fetch_meta(self, manifest: AddonManifest, type: MediaType, id: str) -> MetaDetail: ...
     async def fetch_streams(

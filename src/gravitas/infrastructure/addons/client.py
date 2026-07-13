@@ -44,11 +44,17 @@ class AddonClient:
         return parsing.parse_manifest(data, base_url=base_url)
 
     async def fetch_catalog(
-        self, manifest: AddonManifest, ref: CatalogRef, *, genre: str | None = None, skip: int = 0
+        self,
+        manifest: AddonManifest,
+        ref: CatalogRef,
+        *,
+        genre: str | None = None,
+        skip: int = 0,
+        search: str | None = None,
     ) -> list[MediaItem]:
         path = (
-            parsing.catalog_path_extra(ref, genre, skip)
-            if (genre or skip)
+            parsing.catalog_path_extra(ref, genre, skip, search)
+            if (genre or skip or search)
             else parsing.catalog_path(ref)
         )
         data = await self._get_json(manifest.base_url + path)

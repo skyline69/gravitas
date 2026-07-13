@@ -19,24 +19,28 @@ from gravitas.domain.models import (
 _VALID_TYPES: frozenset[str] = frozenset(get_args(MediaType))
 
 
-def _parse_catalog_extra(raw: dict[str, Any]) -> tuple[tuple[str, ...], bool]:
+def _parse_catalog_extra(raw: dict[str, Any]) -> tuple[tuple[str, ...], bool, bool]:
     extra = raw.get("extra")
     if isinstance(extra, list):
         genres: tuple[str, ...] = ()
         supports_skip = False
+        supports_search = False
         for entry in extra:
             if not isinstance(entry, dict):
                 continue
-            if entry.get("name") == "genre":
+            name = entry.get("name")
+            if name == "genre":
                 genres = tuple(str(o) for o in entry.get("options", []))
-            elif entry.get("name") == "skip":
+            elif name == "skip":
                 supports_skip = True
-        return genres, supports_skip
+            elif name == "search":
+                supports_search = True
+        return genres, supports_skip, supports_search
     supported = raw.get("extraSupported")
     if isinstance(supported, list):
         genres = tuple(str(g) for g in raw.get("genres", [])) if "genre" in supported else ()
-        return genres, "skip" in supported
-    return (), False
+        return genres, "skip" in supported, "search" in supported
+    return (), False, False
 
 
 def _require(data: dict[str, Any], key: str, ctx: str) -> Any:
@@ -79,7 +83,7 @@ def parse_manifest(data: dict[str, Any], base_url: str) -> AddonManifest:
         c_type = raw.get("type")
         if c_type not in _VALID_TYPES:
             continue
-        genres, supports_skip = _parse_catalog_extra(raw)
+        genres, supports_skip, supports_search = _parse_catalog_extra(raw)
         catalogs.append(
             CatalogRef(
                 type=c_type,
@@ -87,6 +91,7 @@ def parse_manifest(data: dict[str, Any], base_url: str) -> AddonManifest:
                 name=raw.get("name", raw.get("id", "")),
                 genres=genres,
                 supports_skip=supports_skip,
+                supports_search=supports_search,
             )
         )
     return AddonManifest(
@@ -177,12 +182,16 @@ def catalog_path(ref: CatalogRef) -> str:
     return f"catalog/{ref.type}/{ref.id}.json"
 
 
-def catalog_path_extra(ref: CatalogRef, genre: str | None, skip: int) -> str:
+def catalog_path_extra(
+    ref: CatalogRef, genre: str | None, skip: int, search: str | None = None
+) -> str:
     parts: list[str] = []
     if genre:
         parts.append(f"genre={quote(genre, safe='')}")
     if skip:
         parts.append(f"skip={skip}")
+    if search:
+        parts.append(f"search={quote(search, safe='')}")
     if not parts:
         return catalog_path(ref)
     return f"catalog/{ref.type}/{ref.id}/{'&'.join(parts)}.json"

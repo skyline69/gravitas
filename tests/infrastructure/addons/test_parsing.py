@@ -194,3 +194,48 @@ def test_parse_meta_missing_enriched_fields_default() -> None:
     m = parse_meta(data)
     assert m.logo is None and m.year is None and m.runtime is None
     assert m.imdb_rating is None and m.genres == () and m.cast == () and m.directors == ()
+
+
+def test_parse_manifest_marks_supports_search() -> None:
+    data = {
+        "id": "c",
+        "name": "C",
+        "version": "1",
+        "types": ["movie"],
+        "resources": ["catalog"],
+        "catalogs": [
+            {"type": "movie", "id": "top", "name": "Top", "extraSupported": ["search", "skip"]},
+            {"type": "movie", "id": "plain", "name": "Plain"},
+        ],
+    }
+    m = parse_manifest(data, base_url="https://x/")
+    assert m.catalogs[0].supports_search is True
+    assert m.catalogs[1].supports_search is False
+
+
+def test_parse_manifest_supports_search_legacy_extra() -> None:
+    data = {
+        "id": "c",
+        "name": "C",
+        "version": "1",
+        "types": ["movie"],
+        "resources": ["catalog"],
+        "catalogs": [
+            {
+                "type": "movie",
+                "id": "s",
+                "name": "S",
+                "extra": [{"name": "search", "isRequired": True}],
+            },
+        ],
+    }
+    assert parse_manifest(data, base_url="https://x/").catalogs[0].supports_search is True
+
+
+def test_catalog_path_extra_search() -> None:
+    ref = CatalogRef(type="movie", id="top", name="Top")
+    expected = "catalog/movie/top/search=the%20matrix.json"
+    assert catalog_path_extra(ref, None, 0, "the matrix") == expected
+    # combined with skip
+    expected_skip = "catalog/movie/top/skip=20&search=x.json"
+    assert catalog_path_extra(ref, None, 20, "x") == expected_skip

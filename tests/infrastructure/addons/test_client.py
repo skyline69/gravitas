@@ -95,3 +95,23 @@ async def test_fetch_catalog_builds_extra_path() -> None:
         client = AddonClient(http)
         items = await client.fetch_catalog(manifest, manifest.catalogs[0], genre="Action", skip=100)
     assert items[0].id == "tt1"
+
+
+@respx.mock
+async def test_fetch_catalog_search_path() -> None:
+    ref = CatalogRef(type="movie", id="top", name="Top", supports_search=True)
+    manifest = AddonManifest(
+        id="c",
+        name="C",
+        version="1",
+        resources=("catalog",),
+        types=("movie",),
+        catalogs=(ref,),
+        base_url="https://cin.strem.io/",
+    )
+    route = respx.get("https://cin.strem.io/catalog/movie/top/search=batman.json").mock(
+        return_value=httpx.Response(200, json={"metas": []})
+    )
+    async with httpx.AsyncClient() as http:
+        await AddonClient(http).fetch_catalog(manifest, ref, search="batman")
+    assert route.called
