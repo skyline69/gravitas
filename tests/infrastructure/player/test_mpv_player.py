@@ -106,7 +106,68 @@ def test_subtitle_tracks_lists_only_subs() -> None:
 
 def test_audio_tracks_labelled_with_language() -> None:
     player, _ = _player()
-    assert player.audio_tracks() == [(1, "eng · Surround 5.1"), (2, "jpn")]
+    assert player.audio_tracks() == [(1, "English · Surround 5.1"), (2, "Japanese")]
+
+
+def test_track_label_details() -> None:
+    from gravitas.infrastructure.player.mpv_player import _track_label
+
+    # title already names the language -> no redundant code prefix
+    assert (
+        _track_label({"id": 1, "type": "sub", "lang": "en-US", "title": "English (United States)"})
+        == "English (United States)"
+    )
+    # regioned code expands, region kept
+    assert _track_label({"id": 1, "type": "sub", "lang": "fr-CA"}) == "French (CA)"
+    # flags surface
+    assert (
+        _track_label(
+            {"id": 1, "type": "sub", "lang": "de", "forced": True, "hearing-impaired": True}
+        )
+        == "German — Forced, SDH"
+    )
+    # audio channel count appended unless the title already says it
+    assert (
+        _track_label(
+            {
+                "id": 1,
+                "type": "audio",
+                "lang": "en",
+                "title": "TrueHD Atmos",
+                "demux-channel-count": 8,
+            }
+        )
+        == "English · TrueHD Atmos · 7.1"
+    )
+    assert (
+        _track_label(
+            {
+                "id": 1,
+                "type": "audio",
+                "lang": "en",
+                "title": "Dolby Digital 5.1",
+                "demux-channel-count": 6,
+            }
+        )
+        == "English · Dolby Digital 5.1"
+    )
+    # unknown code passes through
+    assert _track_label({"id": 4, "type": "sub", "lang": "tlh"}) == "tlh"
+
+
+def test_identical_track_labels_get_indexed() -> None:
+    fake = FakeMpv()
+    fake.track_list = [
+        {"id": 2, "type": "sub", "lang": "en-US", "title": "English (United States)"},
+        {"id": 3, "type": "sub", "lang": "en-US", "title": "English (United States)"},
+        {"id": 4, "type": "sub", "lang": "da"},
+    ]
+    player = MpvPlayer(factory=lambda: fake)
+    assert player.subtitle_tracks() == [
+        (2, "English (United States) · #1"),
+        (3, "English (United States) · #2"),
+        (4, "Danish"),
+    ]
 
 
 def test_set_subtitle_track() -> None:

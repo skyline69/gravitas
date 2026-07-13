@@ -17,7 +17,21 @@ Popup {
 
     x: parent ? (parent.width - width) / 2 : 0
     y: -implicitHeight - 8
-    width: 240
+    // Sized to the longest entry so labels don't clip; past the cap the row
+    // text elides instead. Imperative measure — a binding that writes
+    // TextMetrics.text and reads its width would retrigger itself.
+    property real contentNeed: 180
+    TextMetrics { id: entryMetrics; font.pixelSize: Theme.fontBody }
+    onEntriesChanged: {
+        var longest = 0
+        for (var i = 0; i < entries.length; i++) {
+            entryMetrics.text = entries[i].title
+            longest = Math.max(longest, entryMetrics.advanceWidth)
+        }
+        // dot marker + row padding + popup padding
+        contentNeed = longest + 14 + Theme.spacing * 3 + 8
+    }
+    width: Math.min(400, Math.max(180, contentNeed))
     padding: 4
 
     background: Rectangle {
@@ -56,7 +70,9 @@ Popup {
             }
             Row {
                 anchors.left: parent.left
+                anchors.right: parent.right
                 anchors.leftMargin: Theme.spacing
+                anchors.rightMargin: Theme.spacing
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 8
                 Rectangle {
@@ -67,9 +83,12 @@ Popup {
                 }
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
+                    width: parent.width - (active ? 14 : 0)
                     text: modelData.title
                     color: active ? Theme.text : Theme.textDim
                     font.pixelSize: Theme.fontBody
+                    elide: Text.ElideRight
+                    maximumLineCount: 1
                 }
             }
         }

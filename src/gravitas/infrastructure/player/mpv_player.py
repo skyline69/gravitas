@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import locale
+from collections import Counter
 from collections.abc import Callable
 from typing import Any
 
@@ -34,12 +35,148 @@ def _default_factory() -> Any:
     )
 
 
+# ISO 639-1 and common 639-2 codes -> display names. Containers carry either.
+_LANG_NAMES = {
+    "en": "English",
+    "eng": "English",
+    "de": "German",
+    "ger": "German",
+    "deu": "German",
+    "fr": "French",
+    "fre": "French",
+    "fra": "French",
+    "es": "Spanish",
+    "spa": "Spanish",
+    "it": "Italian",
+    "ita": "Italian",
+    "pt": "Portuguese",
+    "por": "Portuguese",
+    "ru": "Russian",
+    "rus": "Russian",
+    "ja": "Japanese",
+    "jpn": "Japanese",
+    "ko": "Korean",
+    "kor": "Korean",
+    "zh": "Chinese",
+    "chi": "Chinese",
+    "zho": "Chinese",
+    "ar": "Arabic",
+    "ara": "Arabic",
+    "hi": "Hindi",
+    "hin": "Hindi",
+    "tr": "Turkish",
+    "tur": "Turkish",
+    "pl": "Polish",
+    "pol": "Polish",
+    "nl": "Dutch",
+    "dut": "Dutch",
+    "nld": "Dutch",
+    "sv": "Swedish",
+    "swe": "Swedish",
+    "no": "Norwegian",
+    "nor": "Norwegian",
+    "da": "Danish",
+    "dan": "Danish",
+    "fi": "Finnish",
+    "fin": "Finnish",
+    "cs": "Czech",
+    "cze": "Czech",
+    "ces": "Czech",
+    "el": "Greek",
+    "gre": "Greek",
+    "ell": "Greek",
+    "he": "Hebrew",
+    "heb": "Hebrew",
+    "hu": "Hungarian",
+    "hun": "Hungarian",
+    "ro": "Romanian",
+    "rum": "Romanian",
+    "ron": "Romanian",
+    "uk": "Ukrainian",
+    "ukr": "Ukrainian",
+    "th": "Thai",
+    "tha": "Thai",
+    "vi": "Vietnamese",
+    "vie": "Vietnamese",
+    "id": "Indonesian",
+    "ind": "Indonesian",
+    "fa": "Persian",
+    "per": "Persian",
+    "fas": "Persian",
+    "bg": "Bulgarian",
+    "bul": "Bulgarian",
+    "hr": "Croatian",
+    "hrv": "Croatian",
+    "sr": "Serbian",
+    "srp": "Serbian",
+    "sk": "Slovak",
+    "slo": "Slovak",
+    "slk": "Slovak",
+    "sl": "Slovenian",
+    "slv": "Slovenian",
+    "lt": "Lithuanian",
+    "lit": "Lithuanian",
+    "lv": "Latvian",
+    "lav": "Latvian",
+    "et": "Estonian",
+    "est": "Estonian",
+    "ca": "Catalan",
+    "cat": "Catalan",
+    "ms": "Malay",
+    "may": "Malay",
+    "msa": "Malay",
+    "ta": "Tamil",
+    "tam": "Tamil",
+    "te": "Telugu",
+    "tel": "Telugu",
+}
+
+_CHANNEL_LABELS = {1: "Mono", 2: "Stereo", 6: "5.1", 8: "7.1"}
+
+
+def _lang_name(code: object) -> str:
+    """'en' -> 'English', 'fr-CA' -> 'French (CA)'; unknown codes pass through."""
+    if not isinstance(code, str) or not code:
+        return ""
+    base, _, region = code.partition("-")
+    name = _LANG_NAMES.get(base.lower())
+    if name is None:
+        return code
+    return f"{name} ({region.upper()})" if region else name
+
+
 def _track_label(track: dict[str, Any]) -> str:
-    lang = track.get("lang")
-    title = track.get("title")
-    if lang and title:
-        return f"{lang} · {title}"
-    return str(title or lang or f"Track {track['id']}")
+    lang = _lang_name(track.get("lang"))
+    title = str(track.get("title") or "")
+    if title and lang and lang.split(" (")[0].lower() in title.lower():
+        # The title already names the language ("English (United States)") —
+        # prefixing the code again is noise.
+        parts = [title]
+    elif title and lang:
+        parts = [lang, title]
+    elif title or lang:
+        parts = [title or lang]
+    else:
+        parts = [f"Track {track['id']}"]
+    if track.get("type") == "audio":
+        count = track.get("demux-channel-count")
+        if isinstance(count, int) and count:
+            channels = _CHANNEL_LABELS.get(count, f"{count}ch")
+            if channels.lower() not in " ".join(parts).lower():
+                parts.append(channels)
+    label = " · ".join(parts)
+    flags = [
+        name
+        for key, name in (
+            ("forced", "Forced"),
+            ("hearing-impaired", "SDH"),
+            ("visual-impaired", "AD"),
+        )
+        if track.get(key)
+    ]
+    if flags:
+        label += " — " + ", ".join(flags)
+    return label
 
 
 class MpvPlayer:
@@ -125,7 +262,18 @@ class MpvPlayer:
         for track in self._mpv.track_list:
             if track.get("type") == kind:
                 tracks.append((int(track["id"]), _track_label(track)))
-        return tracks
+        # Identically-labelled tracks (same language, no distinguishing
+        # metadata) get an index so the menu rows aren't interchangeable.
+        counts = Counter(label for _, label in tracks)
+        seen: Counter[str] = Counter()
+        deduped: list[tuple[int, str]] = []
+        for tid, label in tracks:
+            if counts[label] > 1:
+                seen[label] += 1
+                deduped.append((tid, f"{label} · #{seen[label]}"))
+            else:
+                deduped.append((tid, label))
+        return deduped
 
     # --- callbacks / renderer ---
 
