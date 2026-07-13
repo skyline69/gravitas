@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Qt5Compat.GraphicalEffects
 import "components"
 
 Item {
@@ -44,6 +45,15 @@ Item {
         radius: Theme.radius * 2
         border.width: 1
         border.color: Theme.borderStrong
+        // Soft shadow sells the float once posters slide underneath.
+        layer.enabled: true
+        layer.effect: DropShadow {
+            transparentBorder: true
+            radius: 24
+            samples: 25
+            verticalOffset: 4
+            color: "#66000000"
+        }
 
         RowLayout {
             id: controls
@@ -197,10 +207,11 @@ Item {
         maximumFlickVelocity: 12000
         flickDeceleration: 8000
         anchors.fill: parent
-        // First row starts below the floating bar; content scrolls under it.
-        anchors.topMargin: bar.y + bar.height + 12
         anchors.leftMargin: 24
         anchors.bottomMargin: 24
+        // Content inset (not an anchor margin): the first row rests below the
+        // floating bar, but scrolled posters slide underneath it.
+        topMargin: bar.y + bar.height + 12
         // Distribute the leftover width among the columns instead of leaving
         // a dead strip on the right: as many 180px columns as fit, each cell
         // widened to an equal share (the card centres itself in the cell).
