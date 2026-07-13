@@ -13,8 +13,6 @@ Button {
 
     implicitHeight: Theme.controlHeight
     padding: Theme.spacing * 1.5
-    scale: control.pressed ? 0.96 : 1.0
-    Behavior on scale { NumberAnimation { duration: Theme.durFast; easing.type: Easing.OutCubic } }
 
     HoverHandler { cursorShape: Qt.PointingHandCursor }
 
@@ -34,23 +32,27 @@ Button {
     contentItem: Item {
         implicitWidth: row.implicitWidth
         implicitHeight: row.implicitHeight
+        // Press feedback scales only the content, so the background + its 1px
+        // border stay crisp (scaling the whole button splits the antialiased
+        // border into a doubled edge on the vertical sides).
+        scale: control.pressed ? 0.96 : 1.0
+        Behavior on scale { NumberAnimation { duration: Theme.durFast; easing.type: Easing.OutCubic } }
         Row {
             id: row
             anchors.centerIn: parent
             spacing: (control.iconGlyph.length && control.text.length) ? Theme.spacing / 2 : 0
             AppIcon {
+                // Material Symbols glyphs are em-centered, so no optical nudge
+                // is needed — center on the row directly.
                 anchors.verticalCenter: parent.verticalCenter
-                // Icon glyphs are centered on their line box, but adjacent text
-                // sits lower (baseline/x-height), so nudge the icon down a hair
-                // to optically align with the label.
-                anchors.verticalCenterOffset: Math.round(Theme.fontBody * 0.1)
                 visible: control.iconGlyph.length > 0
                 glyph: control.iconGlyph
                 color: Theme.text
                 font.pixelSize: Theme.fontBody
-                // Pronounced press feedback on the glyph itself (on top of the
-                // button's own scale), so icon-only buttons read as "pressed".
-                scale: control.pressed ? 0.9 : 1.0
+                // Extra glyph-shrink press feedback ONLY for icon-only buttons;
+                // labeled buttons already scale uniformly, so shrinking just the
+                // icon there would desync it from the label.
+                scale: (control.pressed && control.text.length === 0) ? 0.9 : 1.0
                 Behavior on scale { NumberAnimation { duration: Theme.durFast; easing.type: Easing.OutCubic } }
             }
             Text {
