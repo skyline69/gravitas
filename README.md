@@ -12,6 +12,12 @@ A memory-efficient, Linux-first desktop media center — an alternative to Strem
 - **No torrent engine** — plays direct URLs only. Torrents are handled upstream, either by the addon itself or (planned) by debrid services (Real-Debrid, AllDebrid, TorBox, Premiumize, …).
 - **Clean, memory-conscious architecture** — native Qt rendering, async I/O, far lighter than Electron-based clients.
 
+## Current State
+
+<img width="1392" height="932" alt="Demo 1" src="https://github.com/user-attachments/assets/98d557b0-35f3-4886-a3e9-0774f745781e" />
+
+<img width="1392" height="932" alt="Demo 2" src="https://github.com/user-attachments/assets/0d93480a-9899-4dc5-b269-38c5770f6ae6" />
+
 ## Requirements
 
 - Python ≥ 3.12
