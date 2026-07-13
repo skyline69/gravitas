@@ -36,6 +36,13 @@ ApplicationWindow {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         initialItem: homePage
+
+        // Tapping empty space clears keyboard focus (e.g. blurs a focused
+        // text field). Controls consume their own taps, so this only fires
+        // for otherwise-unhandled taps on empty areas.
+        TapHandler {
+            onTapped: stack.forceActiveFocus()
+        }
     }
 
     Component {

@@ -7,6 +7,10 @@ Button {
     property bool ghost: false
     property string iconGlyph: ""
 
+    // A mouse click should not leave the keyboard-focus ring behind; only
+    // Tab navigation shows it. StrongFocus (the default) grabs focus on click.
+    focusPolicy: Qt.TabFocus
+
     implicitHeight: Theme.controlHeight
     padding: Theme.spacing * 1.5
     scale: control.pressed ? 0.96 : 1.0

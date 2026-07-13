@@ -7,6 +7,9 @@ ComboBox {
     implicitHeight: Theme.controlHeight
     font.pixelSize: Theme.fontBody
 
+    // Don't retain the keyboard-focus ring after a mouse click; Tab only.
+    focusPolicy: Qt.TabFocus
+
     HoverHandler { cursorShape: Qt.PointingHandCursor }
 
     background: Rectangle {
