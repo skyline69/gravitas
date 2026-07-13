@@ -9,6 +9,11 @@ ApplicationWindow {
     title: "Gravitas"
     color: Theme.bg
 
+    // Neutral focus sink OUTSIDE the StackView's focus scope. Moving active
+    // focus here truly blurs a focused field; forcing focus onto the StackView
+    // (itself a FocusScope) would just re-delegate focus back to the field.
+    Item { id: focusSink }
+
     TopBar {
         id: topBar
         anchors.top: parent.top
@@ -39,9 +44,10 @@ ApplicationWindow {
 
         // Tapping empty space clears keyboard focus (e.g. blurs a focused
         // text field). Controls consume their own taps, so this only fires
-        // for otherwise-unhandled taps on empty areas.
+        // for otherwise-unhandled taps on empty areas. Focus goes to the
+        // window-level sink (not the StackView, which would bounce it back).
         TapHandler {
-            onTapped: stack.forceActiveFocus()
+            onTapped: focusSink.forceActiveFocus()
         }
     }
 
