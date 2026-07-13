@@ -126,3 +126,12 @@ def test_settings_qml_loads(qapp: object) -> None:
     component = QQmlComponent(engine, str(qml))
     obj = component.create()
     assert obj is not None, f"Settings.qml failed to load: {component.errorString()}"
+
+
+def test_search_context_properties_present(qapp: object) -> None:
+    from gravitas.main import DEFAULT_ADDON, build_app
+
+    _, engine = build_app(argv=[], default_addon_url=DEFAULT_ADDON)
+    ctx = engine.rootContext()
+    assert ctx.contextProperty("searchController") is not None
+    assert ctx.contextProperty("searchResultsModel") is not None

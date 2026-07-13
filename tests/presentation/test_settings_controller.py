@@ -54,3 +54,23 @@ async def test_remove_protected_emits_error(qapp: object) -> None:
     assert len(errors) == 1
     assert repo.installed() != []
     assert catalog.refresh_calls == 0
+
+
+class _KeyHolder:
+    key: str | None = None
+
+
+async def test_set_tmdb_key_updates_holder(qapp: object) -> None:
+    from gravitas.application.addon_repository import AddonRepository
+    from gravitas.application.uninstall_addon import UninstallAddon
+    from gravitas.presentation.controllers.settings_controller import SettingsController
+    from gravitas.presentation.models.addon_list_model import AddonListModel
+    from tests.application.test_addon_repository import FakeSource
+
+    repo = AddonRepository(FakeSource())
+    holder = _KeyHolder()
+    c = SettingsController(
+        UninstallAddon(repo), repo, AddonListModel(), FakeCatalogController(), holder
+    )
+    c.setTmdbKey("ABC")
+    assert holder.key == "ABC"

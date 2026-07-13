@@ -17,6 +17,10 @@ class _RefreshesCatalog(Protocol):
     async def load_catalog(self) -> None: ...
 
 
+class _KeyHolder(Protocol):
+    key: str | None
+
+
 class SettingsController(QObject):
     errorOccurred = Signal(str)
     addonsChanged = Signal()
@@ -27,12 +31,19 @@ class SettingsController(QObject):
         repo: AddonRepository,
         model: AddonListModel,
         catalog_controller: _RefreshesCatalog,
+        key_holder: _KeyHolder | None = None,
     ) -> None:
         super().__init__()
         self._uninstall = uninstall
         self._repo = repo
         self._model = model
         self._catalog_controller = catalog_controller
+        self._key_holder = key_holder
+
+    @Slot(str)
+    def setTmdbKey(self, key: str) -> None:
+        if self._key_holder is not None:
+            self._key_holder.key = key.strip() or None
 
     @Slot()
     def refreshAddons(self) -> None:

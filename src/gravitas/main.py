@@ -19,20 +19,25 @@ from gravitas.application.browse_board import BrowseBoard
 from gravitas.application.browse_catalog import BrowseCatalog
 from gravitas.application.get_detail import GetDetail
 from gravitas.application.install_addon import InstallAddon
+from gravitas.application.resolve_media_link import ResolveMediaLink
 from gravitas.application.resolve_stream import ResolveStream
+from gravitas.application.search_media import SearchMedia
 from gravitas.application.uninstall_addon import UninstallAddon
 from gravitas.domain.ports import MediaPlayer
 from gravitas.infrastructure.addons.client import AddonClient
+from gravitas.infrastructure.metadata.tmdb_resolver import TmdbResolver
 from gravitas.infrastructure.player.mpv_player import MpvPlayer
 from gravitas.presentation.controllers.addon_controller import AddonController
 from gravitas.presentation.controllers.catalog_controller import CatalogController
 from gravitas.presentation.controllers.detail_controller import DetailController
 from gravitas.presentation.controllers.discover_controller import DiscoverController
 from gravitas.presentation.controllers.player_controller import PlayerController
+from gravitas.presentation.controllers.search_controller import SearchController
 from gravitas.presentation.controllers.settings_controller import SettingsController
 from gravitas.presentation.models.addon_list_model import AddonListModel
 from gravitas.presentation.models.catalog_rows_model import CatalogRowsModel
 from gravitas.presentation.models.poster_grid_model import PosterGridModel
+from gravitas.presentation.models.search_results_model import SearchResultsModel
 from gravitas.presentation.models.stream_list_model import StreamListModel
 
 _QML_DIR = Path(__file__).parent / "presentation" / "qml"
@@ -62,6 +67,12 @@ def build_app(
     source = AddonClient(http)
     repo = AddonRepository(source)
 
+    class _TmdbKeyHolder:
+        key: str | None = None
+
+    tmdb_key = _TmdbKeyHolder()
+    tmdb_resolver = TmdbResolver(http, lambda: tmdb_key.key)
+
     rows_model = CatalogRowsModel()
     stream_model = StreamListModel()
 
@@ -74,10 +85,15 @@ def build_app(
     addon_controller = AddonController(install_addon, catalog_controller)
     addon_list_model = AddonListModel()
     settings_controller = SettingsController(
-        UninstallAddon(repo), repo, addon_list_model, catalog_controller
+        UninstallAddon(repo), repo, addon_list_model, catalog_controller, tmdb_key
     )
     # Keep the Settings list in sync after a user installs a new addon.
     addon_controller.addonInstalled.connect(lambda _name: settings_controller.refreshAddons())
+
+    search_results_model = SearchResultsModel()
+    search_controller = SearchController(
+        SearchMedia(repo), ResolveMediaLink(repo, tmdb_resolver), search_results_model
+    )
 
     engine = QQmlApplicationEngine()
 
@@ -100,6 +116,8 @@ def build_app(
     ctx.setContextProperty("discoverModel", discover_model)
     ctx.setContextProperty("settingsController", settings_controller)
     ctx.setContextProperty("addonListModel", addon_list_model)
+    ctx.setContextProperty("searchController", search_controller)
+    ctx.setContextProperty("searchResultsModel", search_results_model)
 
     async def bootstrap() -> None:
         # Install the default addon as protected (non-removable), then bring
@@ -126,10 +144,12 @@ def build_app(
         addon_controller,
         discover_controller,
         settings_controller,
+        search_controller,
         rows_model,
         discover_model,
         stream_model,
         addon_list_model,
+        search_results_model,
     )
     engine._gravitas_bootstrap = bootstrap  # type: ignore[attr-defined]
     engine._gravitas_http = http  # type: ignore[attr-defined]
