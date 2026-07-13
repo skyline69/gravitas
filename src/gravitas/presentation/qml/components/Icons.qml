@@ -13,4 +13,6 @@ QtObject {
     readonly property string pause: String.fromCharCode(0xe39e)
     readonly property string search: String.fromCharCode(0xe30c)
     readonly property string x: String.fromCharCode(0xe4f6)
+    readonly property string gear: String.fromCharCode(0xe270)
+    readonly property string trash: String.fromCharCode(0xe4a6)
 }
