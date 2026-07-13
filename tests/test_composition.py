@@ -135,3 +135,19 @@ def test_search_context_properties_present(qapp: object) -> None:
     ctx = engine.rootContext()
     assert ctx.contextProperty("searchController") is not None
     assert ctx.contextProperty("searchResultsModel") is not None
+
+
+def test_search_results_qml_loads(qapp: object) -> None:
+    from pathlib import Path
+
+    from PySide6.QtCore import QObject
+    from PySide6.QtQml import QQmlComponent, QQmlEngine
+
+    import gravitas.main as gmain
+
+    engine = QQmlEngine()
+    engine.rootContext().setContextProperty("searchResultsModel", QObject())
+    qml = Path(gmain.__file__).parent / "presentation" / "qml" / "SearchResults.qml"
+    component = QQmlComponent(engine, str(qml))
+    obj = component.create()
+    assert obj is not None, f"SearchResults.qml failed to load: {component.errorString()}"

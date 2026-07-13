@@ -27,7 +27,9 @@ ApplicationWindow {
         visible: {
             var it = stack.currentItem
             return it !== null
-                && (it.objectName === "homePage" || it.objectName === "settingsPage")
+                && (it.objectName === "homePage"
+                    || it.objectName === "settingsPage"
+                    || it.objectName === "searchResultsPage")
         }
         settingsActive: stack.currentItem !== null
             && stack.currentItem.objectName === "settingsPage"
@@ -38,6 +40,11 @@ ApplicationWindow {
         onOpenSettings: {
             if (stack.currentItem.objectName !== "settingsPage")
                 stack.push(settingsPage)
+        }
+        onOpenDetail: (type, id) => stack.push(detailPage, {mediaType: type, mediaId: id})
+        onOpenResults: {
+            if (stack.currentItem.objectName !== "searchResultsPage")
+                stack.push(searchResultsPage)
         }
     }
 
@@ -88,6 +95,13 @@ ApplicationWindow {
     Component {
         id: settingsPage
         Settings { onBack: stack.pop() }
+    }
+    Component {
+        id: searchResultsPage
+        SearchResults {
+            onOpenDetail: (type, id) => stack.push(detailPage, {mediaType: type, mediaId: id})
+            onBack: () => stack.pop()
+        }
     }
 
     Connections {

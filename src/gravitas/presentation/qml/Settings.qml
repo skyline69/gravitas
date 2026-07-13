@@ -96,6 +96,18 @@ Item {
             }
         }
 
+        // --- Metadata section ---
+        Text {
+            text: "Metadata"
+            color: Theme.textDim
+            font.pixelSize: Theme.fontBody
+        }
+        AppTextField {
+            width: parent.width
+            placeholderText: "TMDB API key (optional — needed to open TVDB links)"
+            onEditingFinished: settingsController.setTmdbKey(text)
+        }
+
         // --- About section ---
         Text {
             text: "About"

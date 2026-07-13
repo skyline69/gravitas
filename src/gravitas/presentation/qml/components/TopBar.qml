@@ -6,6 +6,8 @@ Rectangle {
     id: bar
     signal tabSelected(string mode)
     signal openSettings()
+    signal openDetail(string type, string id)
+    signal openResults()
     property string activeMode: "all"
     // True while the Settings page is showing: the gear lights up and the
     // content tabs drop their active highlight.
@@ -93,6 +95,13 @@ Rectangle {
                 }
             }
         }
+    }
+
+    SearchBar {
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.verticalCenter: parent.verticalCenter
+        onOpenDetail: (type, id) => bar.openDetail(type, id)
+        onOpenResults: bar.openResults()
     }
 
     AppButton {
