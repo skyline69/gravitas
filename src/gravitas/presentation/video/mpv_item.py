@@ -50,9 +50,13 @@ class _Renderer(QQuickFramebufferObject.Renderer):
         if self._ctx is None:
             return
         fbo = self.framebufferObject()
+        # block_for_target_time=False: never let mpv stall Qt's render thread
+        # waiting for the frame's presentation time — that wait shows up as
+        # UI-wide lag while video plays.
         self._ctx.render(
             flip_y=False,
             opengl_fbo={"fbo": int(fbo.handle()), "w": fbo.width(), "h": fbo.height()},
+            block_for_target_time=False,
         )
 
 

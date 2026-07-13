@@ -15,7 +15,11 @@ Item {
     property int currentSub: 0
     property bool controlsVisible: true
 
-    readonly property real dur: playerController ? playerController.duration : 0
+    // Polled (not bound): the duration property's change signal comes off
+    // mpv's event thread; polling alongside position guarantees the timeline
+    // range is right even if that delivery hiccups — a stale `to` of 1 made
+    // mid-timeline drags seek to the file's first second.
+    property real dur: 0
     readonly property bool isFullscreen: Window.window
         && Window.window.visibility === Window.FullScreen
 
@@ -96,7 +100,11 @@ Item {
         interval: 500
         running: true
         repeat: true
-        onTriggered: if (!timeline.pressed) timeline.value = playerController.position()
+        onTriggered: {
+            player.dur = playerController.duration
+            if (!timeline.pressed)
+                timeline.value = playerController.position()
+        }
     }
 
     MouseArea {
@@ -170,6 +178,9 @@ Item {
                 width: parent.width
                 from: 0
                 to: Math.max(1, player.dur)
+                // No drag-seeking before the duration is known — a 0..1 range
+                // would turn any drag into a seek to the first second.
+                enabled: player.dur > 0
                 onPressedChanged: {
                     if (!pressed) {
                         playerController.seek(value)
