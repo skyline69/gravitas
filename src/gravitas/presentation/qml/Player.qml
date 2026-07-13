@@ -64,13 +64,24 @@ Item {
         property real v: 100
         onVChanged: playerController.setVolume(v)
     }
+    // Fade to BLACK, not to transparency: dimming the page's own opacity
+    // blends the video toward the window background (reads as gray) because
+    // the underlying stack page isn't visible during the fade.
+    Rectangle {
+        id: blackout
+        z: 100
+        anchors.fill: parent
+        color: "black"
+        opacity: 0
+        visible: opacity > 0
+    }
     SequentialAnimation {
         id: exitAnim
         ParallelAnimation {
             NumberAnimation {
-                target: player
+                target: blackout
                 property: "opacity"
-                from: 1; to: 0
+                from: 0; to: 1
                 duration: 260
                 easing.type: Easing.OutCubic
             }
