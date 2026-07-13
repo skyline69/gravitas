@@ -200,7 +200,14 @@ Item {
             Column {
                 width: parent.width
                 spacing: 8
+                Text {
+                    visible: sourcesRep.count === 0
+                    text: "No sources available. Add a streaming addon to see sources."
+                    color: Theme.textDim
+                    font.pixelSize: Theme.fontSmall
+                }
                 Repeater {
+                    id: sourcesRep
                     model: streamModel
                     StreamRow {
                         width: content.width

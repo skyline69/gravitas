@@ -7,7 +7,7 @@ from qasync import asyncSlot  # type: ignore[import-untyped]
 
 from gravitas.application.get_detail import GetDetail
 from gravitas.application.resolve_stream import ResolveStream
-from gravitas.domain.errors import GravitasError
+from gravitas.domain.errors import GravitasError, NoStreams
 from gravitas.domain.models import MediaType, MetaDetail
 from gravitas.presentation.models.stream_list_model import StreamListModel
 
@@ -96,5 +96,9 @@ class DetailController(QObject):
             self._stream_model.set_streams([])
             streams = await self._resolve_stream(media_type, item_id)
             self._stream_model.set_streams(streams)
+        except NoStreams:
+            # a normal empty state (no stream addon configured, or none for
+            # this title) — leave Sources empty, don't raise a red error toast
+            pass
         except GravitasError as exc:
             self.errorOccurred.emit(str(exc))
