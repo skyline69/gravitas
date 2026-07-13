@@ -9,7 +9,7 @@ from pathlib import Path
 
 import httpx
 import qasync  # type: ignore[import-untyped]
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QFont, QFontDatabase, QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine
 from PySide6.QtQuick import QQuickWindow
 from PySide6.QtQuickControls2 import QQuickStyle
@@ -47,6 +47,13 @@ def build_app(
     # components would fall back to native rendering. Basic is fully
     # customizable. Must be set before any Controls type is instantiated.
     QQuickStyle.setStyle("Basic")
+
+    # Bundle a clean UI font (Inter) and make it the application default so
+    # every QML Text inherits it without per-component wiring.
+    font_id = QFontDatabase.addApplicationFont(str(_QML_DIR / "assets" / "Inter.ttf"))
+    families = QFontDatabase.applicationFontFamilies(font_id)
+    if families:
+        app.setFont(QFont(families[0]))
 
     http = httpx.AsyncClient()
     source = AddonClient(http)
