@@ -1,6 +1,7 @@
 from gravitas.domain.models import AddonManifest, MediaItem, Stream
 from gravitas.presentation.models.addon_list_model import AddonListModel
 from gravitas.presentation.models.poster_grid_model import PosterGridModel
+from gravitas.presentation.models.search_results_model import SearchResultsModel
 from gravitas.presentation.models.stream_list_model import StreamListModel
 
 
@@ -67,3 +68,13 @@ def test_addon_list_model_exposes_rows_and_removable(qapp: object) -> None:
     assert model.data(i0, AddonListModel.RemovableRole) is False
     i1 = model.index(1, 0)
     assert model.data(i1, AddonListModel.RemovableRole) is True
+
+
+def test_search_results_model_roles(qapp: object) -> None:
+    model = SearchResultsModel()
+    model.set_items([MediaItem(id="tt1", type="movie", name="A", poster="p", year="1999")])
+    i = model.index(0, 0)
+    assert model.data(i, SearchResultsModel.IdRole) == "tt1"
+    assert model.data(i, SearchResultsModel.NameRole) == "A"
+    assert model.data(i, SearchResultsModel.YearRole) == "1999"
+    assert model.data(i, SearchResultsModel.PosterRole) == "p"
