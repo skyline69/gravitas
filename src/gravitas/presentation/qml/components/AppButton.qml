@@ -15,6 +15,10 @@ Button {
         : tone === "negative" ? Theme.negative
         : tone === "accent" ? Theme.accent
         : Theme.text
+    // Persistent selected state (e.g. the gear while on the Settings page):
+    // resting colour wash + tinted content, like an active nav tab.
+    property bool selected: false
+    readonly property color selectedColor: tone !== "neutral" ? toneColor : Theme.accent
 
     // A mouse click should not leave the keyboard-focus ring behind; only
     // Tab navigation shows it. StrongFocus (the default) grabs focus on click.
@@ -53,11 +57,15 @@ Button {
         readonly property color pressWash: control.tone === "neutral"
             ? Theme.surfacePress
             : Qt.rgba(control.toneColor.r, control.toneColor.g, control.toneColor.b, 0.26)
+        readonly property color selectedWash: Qt.rgba(
+            control.selectedColor.r, control.selectedColor.g, control.selectedColor.b, 0.16)
         color: control.pressed
             ? pressWash
             : control.hovered
                 ? hoverWash
-                : (control.ghost ? "transparent" : Theme.surface)
+                : control.selected
+                    ? selectedWash
+                    : (control.ghost ? "transparent" : Theme.surface)
         border.width: control.activeFocus ? 2 : 0
         border.color: Theme.accent
         Behavior on color { ColorAnimation { duration: Theme.durFast } }
@@ -81,7 +89,7 @@ Button {
                 anchors.verticalCenter: parent.verticalCenter
                 visible: control.iconGlyph.length > 0
                 glyph: control.iconGlyph
-                color: control.toneColor
+                color: control.selected ? control.selectedColor : control.toneColor
                 Behavior on color { ColorAnimation { duration: Theme.durFast } }
                 font.pixelSize: Theme.fontBody
                 // Extra glyph-shrink press feedback ONLY for icon-only buttons;
@@ -94,7 +102,7 @@ Button {
                 anchors.verticalCenter: parent.verticalCenter
                 visible: control.text.length > 0
                 text: control.text
-                color: control.toneColor
+                color: control.selected ? control.selectedColor : control.toneColor
                 Behavior on color { ColorAnimation { duration: Theme.durFast } }
                 font.pixelSize: Theme.fontBody
                 verticalAlignment: Text.AlignVCenter

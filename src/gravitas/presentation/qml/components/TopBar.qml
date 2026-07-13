@@ -7,6 +7,9 @@ Rectangle {
     signal tabSelected(string mode)
     signal openSettings()
     property string activeMode: "all"
+    // True while the Settings page is showing: the gear lights up and the
+    // content tabs drop their active highlight.
+    property bool settingsActive: false
 
     height: 56
     color: Theme.surface
@@ -28,7 +31,7 @@ Rectangle {
             model: bar.tabs
             delegate: Item {
                 required property var modelData
-                readonly property bool active: bar.activeMode === modelData.mode
+                readonly property bool active: !bar.settingsActive && bar.activeMode === modelData.mode
                 readonly property color activeColor: modelData.color
                 width: 44
                 height: 36
@@ -94,6 +97,7 @@ Rectangle {
         ghost: true
         iconGlyph: Icons.gear
         tooltip: "Settings"
+        selected: bar.settingsActive
         anchors.right: parent.right
         anchors.rightMargin: 16
         anchors.verticalCenter: parent.verticalCenter

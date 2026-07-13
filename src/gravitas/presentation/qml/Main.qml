@@ -24,6 +24,8 @@ ApplicationWindow {
             return it !== null
                 && (it.objectName === "homePage" || it.objectName === "settingsPage")
         }
+        settingsActive: stack.currentItem !== null
+            && stack.currentItem.objectName === "settingsPage"
         onTabSelected: (mode) => {
             while (stack.depth > 1) stack.pop()
             catalogController.setFilter(mode)
