@@ -141,23 +141,8 @@ Item {
         Behavior on opacity { NumberAnimation { duration: Theme.durMed } }
 
         GravitasLoader {
-            id: loader
             anchors.centerIn: parent
             running: parent.visible
-        }
-        Text {
-            anchors.top: loader.bottom
-            anchors.topMargin: 20
-            anchors.horizontalCenter: parent.horizontalCenter
-            text: "Loading stream…"
-            color: Theme.textDim
-            font.pixelSize: Theme.fontBody
-            SequentialAnimation on opacity {
-                loops: Animation.Infinite
-                running: player.showLoader
-                NumberAnimation { from: 0.5; to: 1.0; duration: 900; easing.type: Easing.InOutQuad }
-                NumberAnimation { from: 1.0; to: 0.5; duration: 900; easing.type: Easing.InOutQuad }
-            }
         }
     }
 

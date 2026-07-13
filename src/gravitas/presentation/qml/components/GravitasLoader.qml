@@ -5,8 +5,8 @@ import "."
 // arc sweeping around it. Same language as AppSpinner, sized for the player.
 Item {
     id: root
-    width: 64
-    height: 64
+    width: 72
+    height: 72
     property bool running: visible
 
     // Static track ring.
@@ -15,8 +15,8 @@ Item {
         onPaint: {
             const ctx = getContext("2d")
             ctx.reset()
-            const r = Math.min(width, height) / 2 - 3
-            ctx.lineWidth = 4
+            const r = Math.min(width, height) / 2 - 4
+            ctx.lineWidth = 7
             ctx.strokeStyle = Qt.rgba(1, 1, 1, 0.14)
             ctx.beginPath()
             ctx.arc(width / 2, height / 2, r, 0, Math.PI * 2)
@@ -31,8 +31,8 @@ Item {
         onPaint: {
             const ctx = getContext("2d")
             ctx.reset()
-            const r = Math.min(width, height) / 2 - 3
-            ctx.lineWidth = 4
+            const r = Math.min(width, height) / 2 - 4
+            ctx.lineWidth = 7
             ctx.lineCap = "round"
             ctx.strokeStyle = Theme.accent
             ctx.beginPath()
