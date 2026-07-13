@@ -86,6 +86,23 @@ def test_parse_streams_direct_and_torrent() -> None:
     assert streams[1].file_idx == 2
 
 
+def test_parse_streams_cleans_display_text() -> None:
+    data = {
+        "streams": [
+            {
+                "name": "Torrentio\n4K",
+                "title": "Movie.2160p.Remux\n\U0001f464 92 ⚙️‍ TG \U0001f1e9\U0001f1ea",
+                "url": "http://s/v.mkv",
+            }
+        ]
+    }
+    stream = parse_streams(data)[0]
+    assert stream.name == "Torrentio 4K"
+    # newlines collapsed; ZWJ/variation-selector/flag chars stripped,
+    # renderable emoji kept
+    assert stream.title == "Movie.2160p.Remux \U0001f464 92 ⚙ TG"
+
+
 def test_parse_manifest_reads_modern_extra() -> None:
     data = {
         "id": "x",

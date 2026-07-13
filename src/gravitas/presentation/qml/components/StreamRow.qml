@@ -13,8 +13,27 @@ Rectangle {
     Column {
         anchors.verticalCenter: parent.verticalCenter
         anchors.left: parent.left; anchors.leftMargin: 12
-        Text { text: root.name; color: Theme.text; font.bold: true }
-        Text { text: root.subtitle; color: Theme.textDim; font.pixelSize: Theme.fontSmall }
+        anchors.right: parent.right; anchors.rightMargin: 12
+        // Addon-supplied labels: hard-cap to one elided line each so a rogue
+        // multi-line name can't overflow the fixed row height.
+        Text {
+            width: parent.width
+            text: root.name
+            color: Theme.text
+            font.bold: true
+            elide: Text.ElideRight
+            maximumLineCount: 1
+            textFormat: Text.PlainText
+        }
+        Text {
+            width: parent.width
+            text: root.subtitle
+            color: Theme.textDim
+            font.pixelSize: Theme.fontSmall
+            elide: Text.ElideRight
+            maximumLineCount: 1
+            textFormat: Text.PlainText
+        }
     }
     MouseArea { id: mouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.clicked() }
 }

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, get_args
 from urllib.parse import quote
 
@@ -165,6 +166,18 @@ def parse_meta(data: dict[str, Any]) -> MetaDetail:
     )
 
 
+# Zero-width joiners, variation selectors, and regional-indicator (flag)
+# pairs: no font in a typical fallback chain covers them, so Qt's FreeType
+# engine spams "load glyph failed ... glyph=65535" for every frame they are
+# on screen. Torrent addons pack all three into stream titles.
+_UNRENDERABLE = re.compile("[\u200d\ufe0f\U0001f1e6-\U0001f1ff]")
+
+
+def _clean_stream_text(value: str) -> str:
+    """Single-line, renderable display text for addon-supplied stream labels."""
+    return " ".join(_UNRENDERABLE.sub("", value).split())
+
+
 def parse_streams(data: dict[str, Any]) -> list[Stream]:
     raw_streams = data.get("streams")
     if not isinstance(raw_streams, list):
@@ -173,8 +186,8 @@ def parse_streams(data: dict[str, Any]) -> list[Stream]:
     for raw in raw_streams:
         streams.append(
             Stream(
-                name=str(raw.get("name", "")),
-                title=str(raw.get("title", raw.get("name", ""))),
+                name=_clean_stream_text(str(raw.get("name", ""))),
+                title=_clean_stream_text(str(raw.get("title", raw.get("name", "")))),
                 url=raw.get("url"),
                 info_hash=raw.get("infoHash"),
                 file_idx=raw.get("fileIdx"),
