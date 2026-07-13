@@ -120,6 +120,14 @@ ApplicationWindow {
         Detail {
             onPlayUrl: (url) => stack.push(playerPage, {url: url})
             onBack: () => stack.pop()
+            onOpenSources: stack.push(sourcesPage)
+        }
+    }
+    Component {
+        id: sourcesPage
+        Sources {
+            onPlayUrl: (url) => stack.push(playerPage, {url: url})
+            onBack: () => stack.pop()
         }
     }
     Component {

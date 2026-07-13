@@ -1,0 +1,80 @@
+import QtQuick
+import QtQuick.Controls
+import "components"
+
+// Stream picker for one episode, pushed from the series Detail page.
+Item {
+    id: sources
+    objectName: "sourcesPage"
+    signal playUrl(string url)
+    signal back()
+
+    Rectangle { anchors.fill: parent; color: Theme.bg }
+
+    Column {
+        id: header
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.margins: 24
+        spacing: 16
+
+        Row {
+            spacing: 12
+            AppButton {
+                ghost: true
+                iconGlyph: Icons.arrowLeft
+                tooltip: "Back"
+                onClicked: sources.back()
+            }
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: detailController ? detailController.sourcesLabel : "Sources"
+                color: Theme.text
+                font.pixelSize: Theme.fontTitle
+                font.bold: true
+                elide: Text.ElideRight
+            }
+            AppSpinner {
+                anchors.verticalCenter: parent.verticalCenter
+                width: 18; height: 18
+                running: detailController ? detailController.streamsLoading : false
+            }
+        }
+
+        Text {
+            visible: list.count === 0
+                && !(detailController && detailController.streamsLoading)
+            text: "No sources available. Add a streaming addon to see sources."
+            color: Theme.textDim
+            font.pixelSize: Theme.fontSmall
+        }
+    }
+
+    ListView {
+        id: list
+        anchors.top: header.bottom
+        anchors.topMargin: 16
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.leftMargin: 24
+        anchors.rightMargin: 24
+        anchors.bottomMargin: 24
+        spacing: 8
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        ScrollBar.vertical: AppScrollBar {}
+        model: streamModel
+        delegate: StreamRow {
+            width: list.width
+            name: model.name
+            subtitle: model.title
+            onClicked: if (model.url) sources.playUrl(model.url)
+        }
+        // Rows pop in as the resolve finishes.
+        add: Transition {
+            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durMed }
+        }
+    }
+}

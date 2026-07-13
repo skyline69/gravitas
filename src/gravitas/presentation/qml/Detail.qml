@@ -9,6 +9,7 @@ Item {
     property string mediaId
     signal playUrl(string url)
     signal back()
+    signal openSources()
 
     onMediaIdChanged: if (mediaId.length) detailController.load(mediaType, mediaId)
 
@@ -237,19 +238,26 @@ Item {
                             released: model.released
                             active: detailController
                                 && detailController.selectedEpisodeId === model.videoId
-                            onClicked: detailController.selectEpisode(
-                                model.videoId, model.season, model.episode, model.title)
+                            onClicked: {
+                                detailController.selectEpisode(
+                                    model.videoId, model.season, model.episode, model.title)
+                                detail.openSources()
+                            }
                         }
                     }
                 }
             }
 
-            // sources
+            // sources — inline for movies only; episode sources open on their
+            // own page (pushed when an episode row is clicked)
+            readonly property bool inlineSources:
+                !(detail.mediaType === "series" && episodesRep.count > 0)
             Row {
                 spacing: 12
+                visible: content.inlineSources
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: detailController ? detailController.sourcesLabel : "Sources"
+                    text: "Sources"
                     color: Theme.text
                     font.pixelSize: 20
                 }
@@ -262,16 +270,11 @@ Item {
             Column {
                 width: parent.width
                 spacing: 8
+                visible: content.inlineSources
                 Text {
                     visible: sourcesRep.count === 0
                         && !(detailController && detailController.streamsLoading)
-                    text: {
-                        var isSeries = detail.mediaType === "series"
-                        var picked = detailController && detailController.selectedEpisodeId.length > 0
-                        if (isSeries && episodesRep.count > 0 && !picked)
-                            return "Pick an episode to see sources."
-                        return "No sources available. Add a streaming addon to see sources."
-                    }
+                    text: "No sources available. Add a streaming addon to see sources."
                     color: Theme.textDim
                     font.pixelSize: Theme.fontSmall
                 }
