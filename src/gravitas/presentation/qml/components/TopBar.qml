@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import Qt5Compat.GraphicalEffects
 import "."
 
 Rectangle {
@@ -18,6 +19,15 @@ Rectangle {
     radius: Theme.radius * 2
     border.width: 1
     border.color: Theme.borderStrong
+    // Same soft shadow as the Discover bar: content scrolls underneath both.
+    layer.enabled: true
+    layer.effect: DropShadow {
+        transparentBorder: true
+        radius: 24
+        samples: 25
+        verticalOffset: 4
+        color: "#66000000"
+    }
 
     readonly property var tabs: [
         { label: "All", mode: "all", icon: Icons.dashboard, color: Theme.accent },
