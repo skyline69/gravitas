@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Protocol
 
 from PySide6.QtCore import QObject, QTimer, Signal, Slot
@@ -15,6 +16,10 @@ from gravitas.presentation.models.search_results_model import SearchResultsModel
 
 class _Search(Protocol):
     async def __call__(self, query: str) -> list[MediaItem]: ...
+
+
+class _SearchStream(Protocol):
+    def __call__(self, query: str) -> AsyncIterator[list[MediaItem]]: ...
 
 
 class _Resolve(Protocol):
@@ -32,18 +37,21 @@ class SearchController(QObject):
         resolve: _Resolve,
         model: SearchResultsModel,
         page_model: SearchResultsModel | None = None,
+        search_stream: _SearchStream | None = None,
     ) -> None:
         super().__init__()
         self._search = search
         self._resolve = resolve
         self._model = model
         self._page_model = page_model
+        self._search_stream = search_stream
+        self._cache: dict[str, list[MediaItem]] = {}
         self._pending = ""
         self._req = 0
         self._last_items: list[MediaItem] = []
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
-        self._timer.setInterval(350)
+        self._timer.setInterval(180)
         self._timer.timeout.connect(self._fire)
 
     @Slot(str)
@@ -85,17 +93,40 @@ class SearchController(QObject):
         try:
             link = parse_media_link(text)
             if link is not None:
-                items = [await self._resolve(link[0], link[1])]
+                self._commit([await self._resolve(link[0], link[1])], req)
+                return
+            key = text.lower()
+            cached = self._cache.get(key)
+            if cached is not None:
+                self._commit(cached, req)  # instant on repeats
+                return
+            if self._search_stream is not None:
+                # Stream: show each addon's results the moment they arrive.
+                acc: list[MediaItem] = []
+                async for batch in self._search_stream(text):
+                    if req != self._req:
+                        return
+                    acc = acc + batch
+                    self._commit(acc, req)
+                self._store_cache(key, acc)
             else:
                 items = await self._search(text)
+                self._store_cache(key, items)
+                self._commit(items, req)
         except GravitasError as exc:
             if req == self._req:
                 self.errorOccurred.emit(str(exc))
-            return
         finally:
             if req == self._req:
                 self.loadingChanged.emit(False)
+
+    def _commit(self, items: list[MediaItem], req: int) -> None:
         if req == self._req:
             self._last_items = items
             self._model.set_items(items)
             self.resultsChanged.emit()
+
+    def _store_cache(self, key: str, items: list[MediaItem]) -> None:
+        self._cache[key] = items
+        if len(self._cache) > 128:
+            self._cache.pop(next(iter(self._cache)))

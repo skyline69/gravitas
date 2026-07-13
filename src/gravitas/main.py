@@ -97,6 +97,7 @@ def build_app(
         ResolveMediaLink(repo, tmdb_resolver),
         search_results_model,
         search_page_model,
+        repo.search_stream,
     )
 
     engine = QQmlApplicationEngine()

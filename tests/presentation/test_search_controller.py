@@ -73,3 +73,36 @@ async def test_commit_to_page_snapshots(qapp: object) -> None:
     assert page.rowCount() == 0  # not committed yet
     c.commitToPage()
     assert page.rowCount() == 1
+
+
+class _FakeStream:
+    def __init__(self, batches: list[list[MediaItem]]) -> None:
+        self._batches = batches
+        self.calls: list[str] = []
+
+    async def __call__(self, query: str):  # async generator
+        self.calls.append(query)
+        for batch in self._batches:
+            yield batch
+
+
+async def test_streaming_accumulates_batches(qapp: object) -> None:
+    a = MediaItem(id="tt1", type="movie", name="A", poster=None)
+    b = MediaItem(id="tt2", type="movie", name="B", poster=None)
+    model = SearchResultsModel()
+    stream = _FakeStream([[a], [b]])
+    c = SearchController(_FakeSearch([]), _FakeResolve(a), model, None, stream)
+    await c._perform("matrix")
+    assert stream.calls == ["matrix"]
+    assert model.rowCount() == 2  # accumulated across both batches
+
+
+async def test_cache_hit_skips_second_search(qapp: object) -> None:
+    a = MediaItem(id="tt1", type="movie", name="A", poster=None)
+    model = SearchResultsModel()
+    stream = _FakeStream([[a]])
+    c = SearchController(_FakeSearch([]), _FakeResolve(a), model, None, stream)
+    await c._perform("matrix")
+    await c._perform("matrix")  # second call served from cache
+    assert stream.calls == ["matrix"]  # stream invoked only once
+    assert model.rowCount() == 1

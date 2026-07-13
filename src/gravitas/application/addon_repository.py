@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections import Counter
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 from gravitas.domain.errors import AddonRemovalError, AddonUnreachable, GravitasError
@@ -73,27 +75,73 @@ class AddonRepository:
         return await self._source.fetch_catalog(manifest, ref, genre=genre, skip=skip)
 
     async def search(self, query: str) -> list[MediaItem]:
-        # Aggregate across every searchable catalog of every installed addon,
-        # fault-isolated per addon; dedup by id (keep first); cap the total.
+        # Query every searchable catalog of every installed addon CONCURRENTLY
+        # (latency = the slowest single request, not the sum), fault-isolated
+        # per catalog. Then merge in catalog order, dedup by id, cap the total.
+        targets = [
+            (manifest, ref)
+            for manifest in self._manifests
+            for ref in manifest.catalogs
+            if ref.supports_search
+        ]
+        if not targets:
+            return []
+        results = await asyncio.gather(
+            *(self._search_one(manifest, ref, query) for manifest, ref in targets)
+        )
         collected: list[MediaItem] = []
         seen: set[str] = set()
-        for manifest in self._manifests:
-            for ref in manifest.catalogs:
-                if not ref.supports_search:
+        for items in results:
+            for item in items:
+                if item.id in seen:
                     continue
-                try:
-                    items = await self._source.fetch_catalog(manifest, ref, search=query)
-                except GravitasError as exc:
-                    _log.warning("search failed for %s/%s: %s", manifest.id, ref.id, exc)
-                    continue
-                for item in items:
-                    if item.id in seen:
-                        continue
-                    seen.add(item.id)
-                    collected.append(item)
-                    if len(collected) >= 60:
-                        return collected
+                seen.add(item.id)
+                collected.append(item)
+                if len(collected) >= 60:
+                    return collected
         return collected
+
+    async def _search_one(
+        self, manifest: AddonManifest, ref: CatalogRef, query: str
+    ) -> list[MediaItem]:
+        try:
+            return await self._source.fetch_catalog(manifest, ref, search=query)
+        except GravitasError as exc:
+            _log.warning("search failed for %s/%s: %s", manifest.id, ref.id, exc)
+            return []
+
+    async def search_stream(self, query: str) -> AsyncIterator[list[MediaItem]]:
+        # Same as search(), but yields each catalog's fresh (deduped) items as
+        # soon as that request completes — so the UI can show the fastest
+        # addon's results without waiting for the slowest. Order is completion
+        # order, not catalog order.
+        targets = [
+            (manifest, ref)
+            for manifest in self._manifests
+            for ref in manifest.catalogs
+            if ref.supports_search
+        ]
+        if not targets:
+            return
+        seen: set[str] = set()
+        total = 0
+        for coro in asyncio.as_completed(
+            [self._search_one(manifest, ref, query) for manifest, ref in targets]
+        ):
+            items = await coro
+            fresh: list[MediaItem] = []
+            for item in items:
+                if item.id in seen:
+                    continue
+                seen.add(item.id)
+                fresh.append(item)
+                total += 1
+                if total >= 60:
+                    break
+            if fresh:
+                yield fresh
+            if total >= 60:
+                return
 
     async def meta(self, type: MediaType, id: str) -> MetaDetail:
         # Try each metadata-capable addon in install order; the first that
