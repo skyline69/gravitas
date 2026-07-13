@@ -6,7 +6,7 @@ import logging
 from collections import Counter
 from dataclasses import dataclass
 
-from gravitas.domain.errors import AddonUnreachable, GravitasError
+from gravitas.domain.errors import AddonRemovalError, AddonUnreachable, GravitasError
 from gravitas.domain.models import (
     AddonManifest,
     CatalogRef,
@@ -33,15 +33,29 @@ class AddonRepository:
     def __init__(self, source: AddonSource) -> None:
         self._source = source
         self._manifests: list[AddonManifest] = []
+        self._protected: set[str] = set()
 
-    async def install(self, url: str) -> AddonManifest:
+    async def install(self, url: str, *, protected: bool = False) -> AddonManifest:
         manifest = await self._source.fetch_manifest(url)
         self._manifests = [m for m in self._manifests if m.id != manifest.id]
         self._manifests.append(manifest)
+        if protected:
+            self._protected.add(manifest.id)
         return manifest
 
     def installed(self) -> list[AddonManifest]:
         return list(self._manifests)
+
+    def uninstall(self, addon_id: str) -> None:
+        if addon_id in self._protected:
+            raise AddonRemovalError(f"{addon_id} is protected and cannot be removed")
+        remaining = [m for m in self._manifests if m.id != addon_id]
+        if len(remaining) == len(self._manifests):
+            raise AddonRemovalError(f"no installed addon with id {addon_id}")
+        self._manifests = remaining
+
+    def is_protected(self, addon_id: str) -> bool:
+        return addon_id in self._protected
 
     def catalog_refs(self) -> list[tuple[AddonManifest, CatalogRef]]:
         return [(m, ref) for m in self._manifests for ref in m.catalogs]

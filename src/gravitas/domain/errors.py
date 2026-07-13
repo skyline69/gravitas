@@ -21,5 +21,9 @@ class NoStreams(GravitasError):
     """No playable streams were returned for an item."""
 
 
+class AddonRemovalError(GravitasError):
+    """An addon could not be removed (protected default, or not installed)."""
+
+
 class PlaybackFailed(GravitasError):
     """The media player failed to start or continue playback."""

@@ -1,5 +1,7 @@
+import pytest
+
 from gravitas.application.addon_repository import AddonRepository
-from gravitas.domain.errors import AddonUnreachable
+from gravitas.domain.errors import AddonRemovalError, AddonUnreachable
 from gravitas.domain.models import (
     AddonManifest,
     CatalogRef,
@@ -198,7 +200,33 @@ async def test_meta_raises_when_no_meta_addon() -> None:
 
     repo = AddonRepository(StreamOnly())
     await repo.install("https://a/")
-    import pytest
-
     with pytest.raises(AddonUnreachable):
         await repo.meta("movie", "tt1")
+
+
+async def test_uninstall_removes_manifest() -> None:
+    repo = AddonRepository(FakeSource())
+    manifest = await repo.install("https://a/")
+    repo.uninstall(manifest.id)
+    assert repo.installed() == []
+
+
+async def test_uninstall_protected_raises() -> None:
+    repo = AddonRepository(FakeSource())
+    manifest = await repo.install("https://a/", protected=True)
+    assert repo.is_protected(manifest.id) is True
+    with pytest.raises(AddonRemovalError):
+        repo.uninstall(manifest.id)
+    assert repo.installed() != []
+
+
+async def test_uninstall_absent_raises() -> None:
+    repo = AddonRepository(FakeSource())
+    with pytest.raises(AddonRemovalError):
+        repo.uninstall("nope")
+
+
+async def test_install_default_not_protected() -> None:
+    repo = AddonRepository(FakeSource())
+    manifest = await repo.install("https://a/")
+    assert repo.is_protected(manifest.id) is False
