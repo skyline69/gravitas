@@ -12,10 +12,10 @@ Rectangle {
     color: Theme.surface
 
     readonly property var tabs: [
-        { label: "All", mode: "all", icon: Icons.dashboard },
-        { label: "Movies", mode: "movie", icon: Icons.theaters },
-        { label: "Series", mode: "series", icon: Icons.liveTv },
-        { label: "Trending", mode: "trending", icon: Icons.fire }
+        { label: "All", mode: "all", icon: Icons.dashboard, color: Theme.accent },
+        { label: "Movies", mode: "movie", icon: Icons.theaters, color: "#3B82F6" },
+        { label: "Series", mode: "series", icon: Icons.liveTv, color: "#22C55E" },
+        { label: "Trending", mode: "trending", icon: Icons.fire, color: "#F97316" }
     ]
 
     Row {
@@ -28,14 +28,18 @@ Rectangle {
             model: bar.tabs
             delegate: Item {
                 required property var modelData
+                readonly property bool active: bar.activeMode === modelData.mode
+                readonly property color activeColor: modelData.color
                 width: 44
                 height: 36
 
                 Rectangle {
                     anchors.fill: parent
                     radius: Theme.radius
-                    color: bar.activeMode === modelData.mode
-                        ? Theme.surfacePress
+                    // Active tab gets a faint wash of its own accent colour;
+                    // hover is the neutral surface highlight.
+                    color: active
+                        ? Qt.rgba(activeColor.r, activeColor.g, activeColor.b, 0.16)
                         : (tabHover.hovered ? Theme.surfaceHover : "transparent")
                     Behavior on color { ColorAnimation { duration: Theme.durFast } }
                 }
@@ -43,7 +47,8 @@ Rectangle {
                     anchors.centerIn: parent
                     glyph: modelData.icon
                     font.pixelSize: Theme.fontTitle
-                    color: bar.activeMode === modelData.mode ? Theme.accent : Theme.text
+                    color: active ? activeColor : Theme.text
+                    Behavior on color { ColorAnimation { duration: Theme.durFast } }
                 }
                 HoverHandler {
                     id: tabHover
