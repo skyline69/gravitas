@@ -63,6 +63,11 @@ class PlayerController(QObject):
         observing time-pos, which fires many times a second."""
         return self._player.position() if self._player is not None else 0.0
 
+    @Slot(result=bool)
+    def isLoading(self) -> bool:
+        """Polled with position: buffering or mid-seek."""
+        return self._player.is_loading() if self._player is not None else False
+
     # --- renderer bridge ---
 
     @Slot(QObject)

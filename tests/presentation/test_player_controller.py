@@ -11,6 +11,7 @@ class FakePlayer:
         self.aud: int | None = -1
         self._paused = False
         self._muted = False
+        self.loading = False
         self._volume = 100.0
         self._position = 0.0
         self._duration = 100.0
@@ -61,6 +62,9 @@ class FakePlayer:
 
     def is_muted(self) -> bool:
         return self._muted
+
+    def is_loading(self) -> bool:
+        return self.loading
 
     def set_subtitle_track(self, track_id: int | None) -> None:
         self.sub = track_id
@@ -199,6 +203,15 @@ def test_subtitle_tracks_changed_signal_refreshes_tracks(qapp: object) -> None:
         {"id": 5, "title": "French"},
         {"id": 6, "title": "German"},
     ]
+
+
+def test_is_loading_polled(qapp: object) -> None:
+    player = FakePlayer()
+    controller = PlayerController(lambda: player)
+    assert controller.isLoading() is False
+    controller.play("http://s/v.mkv")
+    player.loading = True
+    assert controller.isLoading() is True
 
 
 def test_state_callback_emits_state_changed(qapp: object) -> None:

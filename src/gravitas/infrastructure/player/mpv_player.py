@@ -103,6 +103,9 @@ class MpvPlayer:
     def is_muted(self) -> bool:
         return bool(self._prop("mute"))
 
+    def is_loading(self) -> bool:
+        return bool(self._prop("paused_for_cache")) or bool(self._prop("seeking"))
+
     # --- tracks ---
 
     def subtitle_tracks(self) -> list[tuple[int, str]]:

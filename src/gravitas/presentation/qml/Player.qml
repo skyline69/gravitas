@@ -20,6 +20,20 @@ Item {
     // range is right even if that delivery hiccups — a stale `to` of 1 made
     // mid-timeline drags seek to the file's first second.
     property real dur: 0
+    // Polled buffering state; loader shows for the initial open too (no
+    // duration yet). A short on-delay keeps fast seeks from flashing it.
+    property bool buffering: false
+    readonly property bool mediaLoading: player.url.length > 0 && (dur <= 0 || buffering)
+    property bool showLoader: false
+    onMediaLoadingChanged: {
+        if (mediaLoading) {
+            loaderDelay.restart()
+        } else {
+            loaderDelay.stop()
+            showLoader = false
+        }
+    }
+    Timer { id: loaderDelay; interval: 250; onTriggered: player.showLoader = true }
     readonly property bool isFullscreen: Window.window
         && Window.window.visibility === Window.FullScreen
 
@@ -102,6 +116,7 @@ Item {
         repeat: true
         onTriggered: {
             player.dur = playerController.duration
+            player.buffering = playerController.isLoading()
             if (!timeline.pressed)
                 timeline.value = playerController.position()
         }
@@ -114,6 +129,36 @@ Item {
         onPositionChanged: player.showControls()
         onClicked: { playerController.togglePause(); player.showControls() }
         onDoubleClicked: player.toggleFullscreen()
+    }
+
+    // ---- loading overlay ----
+    Rectangle {
+        z: 5
+        anchors.fill: parent
+        color: Qt.rgba(0, 0, 0, 0.45)
+        opacity: player.showLoader ? 1 : 0
+        visible: opacity > 0
+        Behavior on opacity { NumberAnimation { duration: Theme.durMed } }
+
+        GravitasLoader {
+            id: loader
+            anchors.centerIn: parent
+            running: parent.visible
+        }
+        Text {
+            anchors.top: loader.bottom
+            anchors.topMargin: 20
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: "Loading stream…"
+            color: Theme.textDim
+            font.pixelSize: Theme.fontBody
+            SequentialAnimation on opacity {
+                loops: Animation.Infinite
+                running: player.showLoader
+                NumberAnimation { from: 0.5; to: 1.0; duration: 900; easing.type: Easing.InOutQuad }
+                NumberAnimation { from: 1.0; to: 0.5; duration: 900; easing.type: Easing.InOutQuad }
+            }
+        }
     }
 
     // ---- top-left back pill ----
