@@ -201,7 +201,10 @@ Item {
         anchors.topMargin: bar.y + bar.height + 12
         anchors.leftMargin: 24
         anchors.bottomMargin: 24
-        cellWidth: 180
+        // Distribute the leftover width among the columns instead of leaving
+        // a dead strip on the right: as many 180px columns as fit, each cell
+        // widened to an equal share (the card centres itself in the cell).
+        cellWidth: Math.floor(width / Math.max(1, Math.floor(width / 180)))
         cellHeight: 300
         clip: true
         ScrollBar.vertical: AppScrollBar {}
@@ -219,7 +222,7 @@ Item {
             // fill the whole cell and centre the poster inside it, so the
             // hover scale-up grows into the cell's slack instead of past the
             // grid's clip edge (fixes edge-column/row clipping)
-            width: 180
+            width: grid.cellWidth
             height: 300
             title: model.name
             posterUrl: model.poster ? model.poster : ""
