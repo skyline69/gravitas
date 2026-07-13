@@ -66,6 +66,7 @@ def test_addon_list_model_exposes_rows_and_removable(qapp: object) -> None:
     assert model.data(i0, AddonListModel.NameRole) == "Cinemeta"
     assert model.data(i0, AddonListModel.IdRole) == "cinemeta"
     assert model.data(i0, AddonListModel.RemovableRole) is False
+    assert model.data(i0, AddonListModel.VersionRole) == "1"
     i1 = model.index(1, 0)
     assert model.data(i1, AddonListModel.RemovableRole) is True
 
