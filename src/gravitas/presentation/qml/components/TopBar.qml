@@ -27,6 +27,7 @@ Rectangle {
     ]
 
     Row {
+        id: tabsRow
         anchors.left: parent.left
         anchors.leftMargin: 16
         anchors.verticalCenter: parent.verticalCenter
@@ -101,10 +102,16 @@ Rectangle {
     readonly property bool searchActive: searchBar.searchActive
     function unfocusSearch() { searchBar.unfocus() }
 
+    // Fills the whole gap between the tabs and the gear, so it uses the
+    // available width and shrinks on narrow windows without overlapping.
     SearchBar {
         id: searchBar
-        anchors.horizontalCenter: parent.horizontalCenter
         anchors.verticalCenter: parent.verticalCenter
+        readonly property real gapStart: tabsRow.x + tabsRow.width + 16
+        readonly property real gapEnd: gearButton.x - 16
+        x: gapStart
+        width: Math.max(120, gapEnd - gapStart)
+        Behavior on width { NumberAnimation { duration: Theme.durMed; easing.type: Easing.OutCubic } }
         onOpenDetail: (type, id) => bar.openDetail(type, id)
         onOpenResults: bar.openResults()
     }

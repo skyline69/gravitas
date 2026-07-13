@@ -31,9 +31,9 @@ Item {
     }
 
     implicitHeight: 36
-    // Animate wider on focus.
-    width: field.activeFocus ? 360 : 240
-    Behavior on width { NumberAnimation { duration: Theme.durMed; easing.type: Easing.OutCubic } }
+    // Width (and its focus-expand animation) is driven by the parent TopBar so
+    // it can stay responsive — shrinking to fit the gap between the tabs and
+    // the gear on narrow windows.
 
     Rectangle {
         anchors.fill: parent
@@ -159,22 +159,40 @@ Item {
                     required property string name
                     required property string poster
                     required property string year
+                    // Instant highlight — a fade here trails behind the cursor
+                    // when sweeping across rows and reads as flicker.
                     color: rowHover.hovered ? Theme.surfaceHover : "transparent"
-                    Behavior on color { ColorAnimation { duration: Theme.durFast } }
                     Row {
                         anchors.fill: parent
                         anchors.margins: 6
                         spacing: 10
-                        Image {
+                        Item {
                             width: 36
                             height: 52
-                            fillMode: Image.PreserveAspectCrop
-                            // Tiny thumbnail — request a small variant, not the
-                            // full poster.
-                            source: Img.sized(resultRow.poster, 90)
-                            sourceSize.width: 90
-                            asynchronous: true
-                            cache: true
+                            // Filler for missing/broken thumbnails.
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: Theme.radiusSmall
+                                color: Theme.surfaceHover
+                                visible: !resultRow.poster || thumb.status === Image.Error
+                                AppIcon {
+                                    anchors.centerIn: parent
+                                    glyph: resultRow.type === "series" ? Icons.liveTv : Icons.theaters
+                                    font.pixelSize: 18
+                                    color: Theme.textDim
+                                }
+                            }
+                            Image {
+                                id: thumb
+                                anchors.fill: parent
+                                fillMode: Image.PreserveAspectCrop
+                                // Tiny thumbnail — request a small variant, not
+                                // the full poster.
+                                source: Img.sized(resultRow.poster, 90)
+                                sourceSize.width: 90
+                                asynchronous: true
+                                cache: true
+                            }
                         }
                         Column {
                             anchors.verticalCenter: parent.verticalCenter
