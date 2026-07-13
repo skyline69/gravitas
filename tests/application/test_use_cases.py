@@ -73,15 +73,13 @@ async def test_browse_catalog_builds_rows() -> None:
 
 async def test_get_detail() -> None:
     repo = await _repo()
-    manifest = repo.installed()[0]
-    meta = await GetDetail(repo)(manifest, "movie", "tt1")
+    meta = await GetDetail(repo)("movie", "tt1")
     assert meta.name == "A"
 
 
 async def test_resolve_stream_filters_to_direct() -> None:
     repo = await _repo()
-    manifest = repo.installed()[0]
-    streams = await ResolveStream(repo)(manifest, "movie", "tt1")
+    streams = await ResolveStream(repo)("movie", "tt1")
     assert len(streams) == 1
     assert streams[0].is_direct
 
@@ -92,6 +90,6 @@ async def test_resolve_stream_raises_when_no_direct() -> None:
             return [Stream(name="x", title="t", url=None, info_hash="h", file_idx=0)]
 
     repo = AddonRepository(NoDirect())
-    manifest = await repo.install("https://a/")
+    await repo.install("https://a/")
     with pytest.raises(NoStreams):
-        await ResolveStream(repo)(manifest, "movie", "tt1")
+        await ResolveStream(repo)("movie", "tt1")

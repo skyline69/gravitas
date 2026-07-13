@@ -29,6 +29,16 @@ def test_parse_manifest_maps_fields() -> None:
     assert m.catalogs[0] == CatalogRef(type="movie", id="top", name="Popular")
 
 
+def test_parse_manifest_resource_names_both_forms() -> None:
+    data = {
+        "id": "x",
+        "name": "X",
+        "resources": ["catalog", {"name": "stream", "types": ["movie"]}, {"name": "meta"}],
+    }
+    m = parse_manifest(data, base_url="https://x/")
+    assert m.resources == ("catalog", "stream", "meta")
+
+
 def test_parse_manifest_rejects_missing_id() -> None:
     with pytest.raises(InvalidManifest):
         parse_manifest({"name": "x"}, base_url="https://x/")

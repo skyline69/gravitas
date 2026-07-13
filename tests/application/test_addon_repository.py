@@ -61,3 +61,144 @@ async def test_failing_addon_yields_empty_not_raise() -> None:
     source.fail_catalog = True
     items = await repo.aggregate_catalog(manifest, manifest.catalogs[0])
     assert items == []
+
+
+class CapabilitySource:
+    """Two addons: a meta-only one (404s streams) and a stream-only one."""
+
+    def _manifest(self, url: str) -> AddonManifest:
+        if "meta" in url:
+            resources: tuple[str, ...] = ("catalog", "meta")
+        else:
+            resources = ("stream",)
+        return AddonManifest(
+            id=url,
+            name=url,
+            version="1",
+            resources=resources,
+            types=("movie",),
+            catalogs=(),
+            base_url=url,
+        )
+
+    async def fetch_manifest(self, url: str) -> AddonManifest:
+        return self._manifest(url)
+
+    async def fetch_catalog(self, manifest: AddonManifest, ref: CatalogRef) -> list[MediaItem]:
+        raise NotImplementedError
+
+    async def fetch_meta(self, manifest: AddonManifest, type: MediaType, id: str) -> MetaDetail:
+        if "meta" not in manifest.id:
+            raise AddonUnreachable("no movie meta here")
+        return MetaDetail(
+            id=id,
+            type=type,
+            name="Michael",
+            description="d",
+            poster=None,
+            background=None,
+            videos=(),
+        )
+
+    async def fetch_streams(
+        self, manifest: AddonManifest, type: MediaType, id: str
+    ) -> list[Stream]:
+        if "stream" not in manifest.resources:
+            raise AddonUnreachable("no streams here")
+        return [
+            Stream(
+                name="1080p",
+                title="web",
+                url=f"http://{manifest.id}/v",
+                info_hash=None,
+                file_idx=None,
+            )
+        ]
+
+
+async def test_meta_from_meta_addon_streams_from_stream_addon() -> None:
+    repo = AddonRepository(CapabilitySource())
+    await repo.install("https://meta-addon/")
+    await repo.install("https://stream-addon/")
+
+    meta = await repo.meta("movie", "tt1")
+    assert meta.name == "Michael"  # came from the meta addon, not the stream one
+
+    streams = await repo.streams("movie", "tt1")
+    assert [s.url for s in streams] == ["http://https://stream-addon//v"]
+
+
+async def test_streams_aggregate_and_dedupe_across_addons() -> None:
+    class TwoStreamAddons:
+        async def fetch_manifest(self, url: str) -> AddonManifest:
+            return AddonManifest(
+                id=url,
+                name=url,
+                version="1",
+                resources=("stream",),
+                types=("movie",),
+                catalogs=(),
+                base_url=url,
+            )
+
+        async def fetch_catalog(self, manifest, ref):  # type: ignore[no-untyped-def]
+            raise NotImplementedError
+
+        async def fetch_meta(self, manifest, type, id):  # type: ignore[no-untyped-def]
+            raise NotImplementedError
+
+        async def fetch_streams(self, manifest, type, id):  # type: ignore[no-untyped-def]
+            # both addons return a shared url plus a unique one
+            return [
+                Stream(
+                    name="shared", title="t", url="http://shared/v", info_hash=None, file_idx=None
+                ),
+                Stream(
+                    name=manifest.id,
+                    title="t",
+                    url=f"http://{manifest.id}/v",
+                    info_hash=None,
+                    file_idx=None,
+                ),
+            ]
+
+    repo = AddonRepository(TwoStreamAddons())
+    await repo.install("https://a/")
+    await repo.install("https://b/")
+    streams = await repo.streams("movie", "tt1")
+    urls = sorted(s.url or "" for s in streams)
+    assert urls == [
+        "http://https://a//v",
+        "http://https://b//v",
+        "http://shared/v",
+    ]  # shared de-duped
+
+
+async def test_meta_raises_when_no_meta_addon() -> None:
+    class StreamOnly:
+        async def fetch_manifest(self, url: str) -> AddonManifest:
+            return AddonManifest(
+                id=url,
+                name=url,
+                version="1",
+                resources=("stream",),
+                types=("movie",),
+                catalogs=(),
+                base_url=url,
+            )
+
+        async def fetch_catalog(self, manifest, ref):  # type: ignore[no-untyped-def]
+            raise NotImplementedError
+
+        async def fetch_meta(self, manifest, type, id):  # type: ignore[no-untyped-def]
+            raise NotImplementedError
+
+        async def fetch_streams(self, manifest, type, id):  # type: ignore[no-untyped-def]
+            return []
+
+    repo = AddonRepository(StreamOnly())
+    await repo.install("https://a/")
+    import pytest
+
+    with pytest.raises(AddonUnreachable):
+        await repo.meta("movie", "tt1")

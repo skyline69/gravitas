@@ -6,7 +6,7 @@ import logging
 from collections import Counter
 from dataclasses import dataclass
 
-from gravitas.domain.errors import GravitasError
+from gravitas.domain.errors import AddonUnreachable, GravitasError
 from gravitas.domain.models import (
     AddonManifest,
     CatalogRef,
@@ -58,11 +58,44 @@ class AddonRepository:
     ) -> list[MediaItem]:
         return await self._source.fetch_catalog(manifest, ref, genre=genre, skip=skip)
 
-    async def meta(self, manifest: AddonManifest, type: MediaType, id: str) -> MetaDetail:
-        return await self._source.fetch_meta(manifest, type, id)
+    async def meta(self, type: MediaType, id: str) -> MetaDetail:
+        # Try each metadata-capable addon in install order; the first that
+        # succeeds wins (e.g. an addon whose meta covers only "library" 404s
+        # for a movie and we fall through to the next).
+        last_error: GravitasError | None = None
+        for manifest in self._manifests:
+            if "meta" not in manifest.resources:
+                continue
+            try:
+                return await self._source.fetch_meta(manifest, type, id)
+            except GravitasError as exc:
+                _log.warning("meta fetch failed for %s: %s", manifest.id, exc)
+                last_error = exc
+        if last_error is not None:
+            raise last_error
+        raise AddonUnreachable(f"no installed addon provides metadata for {id}")
 
-    async def streams(self, manifest: AddonManifest, type: MediaType, id: str) -> list[Stream]:
-        return await self._source.fetch_streams(manifest, type, id)
+    async def streams(self, type: MediaType, id: str) -> list[Stream]:
+        # Aggregate across every stream-capable addon, fault-isolated: one
+        # failing addon is logged and skipped, never blocking the others.
+        collected: list[Stream] = []
+        seen: set[str] = set()
+        for manifest in self._manifests:
+            if "stream" not in manifest.resources:
+                continue
+            try:
+                fetched = await self._source.fetch_streams(manifest, type, id)
+            except GravitasError as exc:
+                _log.warning("stream fetch failed for %s: %s", manifest.id, exc)
+                continue
+            for stream in fetched:
+                key = stream.url or stream.info_hash
+                if key is not None:
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                collected.append(stream)
+        return collected
 
     def resolve_catalog(
         self, addon_id: str, type: MediaType, catalog_id: str

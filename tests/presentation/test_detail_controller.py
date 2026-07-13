@@ -1,23 +1,11 @@
 from gravitas.domain.errors import AddonUnreachable
-from gravitas.domain.models import AddonManifest, MetaDetail, Stream
+from gravitas.domain.models import MetaDetail, Stream
 from gravitas.presentation.controllers.detail_controller import DetailController
 from gravitas.presentation.models.stream_list_model import StreamListModel
 
 
-def _manifest() -> AddonManifest:
-    return AddonManifest(
-        id="fake",
-        name="F",
-        version="1",
-        resources=("meta", "stream"),
-        types=("movie",),
-        catalogs=(),
-        base_url="https://a/",
-    )
-
-
 class FakeGetDetail:
-    async def __call__(self, manifest, type, item_id):
+    async def __call__(self, type, item_id):
         return MetaDetail(
             id=item_id,
             type="movie",
@@ -37,7 +25,7 @@ class FakeGetDetail:
 
 
 class FakeResolve:
-    async def __call__(self, manifest, type, item_id):
+    async def __call__(self, type, item_id):
         return [
             Stream(name="1080p", title="web", url="http://s/v.mkv", info_hash=None, file_idx=None)
         ]
@@ -48,10 +36,14 @@ class FailGetDetail:
         raise AddonUnreachable("boom")
 
 
+class FailResolve:
+    async def __call__(self, *a, **k):
+        raise AddonUnreachable("no streams")
+
+
 async def test_load_populates_meta(qapp: object) -> None:
     model = StreamListModel()
     ctl = DetailController(FakeGetDetail(), FakeResolve(), model)  # type: ignore[arg-type]
-    ctl.bind_manifest(_manifest())
     changes: list[int] = []
     ctl.metaChanged.connect(lambda: changes.append(1))
 
@@ -72,27 +64,13 @@ async def test_load_populates_meta(qapp: object) -> None:
     assert changes
 
 
-async def test_load_without_manifest_errors(qapp: object) -> None:
-    ctl = DetailController(FakeGetDetail(), FakeResolve(), StreamListModel())  # type: ignore[arg-type]
-    errors: list[str] = []
-    ctl.errorOccurred.connect(errors.append)
-    await ctl.load("movie", "tt1")
-    assert errors == ["no addon installed"]
-    assert ctl.hasMeta is False
-
-
 async def test_load_error_emits(qapp: object) -> None:
     ctl = DetailController(FailGetDetail(), FakeResolve(), StreamListModel())  # type: ignore[arg-type]
-    ctl.bind_manifest(_manifest())
     errors: list[str] = []
     ctl.errorOccurred.connect(errors.append)
     await ctl.load("movie", "tt1")
     assert errors == ["boom"]
-
-
-class FailResolve:
-    async def __call__(self, *a, **k):
-        raise AddonUnreachable("no streams")
+    assert ctl.hasMeta is False
 
 
 async def test_stale_streams_cleared_when_resolve_fails(qapp: object) -> None:
@@ -100,7 +78,6 @@ async def test_stale_streams_cleared_when_resolve_fails(qapp: object) -> None:
     # fetch fails -> the previous item's streams must not linger
     model = StreamListModel()
     ctl = DetailController(FakeGetDetail(), FakeResolve(), model)  # type: ignore[arg-type]
-    ctl.bind_manifest(_manifest())
     await ctl.load("movie", "tt1")
     assert model.rowCount() == 1
 
