@@ -50,7 +50,7 @@ def test_role_names_are_stringified(qapp: object) -> None:
     assert {"title", "addonId", "type", "catalogId", "posters"} <= names
 
 
-def _row(title: str, type_: str, catalog_id: str) -> CatalogRow:
+def _typed_row(title: str, type_: str, catalog_id: str) -> CatalogRow:
     return CatalogRow(
         title=title,
         addon_id="a",
@@ -61,10 +61,10 @@ def _row(title: str, type_: str, catalog_id: str) -> CatalogRow:
 
 
 _ROWS = [
-    _row("Popular Movies", "movie", "top"),
-    _row("New Series", "series", "year"),
-    _row("Trending Now", "movie", "trending"),
-    _row("Documentaries", "series", "docs"),
+    _typed_row("Popular Movies", "movie", "top"),
+    _typed_row("New Series", "series", "year"),
+    _typed_row("Trending Now", "movie", "trending"),
+    _typed_row("Documentaries", "series", "docs"),
 ]
 
 
