@@ -16,4 +16,8 @@ QtObject {
     readonly property string x: String.fromCharCode(0xe14c) // close
     readonly property string gear: String.fromCharCode(0xe8b8) // settings
     readonly property string trash: String.fromCharCode(0xe872) // delete
+    readonly property string dashboard: String.fromCharCode(0xe871) // dashboard
+    readonly property string theaters: String.fromCharCode(0xe54d) // theaters
+    readonly property string liveTv: String.fromCharCode(0xe639) // live_tv
+    readonly property string fire: String.fromCharCode(0xea05) // local_fire_department
 }

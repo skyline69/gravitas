@@ -12,10 +12,10 @@ Rectangle {
     color: Theme.surface
 
     readonly property var tabs: [
-        { label: "All", mode: "all" },
-        { label: "Movies", mode: "movie" },
-        { label: "Series", mode: "series" },
-        { label: "Trending", mode: "trending" }
+        { label: "All", mode: "all", icon: Icons.dashboard },
+        { label: "Movies", mode: "movie", icon: Icons.theaters },
+        { label: "Series", mode: "series", icon: Icons.liveTv },
+        { label: "Trending", mode: "trending", icon: Icons.fire }
     ]
 
     Row {
@@ -28,7 +28,7 @@ Rectangle {
             model: bar.tabs
             delegate: Item {
                 required property var modelData
-                width: tabLabel.implicitWidth + 24
+                width: 44
                 height: 36
 
                 Rectangle {
@@ -39,14 +39,16 @@ Rectangle {
                         : (tabHover.hovered ? Theme.surfaceHover : "transparent")
                     Behavior on color { ColorAnimation { duration: Theme.durFast } }
                 }
-                Text {
-                    id: tabLabel
+                AppIcon {
                     anchors.centerIn: parent
-                    text: modelData.label
-                    font.pixelSize: Theme.fontBody
+                    glyph: modelData.icon
+                    font.pixelSize: Theme.fontTitle
                     color: bar.activeMode === modelData.mode ? Theme.accent : Theme.text
                 }
                 HoverHandler { id: tabHover; cursorShape: Qt.PointingHandCursor }
+                ToolTip.text: modelData.label
+                ToolTip.visible: tabHover.hovered
+                ToolTip.delay: 400
                 TapHandler {
                     onTapped: {
                         bar.activeMode = modelData.mode
