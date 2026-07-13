@@ -124,3 +124,37 @@ async def test_empty_query_forces_loading_off(qapp: object) -> None:
     c.loadingChanged.connect(events.append)
     c.queueSearch("   ")
     assert events[-1] is False
+
+
+async def test_query_property_reflects_text_search(qapp: object) -> None:
+    a = MediaItem(id="tt1", type="movie", name="A", poster=None)
+    stream = _FakeStream([[a]])
+    c = SearchController(_FakeSearch([]), _FakeResolve(a), SearchResultsModel(), None, stream)
+    await c._perform("dr who")
+    assert c.query == "dr who"
+
+
+async def test_submit_fills_page_with_exact_query(qapp: object) -> None:
+    hit = MediaItem(id="tt1", type="movie", name="Transformers", poster=None)
+    search = _FakeSearch([hit])
+    page = SearchResultsModel()
+    c = SearchController(search, _FakeResolve(hit), SearchResultsModel(), page, _FakeStream([]))
+    await c._submit("transformers")
+    assert search.calls == ["transformers"]
+    assert page.rowCount() == 1
+    assert c.query == "transformers"
+
+
+async def test_submit_emits_page_loading(qapp: object) -> None:
+    hit = MediaItem(id="tt1", type="movie", name="X", poster=None)
+    c = SearchController(
+        _FakeSearch([hit]),
+        _FakeResolve(hit),
+        SearchResultsModel(),
+        SearchResultsModel(),
+        _FakeStream([]),
+    )
+    events: list[bool] = []
+    c.pageLoadingChanged.connect(events.append)
+    await c._submit("x")
+    assert events[0] is True and events[-1] is False

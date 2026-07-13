@@ -80,7 +80,11 @@ Item {
             selectedTextColor: Theme.text
             background: null
             onTextChanged: searchController.queueSearch(text)
-            onAccepted: if (text.length > 0) { searchController.commitToPage(); bar.openResults() }
+            onAccepted: if (text.length > 0) {
+                searchController.submit(text) // fresh search for the exact query
+                bar.openResults()
+                bar.unfocus() // blur so the live dropdown hides
+            }
             Keys.onEscapePressed: { text = ""; field.focus = false }
         }
     }
@@ -149,6 +153,7 @@ Item {
                 model: searchResultsModel
                 interactive: true
                 clip: true
+                ScrollBar.vertical: AppScrollBar {}
                 delegate: Rectangle {
                     id: resultRow
                     width: ListView.view.width

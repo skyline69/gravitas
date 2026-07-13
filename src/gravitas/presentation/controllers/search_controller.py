@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Protocol
 
-from PySide6.QtCore import QObject, QTimer, Signal, Slot
+from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 from qasync import asyncSlot  # type: ignore[import-untyped]
 
 from gravitas.application.media_links import parse_media_link
@@ -31,6 +31,8 @@ class SearchController(QObject):
     resultsChanged = Signal()
     loadingChanged = Signal(bool)
     errorOccurred = Signal(str)
+    queryChanged = Signal()
+    pageLoadingChanged = Signal(bool)
 
     def __init__(
         self,
@@ -47,6 +49,7 @@ class SearchController(QObject):
         self._page_model = page_model
         self._search_stream = search_stream
         self._cache: dict[str, list[MediaItem]] = {}
+        self._query = ""
         self._pending = ""
         self._req = 0
         self._last_items: list[MediaItem] = []
@@ -80,10 +83,43 @@ class SearchController(QObject):
         self.resultsChanged.emit()
         self.loadingChanged.emit(False)
 
+    @Property(str, notify=queryChanged)
+    def query(self) -> str:
+        return self._query
+
     @Slot()
     def commitToPage(self) -> None:
         if self._page_model is not None:
             self._page_model.set_items(self._last_items)
+
+    @asyncSlot(str)  # type: ignore[untyped-decorator]
+    async def submit(self, text: str) -> None:
+        await self._submit(text)
+
+    async def _submit(self, text: str) -> None:
+        # Fill the results page with a FRESH search for the exact submitted
+        # text — never a stale intermediate query snapshot (which happens when
+        # the user types fast and hits Enter before the final query resolves).
+        text = text.strip()
+        if not text:
+            return
+        if self._query != text:
+            self._query = text
+            self.queryChanged.emit()
+        key = text.lower()
+        items = self._cache.get(key)
+        if items is None:
+            self.pageLoadingChanged.emit(True)
+            try:
+                items = rank(text, await self._search(text))
+            except GravitasError as exc:
+                self.pageLoadingChanged.emit(False)
+                self.errorOccurred.emit(str(exc))
+                return
+            self._store_cache(key, items)
+        if self._page_model is not None:
+            self._page_model.set_items(items)
+        self.pageLoadingChanged.emit(False)
 
     @asyncSlot()  # type: ignore[untyped-decorator]
     async def _fire(self) -> None:
@@ -100,6 +136,9 @@ class SearchController(QObject):
             if link is not None:
                 self._commit([await self._resolve(link[0], link[1])], req)
                 return
+            if self._query != text:
+                self._query = text
+                self.queryChanged.emit()
             key = text.lower()
             cached = self._cache.get(key)
             if cached is not None:
