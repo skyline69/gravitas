@@ -279,6 +279,15 @@ Item {
                     font.pixelSize: Theme.fontSmall
                 }
                 Repeater {
+                    model: (sourcesRep.count === 0
+                        && detailController && detailController.streamsLoading) ? 4 : 0
+                    StreamRowSkeleton {
+                        required property int index
+                        width: content.width
+                        pulseDelay: index * 90
+                    }
+                }
+                Repeater {
                     id: sourcesRep
                     model: streamModel
                     StreamRow {

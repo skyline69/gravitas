@@ -51,6 +51,28 @@ Item {
         }
     }
 
+    // Skeleton rows while the resolve is in flight and nothing has arrived —
+    // the page reads as "loading sources", not empty-then-sudden-list.
+    Column {
+        anchors.top: header.bottom
+        anchors.topMargin: 16
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.leftMargin: 24
+        anchors.rightMargin: 24
+        spacing: 8
+        visible: list.count === 0
+            && detailController && detailController.streamsLoading
+        Repeater {
+            model: 6
+            StreamRowSkeleton {
+                required property int index
+                width: parent.width
+                pulseDelay: index * 90
+            }
+        }
+    }
+
     ListView {
         id: list
         anchors.top: header.bottom

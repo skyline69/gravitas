@@ -212,6 +212,8 @@ class DetailController(QObject):
                 # episode (streams are per-episode video ids).
                 self._build_seasons()
                 return
+            self._streams_loading = True
+            self.sourcesChanged.emit()
             streams = await self._resolve_stream(media_type, item_id)
             if token != self._seq:
                 return
@@ -223,3 +225,7 @@ class DetailController(QObject):
         except GravitasError as exc:
             if token == self._seq:
                 self.errorOccurred.emit(str(exc))
+        finally:
+            if token == self._seq and self._streams_loading:
+                self._streams_loading = False
+                self.sourcesChanged.emit()
