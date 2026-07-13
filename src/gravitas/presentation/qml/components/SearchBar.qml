@@ -22,6 +22,14 @@ Item {
         bar.unfocus()
     }
 
+    // Whether a search is in flight (drives the inline field spinner and the
+    // skeleton placeholder rows).
+    property bool loading: false
+    Connections {
+        target: searchController
+        function onLoadingChanged(l) { bar.loading = l }
+    }
+
     implicitHeight: 36
     // Animate wider on focus.
     width: field.activeFocus ? 360 : 240
@@ -31,6 +39,11 @@ Item {
         anchors.fill: parent
         radius: Theme.radius
         color: Theme.surfacePress
+        // Accent border while the input is focused; fades in/out (constant
+        // width keeps the layout from shifting).
+        border.width: 2
+        border.color: field.activeFocus ? Theme.accent : "transparent"
+        Behavior on border.color { ColorAnimation { duration: Theme.durMed } }
         AppIcon {
             id: mag
             anchors.left: parent.left
@@ -40,11 +53,23 @@ Item {
             font.pixelSize: Theme.fontBody
             color: Theme.textDim
         }
+        // Small spinner inside the field's right edge while loading — so
+        // "loading" reads as activity in the input, not a spinner shoved above
+        // the results.
+        AppSpinner {
+            id: fieldBusy
+            width: 16
+            height: 16
+            anchors.right: parent.right
+            anchors.rightMargin: Theme.spacing
+            anchors.verticalCenter: parent.verticalCenter
+            running: bar.loading
+        }
         TextField {
             id: field
             anchors.left: mag.right
             anchors.leftMargin: Theme.spacing / 2
-            anchors.right: parent.right
+            anchors.right: fieldBusy.running ? fieldBusy.left : parent.right
             anchors.rightMargin: Theme.spacing
             anchors.verticalCenter: parent.verticalCenter
             placeholderText: "Search or paste an IMDB/TVDB link…"
@@ -66,7 +91,7 @@ Item {
         y: bar.height + 8
         width: bar.width
         padding: 4
-        visible: field.activeFocus && (list.count > 0 || busy.running)
+        visible: field.activeFocus && (list.count > 0 || bar.loading)
         closePolicy: Popup.NoAutoClose
 
         background: Rectangle {
@@ -87,13 +112,36 @@ Item {
 
         contentItem: Column {
             spacing: 0
-            AppSpinner { id: busy; running: false; visible: running; width: 24; height: 24
-                anchors.horizontalCenter: parent.horizontalCenter
-                Connections {
-                    target: searchController
-                    function onLoadingChanged(loading) { busy.running = loading }
+
+            // Skeleton placeholder rows: shown only on a FRESH query (loading
+            // with nothing yet). Once streamed results arrive, list.count > 0
+            // and the real rows take over.
+            Repeater {
+                model: (bar.loading && list.count === 0) ? 6 : 0
+                delegate: Item {
+                    width: list.width
+                    height: 64
+                    SequentialAnimation on opacity {
+                        loops: Animation.Infinite
+                        running: bar.loading
+                        NumberAnimation { from: 0.45; to: 1.0; duration: 700; easing.type: Easing.InOutQuad }
+                        NumberAnimation { from: 1.0; to: 0.45; duration: 700; easing.type: Easing.InOutQuad }
+                    }
+                    Row {
+                        anchors.fill: parent
+                        anchors.margins: 6
+                        spacing: 10
+                        Rectangle { width: 36; height: 52; radius: Theme.radiusSmall; color: Theme.surfaceHover }
+                        Column {
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 8
+                            Rectangle { width: 170; height: 12; radius: 4; color: Theme.surfaceHover }
+                            Rectangle { width: 90; height: 10; radius: 4; color: Theme.surfaceHover }
+                        }
+                    }
                 }
             }
+
             ListView {
                 id: list
                 width: parent.width

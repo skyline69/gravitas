@@ -53,9 +53,9 @@ class SearchResultsModel(QAbstractListModel):
             case SearchResultsModel.NameRole:
                 return item.name
             case SearchResultsModel.PosterRole:
-                return item.poster
+                return item.poster or ""
             case SearchResultsModel.YearRole:
-                return item.year
+                return item.year or ""
         return None
 
     def roleNames(self) -> dict[int, QByteArray]:
