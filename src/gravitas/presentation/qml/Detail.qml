@@ -195,14 +195,82 @@ Item {
                 font.pixelSize: Theme.fontSmall
             }
 
+            // episodes (series with videos only)
+            Column {
+                width: parent.width
+                spacing: 12
+                visible: detail.mediaType === "series" && episodesRep.count > 0
+
+                Item {
+                    width: parent.width
+                    height: seasonBox.height
+                    Text {
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "Episodes"
+                        color: Theme.text
+                        font.pixelSize: 20
+                    }
+                    AppComboBox {
+                        id: seasonBox
+                        anchors.right: parent.right
+                        model: detailController ? detailController.seasonOptions : []
+                        currentIndex: detailController ? detailController.seasonIndex : 0
+                        onActivated: (index) => { if (detailController) detailController.selectSeason(index) }
+                    }
+                }
+
+                Column {
+                    width: parent.width
+                    spacing: 8
+                    Repeater {
+                        id: episodesRep
+                        model: episodeModel
+                        EpisodeRow {
+                            width: content.width
+                            title: model.title
+                            thumbnailUrl: model.thumbnail
+                            seasonNumber: model.season
+                            episodeNumber: model.episode
+                            overview: model.overview
+                            released: model.released
+                            active: detailController
+                                && detailController.selectedEpisodeId === model.videoId
+                            onClicked: detailController.selectEpisode(
+                                model.videoId, model.season, model.episode, model.title)
+                        }
+                    }
+                }
+            }
+
             // sources
-            Text { text: "Sources"; color: Theme.text; font.pixelSize: 20 }
+            Row {
+                spacing: 12
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: detailController ? detailController.sourcesLabel : "Sources"
+                    color: Theme.text
+                    font.pixelSize: 20
+                }
+                AppSpinner {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 18; height: 18
+                    running: detailController ? detailController.streamsLoading : false
+                }
+            }
             Column {
                 width: parent.width
                 spacing: 8
                 Text {
                     visible: sourcesRep.count === 0
-                    text: "No sources available. Add a streaming addon to see sources."
+                        && !(detailController && detailController.streamsLoading)
+                    text: {
+                        var isSeries = detail.mediaType === "series"
+                        var picked = detailController && detailController.selectedEpisodeId.length > 0
+                        if (isSeries && episodesRep.count > 0 && !picked)
+                            return "Pick an episode to see sources."
+                        return "No sources available. Add a streaming addon to see sources."
+                    }
                     color: Theme.textDim
                     font.pixelSize: Theme.fontSmall
                 }

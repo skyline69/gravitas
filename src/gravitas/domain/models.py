@@ -33,6 +33,9 @@ class Video:
     title: str
     season: int | None
     episode: int | None
+    thumbnail: str | None = None
+    overview: str | None = None
+    released: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -3,6 +3,7 @@ import asyncio
 from gravitas.domain.errors import AddonUnreachable, NoStreams
 from gravitas.domain.models import MetaDetail, Stream
 from gravitas.presentation.controllers.detail_controller import DetailController
+from gravitas.presentation.models.episode_list_model import EpisodeListModel
 from gravitas.presentation.models.stream_list_model import StreamListModel
 
 
@@ -155,3 +156,86 @@ async def test_stale_streams_cleared_when_resolve_fails(qapp: object) -> None:
 
     assert errors == ["no streams"]
     assert model.rowCount() == 0
+
+
+class SeriesGetDetail:
+    async def __call__(self, type, item_id):
+        from gravitas.domain.models import Video
+
+        return MetaDetail(
+            id=item_id,
+            type="series",
+            name="Show",
+            description="d",
+            poster=None,
+            background=None,
+            videos=(
+                Video(id="tt1:0:1", title="Special", season=0, episode=1),
+                Video(id="tt1:2:1", title="S2 opener", season=2, episode=1),
+                Video(id="tt1:1:2", title="Two", season=1, episode=2, thumbnail="http://t/2.jpg"),
+                Video(id="tt1:1:1", title="One", season=1, episode=1, overview="Pilot."),
+            ),
+        )
+
+
+def _series_ctl() -> tuple[DetailController, StreamListModel, EpisodeListModel]:
+    stream_model = StreamListModel()
+    episode_model = EpisodeListModel()
+    ctl = DetailController(SeriesGetDetail(), FakeResolve(), stream_model, episode_model)  # type: ignore[arg-type]
+    return ctl, stream_model, episode_model
+
+
+async def test_series_load_builds_seasons_no_stream_fetch(qapp: object) -> None:
+    ctl, stream_model, episode_model = _series_ctl()
+    await ctl.load("series", "tt1")
+    # regular seasons ascending, Specials last
+    assert list(ctl.seasonOptions) == ["Season 1", "Season 2", "Specials"]
+    assert ctl.seasonIndex == 0
+    # season 1 episodes sorted by episode number
+    assert episode_model.rowCount() == 2
+    assert episode_model.data(episode_model.index(0, 0), EpisodeListModel.TitleRole) == "One"
+    assert episode_model.data(episode_model.index(0, 0), EpisodeListModel.OverviewRole) == "Pilot."
+    # no auto stream fetch for series
+    assert stream_model.rowCount() == 0
+    assert ctl.sourcesLabel == "Sources"
+    assert ctl.selectedEpisodeId == ""
+
+
+async def test_select_season_repopulates(qapp: object) -> None:
+    ctl, _stream_model, episode_model = _series_ctl()
+    await ctl.load("series", "tt1")
+    ctl.selectSeason(2)  # Specials
+    assert ctl.seasonIndex == 2
+    assert episode_model.rowCount() == 1
+    assert episode_model.data(episode_model.index(0, 0), EpisodeListModel.TitleRole) == "Special"
+
+
+async def test_select_episode_resolves_streams_and_labels(qapp: object) -> None:
+    ctl, stream_model, _episode_model = _series_ctl()
+    await ctl.load("series", "tt1")
+    await ctl.selectEpisode("tt1:1:1", 1, 1, "One")
+    assert stream_model.rowCount() == 1
+    assert ctl.sourcesLabel == "Sources — S1E1 · One"
+    assert ctl.selectedEpisodeId == "tt1:1:1"
+    assert ctl.streamsLoading is False
+
+
+async def test_select_episode_no_streams_stays_silent(qapp: object) -> None:
+    stream_model = StreamListModel()
+    episode_model = EpisodeListModel()
+    ctl = DetailController(SeriesGetDetail(), NoStreamsResolve(), stream_model, episode_model)  # type: ignore[arg-type]
+    errors: list[str] = []
+    ctl.errorOccurred.connect(errors.append)
+    await ctl.load("series", "tt1")
+    await ctl.selectEpisode("tt1:1:1", 1, 1, "One")
+    assert errors == []
+    assert stream_model.rowCount() == 0
+    assert ctl.streamsLoading is False
+
+
+async def test_movie_flow_unchanged_by_episode_model(qapp: object) -> None:
+    stream_model = StreamListModel()
+    ctl = DetailController(FakeGetDetail(), FakeResolve(), stream_model, EpisodeListModel())  # type: ignore[arg-type]
+    await ctl.load("movie", "tt1")
+    assert stream_model.rowCount() == 1
+    assert list(ctl.seasonOptions) == []

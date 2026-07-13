@@ -86,6 +86,35 @@ def test_parse_streams_direct_and_torrent() -> None:
     assert streams[1].file_idx == 2
 
 
+def test_parse_video_reads_episode_details() -> None:
+    data = {
+        "meta": {
+            "id": "tt1",
+            "type": "series",
+            "name": "Show",
+            "videos": [
+                {
+                    "id": "tt1:1:2",
+                    "title": "Pilot II",
+                    "season": 1,
+                    "episode": 2,
+                    "thumbnail": "http://img/ep.jpg",
+                    "overview": "Things happen.",
+                    "released": "2008-09-30T00:00:00.000Z",
+                },
+                {"id": "tt1:1:3", "name": "Bare", "season": 1, "episode": 3},
+            ],
+        }
+    }
+    videos = parse_meta(data).videos
+    assert videos[0].thumbnail == "http://img/ep.jpg"
+    assert videos[0].overview == "Things happen."
+    assert videos[0].released == "2008-09-30"
+    assert videos[1].thumbnail is None
+    assert videos[1].overview is None
+    assert videos[1].released is None
+
+
 def test_parse_streams_cleans_display_text() -> None:
     data = {
         "streams": [

@@ -38,6 +38,7 @@ from gravitas.presentation.controllers.search_controller import SearchController
 from gravitas.presentation.controllers.settings_controller import SettingsController
 from gravitas.presentation.models.addon_list_model import AddonListModel
 from gravitas.presentation.models.catalog_rows_model import CatalogRowsModel
+from gravitas.presentation.models.episode_list_model import EpisodeListModel
 from gravitas.presentation.models.poster_grid_model import PosterGridModel
 from gravitas.presentation.models.poster_grid_proxy import PosterGridProxy
 from gravitas.presentation.models.search_results_model import SearchResultsModel
@@ -88,7 +89,10 @@ def build_app(
     discover_controller = DiscoverController(BrowseBoard(repo), repo, discover_model)
 
     catalog_controller = CatalogController(BrowseCatalog(repo), rows_model)
-    detail_controller = DetailController(GetDetail(repo), ResolveStream(repo), stream_model)
+    episode_model = EpisodeListModel()
+    detail_controller = DetailController(
+        GetDetail(repo), ResolveStream(repo), stream_model, episode_model
+    )
     install_addon = InstallAddon(repo)
     addon_controller = AddonController(install_addon, catalog_controller)
     addon_list_model = AddonListModel()
@@ -131,6 +135,7 @@ def build_app(
     ctx.setContextProperty("addonController", addon_controller)
     ctx.setContextProperty("catalogRowsModel", rows_model)
     ctx.setContextProperty("streamModel", stream_model)
+    ctx.setContextProperty("episodeModel", episode_model)
     ctx.setContextProperty("discoverController", discover_controller)
     ctx.setContextProperty("discoverModel", discover_model)
     ctx.setContextProperty("discoverProxy", discover_proxy)
@@ -178,6 +183,7 @@ def build_app(
         discover_model,
         discover_proxy,
         stream_model,
+        episode_model,
         addon_list_model,
         search_results_model,
         search_page_model,

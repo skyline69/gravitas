@@ -132,11 +132,17 @@ def parse_catalog(data: dict[str, Any]) -> list[MediaItem]:
 
 
 def _parse_video(raw: dict[str, Any]) -> Video:
+    # Cinemeta uses "overview"; some addons use "description". "released" is an
+    # ISO timestamp — keep the date part only for display.
+    released = raw.get("released")
     return Video(
         id=str(raw.get("id", "")),
         title=str(raw.get("title", raw.get("name", ""))),
         season=raw.get("season"),
         episode=raw.get("episode"),
+        thumbnail=_str_or_none(raw.get("thumbnail")),
+        overview=_str_or_none(raw.get("overview")) or _str_or_none(raw.get("description")),
+        released=released[:10] if isinstance(released, str) and released else None,
     )
 
 

@@ -85,6 +85,7 @@ def test_detail_qml_loads(qapp: object) -> None:
     stub = QObject()
     engine.rootContext().setContextProperty("detailController", stub)
     engine.rootContext().setContextProperty("streamModel", stub)
+    engine.rootContext().setContextProperty("episodeModel", stub)
     qml = Path(gmain.__file__).parent / "presentation" / "qml" / "Detail.qml"
     component = QQmlComponent(engine, str(qml))
     obj = component.create()
