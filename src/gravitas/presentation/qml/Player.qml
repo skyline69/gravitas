@@ -47,11 +47,43 @@ Item {
             return
         w.visibility = player.isFullscreen ? Window.Windowed : Window.FullScreen
     }
+    // Smooth exit: fade the page and the audio together, THEN stop and pop —
+    // a bare stop() cuts sound and freezes the frame mid-scene.
+    property real _restoreVol: 100
     function leave() {
+        if (exitAnim.running)
+            return
         if (player.isFullscreen)
             Window.window.visibility = Window.Windowed
-        playerController.stop()
-        player.back()
+        player._restoreVol = playerController.volume
+        volFader.v = playerController.volume
+        exitAnim.start()
+    }
+    QtObject {
+        id: volFader
+        property real v: 100
+        onVChanged: playerController.setVolume(v)
+    }
+    SequentialAnimation {
+        id: exitAnim
+        ParallelAnimation {
+            NumberAnimation {
+                target: player
+                property: "opacity"
+                from: 1; to: 0
+                duration: 260
+                easing.type: Easing.OutCubic
+            }
+            NumberAnimation { target: volFader; property: "v"; to: 0; duration: 240 }
+        }
+        ScriptAction {
+            script: {
+                playerController.stop()
+                // Restore the user's volume silently for the next playback.
+                playerController.setVolume(player._restoreVol)
+                player.back()
+            }
+        }
     }
     function fmt(s) {
         s = Math.max(0, Math.floor(s))
