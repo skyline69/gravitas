@@ -4,8 +4,18 @@ from gravitas.infrastructure.player.mpv_player import MpvPlayer
 
 
 class FakeMpv:
+    """Mirrors python-mpv's access model: properties are ATTRIBUTES
+    (mpv.time_pos); dict-style access reads/writes the options namespace and
+    must not be used for runtime state."""
+
     def __init__(self) -> None:
-        self.props: dict[str, Any] = {"pause": False, "volume": 100.0, "mute": False}
+        self.pause = False
+        self.volume = 100.0
+        self.mute = False
+        self.time_pos: float | None = None
+        self.duration: float | None = None
+        self.sid: Any = "auto"
+        self.aid: Any = "auto"
         self.played: list[str] = []
         self.commands: list[tuple[Any, ...]] = []
         self.seeks: list[tuple[float, str]] = []
@@ -28,17 +38,6 @@ class FakeMpv:
     def seek(self, seconds: float, reference: str = "relative") -> None:
         self.seeks.append((seconds, reference))
 
-    def __setitem__(self, key: str, value: Any) -> None:
-        self.props[key] = value
-
-    def __getitem__(self, key: str) -> Any:
-        return self.props[key]
-
-    def __getattr__(self, name: str) -> Any:
-        if name == "track_list":
-            return object.__getattribute__(self, "__dict__")["track_list"]
-        raise AttributeError(name)
-
     def observe_property(self, name: str, handler: Any) -> None:
         self.observers.append((name, handler))
 
@@ -54,10 +53,10 @@ def _player() -> tuple[MpvPlayer, FakeMpv]:
 
 def test_play_forwards_url_and_unpauses() -> None:
     player, fake = _player()
-    fake.props["pause"] = True
+    fake.pause = True
     player.play("http://s/v.mkv")
     assert fake.played == ["http://s/v.mkv"]
-    assert fake.props["pause"] is False
+    assert fake.pause is False
 
 
 def test_stop_issues_command() -> None:
@@ -84,8 +83,8 @@ def test_position_and_duration_default_to_zero() -> None:
     player, fake = _player()
     assert player.position() == 0.0
     assert player.duration() == 0.0
-    fake.props["time-pos"] = 12.5
-    fake.props["duration"] = 100.0
+    fake.time_pos = 12.5
+    fake.duration = 100.0
     assert player.position() == 12.5
     assert player.duration() == 100.0
 
@@ -93,9 +92,9 @@ def test_position_and_duration_default_to_zero() -> None:
 def test_volume_clamped_and_mute() -> None:
     player, fake = _player()
     player.set_volume(150.0)
-    assert fake.props["volume"] == 100.0
+    assert fake.volume == 100.0
     player.set_volume(-5.0)
-    assert fake.props["volume"] == 0.0
+    assert fake.volume == 0.0
     player.set_muted(True)
     assert player.is_muted() is True
 
@@ -113,17 +112,17 @@ def test_audio_tracks_labelled_with_language() -> None:
 def test_set_subtitle_track() -> None:
     player, fake = _player()
     player.set_subtitle_track(3)
-    assert fake.props["sid"] == 3
+    assert fake.sid == 3
     player.set_subtitle_track(None)
-    assert fake.props["sid"] == "no"
+    assert fake.sid == "no"
 
 
 def test_set_audio_track() -> None:
     player, fake = _player()
     player.set_audio_track(2)
-    assert fake.props["aid"] == 2
+    assert fake.aid == 2
     player.set_audio_track(None)
-    assert fake.props["aid"] == "no"
+    assert fake.aid == "no"
 
 
 def test_render_handle_exposes_mpv() -> None:

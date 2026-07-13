@@ -58,7 +58,7 @@ class MpvPlayer:
     def play(self, url: str) -> None:
         try:
             self._mpv.play(url)
-            self._mpv["pause"] = False
+            self._mpv.pause = False
         except Exception as exc:
             raise PlaybackFailed(f"failed to play {url}: {exc}") from exc
 
@@ -67,13 +67,13 @@ class MpvPlayer:
             self._mpv.command("stop")
 
     def pause(self) -> None:
-        self._mpv["pause"] = True
+        self._mpv.pause = True
 
     def resume(self) -> None:
-        self._mpv["pause"] = False
+        self._mpv.pause = False
 
     def is_paused(self) -> bool:
-        return bool(self._mpv["pause"])
+        return bool(self._prop("pause"))
 
     def seek(self, seconds: float) -> None:
         # Absolute seeks fail harmlessly before the file is loaded.
@@ -81,7 +81,7 @@ class MpvPlayer:
             self._mpv.seek(seconds, reference="absolute")
 
     def position(self) -> float:
-        value = self._prop("time-pos")
+        value = self._prop("time_pos")
         return float(value) if value is not None else 0.0
 
     def duration(self) -> float:
@@ -91,14 +91,14 @@ class MpvPlayer:
     # --- audio ---
 
     def set_volume(self, volume: float) -> None:
-        self._mpv["volume"] = max(0.0, min(100.0, volume))
+        self._mpv.volume = max(0.0, min(100.0, volume))
 
     def volume(self) -> float:
         value = self._prop("volume")
         return float(value) if value is not None else 100.0
 
     def set_muted(self, muted: bool) -> None:
-        self._mpv["mute"] = muted
+        self._mpv.mute = muted
 
     def is_muted(self) -> bool:
         return bool(self._prop("mute"))
@@ -109,13 +109,13 @@ class MpvPlayer:
         return self._tracks("sub")
 
     def set_subtitle_track(self, track_id: int | None) -> None:
-        self._mpv["sid"] = "no" if track_id is None else track_id
+        self._mpv.sid = "no" if track_id is None else track_id
 
     def audio_tracks(self) -> list[tuple[int, str]]:
         return self._tracks("audio")
 
     def set_audio_track(self, track_id: int | None) -> None:
-        self._mpv["aid"] = "no" if track_id is None else track_id
+        self._mpv.aid = "no" if track_id is None else track_id
 
     def _tracks(self, kind: str) -> list[tuple[int, str]]:
         tracks: list[tuple[int, str]] = []
@@ -166,8 +166,11 @@ class MpvPlayer:
             self._state_changed_callback()
 
     def _prop(self, name: str) -> Any:
+        # Attribute access reads mpv PROPERTIES; dict-style access on the MPV
+        # object reads the options/ namespace, where runtime state like
+        # time_pos does not exist.
         try:
-            return self._mpv[name]
+            return getattr(self._mpv, name)
         except Exception:
             return None
 
