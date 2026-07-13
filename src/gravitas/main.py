@@ -20,6 +20,7 @@ from gravitas.application.browse_catalog import BrowseCatalog
 from gravitas.application.get_detail import GetDetail
 from gravitas.application.install_addon import InstallAddon
 from gravitas.application.resolve_stream import ResolveStream
+from gravitas.application.uninstall_addon import UninstallAddon
 from gravitas.domain.ports import MediaPlayer
 from gravitas.infrastructure.addons.client import AddonClient
 from gravitas.infrastructure.player.mpv_player import MpvPlayer
@@ -28,6 +29,8 @@ from gravitas.presentation.controllers.catalog_controller import CatalogControll
 from gravitas.presentation.controllers.detail_controller import DetailController
 from gravitas.presentation.controllers.discover_controller import DiscoverController
 from gravitas.presentation.controllers.player_controller import PlayerController
+from gravitas.presentation.controllers.settings_controller import SettingsController
+from gravitas.presentation.models.addon_list_model import AddonListModel
 from gravitas.presentation.models.catalog_rows_model import CatalogRowsModel
 from gravitas.presentation.models.poster_grid_model import PosterGridModel
 from gravitas.presentation.models.stream_list_model import StreamListModel
@@ -67,7 +70,14 @@ def build_app(
 
     catalog_controller = CatalogController(BrowseCatalog(repo), rows_model)
     detail_controller = DetailController(GetDetail(repo), ResolveStream(repo), stream_model)
-    addon_controller = AddonController(InstallAddon(repo), catalog_controller)
+    install_addon = InstallAddon(repo)
+    addon_controller = AddonController(install_addon, catalog_controller)
+    addon_list_model = AddonListModel()
+    settings_controller = SettingsController(
+        UninstallAddon(repo), repo, addon_list_model, catalog_controller
+    )
+    # Keep the Settings list in sync after a user installs a new addon.
+    addon_controller.addonInstalled.connect(lambda _name: settings_controller.refreshAddons())
 
     engine = QQmlApplicationEngine()
 
@@ -88,15 +98,16 @@ def build_app(
     ctx.setContextProperty("streamModel", stream_model)
     ctx.setContextProperty("discoverController", discover_controller)
     ctx.setContextProperty("discoverModel", discover_model)
+    ctx.setContextProperty("settingsController", settings_controller)
+    ctx.setContextProperty("addonListModel", addon_list_model)
 
     async def bootstrap() -> None:
-        # Reuse the same install-bind-refresh path AddonController.addAddon
-        # exposes to QML, so there is a single deterministic code path for
-        # installing an addon and bringing the UI up to date. addAddon is a
-        # qasync asyncSlot, which returns the underlying asyncio Task -- await
-        # it here to keep cold-start ordering deterministic (manifest bound
-        # and catalog loaded before bootstrap() returns).
-        await addon_controller.addAddon(default_addon_url)
+        # Install the default addon as protected (non-removable), then bring
+        # the UI up to date deterministically: load the catalog rows and prime
+        # the Settings addon list before bootstrap() returns.
+        await install_addon(default_addon_url, protected=True)
+        await catalog_controller.load_catalog()
+        settings_controller.refreshAddons()
 
     engine.load(str(_QML_DIR / "Main.qml"))
 
@@ -114,9 +125,11 @@ def build_app(
         player_controller,
         addon_controller,
         discover_controller,
+        settings_controller,
         rows_model,
         discover_model,
         stream_model,
+        addon_list_model,
     )
     engine._gravitas_bootstrap = bootstrap  # type: ignore[attr-defined]
     engine._gravitas_http = http  # type: ignore[attr-defined]

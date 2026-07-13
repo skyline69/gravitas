@@ -40,6 +40,15 @@ def test_build_app_registers_context_properties(qapp: object) -> None:
         asyncio.set_event_loop(None)
 
 
+def test_settings_context_properties_present(qapp: object) -> None:
+    from gravitas.main import DEFAULT_ADDON, build_app
+
+    _, engine = build_app([], DEFAULT_ADDON)
+    ctx = engine.rootContext()
+    assert ctx.contextProperty("settingsController") is not None
+    assert ctx.contextProperty("addonListModel") is not None
+
+
 def test_discover_qml_loads(qapp: object) -> None:
     from pathlib import Path
 
