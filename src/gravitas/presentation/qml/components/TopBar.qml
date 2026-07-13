@@ -90,6 +90,9 @@ Rectangle {
                 }
                 TapHandler {
                     onTapped: {
+                        // No-op when re-tapping the tab already showing.
+                        if (!bar.settingsActive && bar.activeMode === modelData.mode)
+                            return
                         bar.activeMode = modelData.mode
                         bar.tabSelected(modelData.mode)
                     }
