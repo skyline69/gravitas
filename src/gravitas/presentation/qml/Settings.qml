@@ -64,6 +64,8 @@ Item {
                 height: 44
                 radius: Theme.radius
                 color: Theme.surface
+                border.width: 1
+                border.color: Theme.borderStrong
                 required property string name
                 required property string addonId
                 required property bool removable

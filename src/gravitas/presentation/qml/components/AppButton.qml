@@ -23,8 +23,11 @@ Button {
         color: control.ghost
             ? (control.pressed ? Theme.surfacePress : control.hovered ? Theme.surfaceHover : "transparent")
             : (control.pressed ? Theme.surfacePress : control.hovered ? Theme.surfaceHover : Theme.surface)
-        border.width: control.activeFocus ? 2 : (control.ghost ? 1 : 0)
-        border.color: control.activeFocus ? Theme.accent : Theme.border
+        // A visible resting outline separates the control from whatever it
+        // sits on (page bg or the surface-colored top bar), so interactive
+        // elements never blend into their background. Accent ring on focus.
+        border.width: control.activeFocus ? 2 : 1
+        border.color: control.activeFocus ? Theme.accent : Theme.borderStrong
         Behavior on color { ColorAnimation { duration: Theme.durFast } }
     }
 

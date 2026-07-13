@@ -17,7 +17,7 @@ TextField {
         radius: Theme.radius
         color: Theme.surface
         border.width: 1
-        border.color: control.activeFocus ? Theme.accent : Theme.border
+        border.color: control.activeFocus ? Theme.accent : Theme.borderStrong
         Behavior on border.color { ColorAnimation { duration: Theme.durFast } }
     }
 }

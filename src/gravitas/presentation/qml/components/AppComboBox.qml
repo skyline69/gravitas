@@ -16,7 +16,7 @@ ComboBox {
         radius: Theme.radius
         color: control.pressed ? Theme.surfacePress : Theme.surface
         border.width: 1
-        border.color: (control.activeFocus || control.hovered) ? Theme.borderStrong : Theme.border
+        border.color: control.activeFocus ? Theme.accent : Theme.borderStrong
         Behavior on color { ColorAnimation { duration: Theme.durFast } }
         Behavior on border.color { ColorAnimation { duration: Theme.durFast } }
     }
