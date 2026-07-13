@@ -22,6 +22,8 @@ class PosterGridModel(QAbstractListModel):
     TypeRole = Qt.ItemDataRole.UserRole + 2
     NameRole = Qt.ItemDataRole.UserRole + 3
     PosterRole = Qt.ItemDataRole.UserRole + 4
+    YearRole = Qt.ItemDataRole.UserRole + 5
+    RatingRole = Qt.ItemDataRole.UserRole + 6
 
     def __init__(self) -> None:
         super().__init__()
@@ -63,6 +65,10 @@ class PosterGridModel(QAbstractListModel):
                 return item.name
             case PosterGridModel.PosterRole:
                 return item.poster
+            case PosterGridModel.YearRole:
+                return item.year
+            case PosterGridModel.RatingRole:
+                return item.imdb_rating
         return None
 
     def roleNames(self) -> dict[int, QByteArray]:
@@ -71,4 +77,6 @@ class PosterGridModel(QAbstractListModel):
             PosterGridModel.TypeRole: QByteArray(b"type"),
             PosterGridModel.NameRole: QByteArray(b"name"),
             PosterGridModel.PosterRole: QByteArray(b"poster"),
+            PosterGridModel.YearRole: QByteArray(b"year"),
+            PosterGridModel.RatingRole: QByteArray(b"rating"),
         }
