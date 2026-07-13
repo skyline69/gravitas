@@ -78,6 +78,24 @@ ApplicationWindow {
         anchors.fill: parent
         initialItem: homePage
 
+        // Fade + slight zoom instead of the default lateral slide: pushed
+        // pages settle in from 2% above scale, popped pages recede the same
+        // way, so navigation reads as depth rather than sideways motion.
+        pushEnter: Transition {
+            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durMed; easing.type: Easing.OutCubic }
+            NumberAnimation { property: "scale"; from: 1.02; to: 1; duration: Theme.durMed; easing.type: Easing.OutCubic }
+        }
+        pushExit: Transition {
+            NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.durFast }
+        }
+        popEnter: Transition {
+            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durMed; easing.type: Easing.OutCubic }
+        }
+        popExit: Transition {
+            NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.durFast }
+            NumberAnimation { property: "scale"; from: 1; to: 1.02; duration: Theme.durFast }
+        }
+
         // Tapping empty space clears keyboard focus (e.g. blurs a focused
         // text field). Controls consume their own taps, so this only fires
         // for otherwise-unhandled taps on empty areas. Focus goes to the
