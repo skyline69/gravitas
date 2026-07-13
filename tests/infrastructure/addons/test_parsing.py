@@ -239,3 +239,22 @@ def test_catalog_path_extra_search() -> None:
     # combined with skip
     expected_skip = "catalog/movie/top/skip=20&search=x.json"
     assert catalog_path_extra(ref, None, 20, "x") == expected_skip
+
+
+def test_parse_catalog_extracts_year_and_rating() -> None:
+    from gravitas.infrastructure.addons.parsing import parse_catalog
+
+    data = {
+        "metas": [
+            {
+                "id": "tt1",
+                "type": "series",
+                "name": "The Boys",
+                "releaseInfo": "2019-2026",
+                "imdbRating": "8.7",
+            }
+        ]
+    }
+    item = parse_catalog(data)[0]
+    assert item.year == "2019"
+    assert item.imdb_rating == "8.7"

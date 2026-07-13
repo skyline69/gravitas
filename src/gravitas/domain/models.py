@@ -15,6 +15,7 @@ class MediaItem:
     name: str
     poster: str | None
     year: str | None = None
+    imdb_rating: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

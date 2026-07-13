@@ -9,6 +9,7 @@ from PySide6.QtCore import QObject, QTimer, Signal, Slot
 from qasync import asyncSlot  # type: ignore[import-untyped]
 
 from gravitas.application.media_links import parse_media_link
+from gravitas.application.search_ranking import rank
 from gravitas.domain.errors import GravitasError
 from gravitas.domain.models import MediaItem
 from gravitas.presentation.models.search_results_model import SearchResultsModel
@@ -58,22 +59,26 @@ class SearchController(QObject):
     def queueSearch(self, text: str) -> None:
         self._pending = text.strip()
         if not self._pending:
-            self._timer.stop()
-            self._req += 1
-            self._last_items = []
-            self._model.set_items([])
-            self.resultsChanged.emit()
+            self._reset_state()
             return
         self._timer.start()
 
     @Slot()
     def clear(self) -> None:
-        self._timer.stop()
         self._pending = ""
+        self._reset_state()
+
+    def _reset_state(self) -> None:
+        # Empty query / clear: cancel the timer, invalidate any in-flight
+        # request (bump _req), empty the model, and force loading off — the
+        # superseded request's own `loadingChanged(False)` is suppressed by the
+        # stale guard, so it must be emitted here or the spinner sticks.
+        self._timer.stop()
         self._req += 1
         self._last_items = []
         self._model.set_items([])
         self.resultsChanged.emit()
+        self.loadingChanged.emit(False)
 
     @Slot()
     def commitToPage(self) -> None:
@@ -101,16 +106,17 @@ class SearchController(QObject):
                 self._commit(cached, req)  # instant on repeats
                 return
             if self._search_stream is not None:
-                # Stream: show each addon's results the moment they arrive.
+                # Stream: show each addon's results the moment they arrive,
+                # re-ranked by relevance as the accumulated set grows.
                 acc: list[MediaItem] = []
                 async for batch in self._search_stream(text):
                     if req != self._req:
                         return
                     acc = acc + batch
-                    self._commit(acc, req)
-                self._store_cache(key, acc)
+                    self._commit(rank(text, acc), req)
+                self._store_cache(key, rank(text, acc))
             else:
-                items = await self._search(text)
+                items = rank(text, await self._search(text))
                 self._store_cache(key, items)
                 self._commit(items, req)
         except GravitasError as exc:

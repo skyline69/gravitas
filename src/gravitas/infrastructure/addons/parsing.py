@@ -114,12 +114,17 @@ def parse_catalog(data: dict[str, Any]) -> list[MediaItem]:
         m_type = raw.get("type")
         if m_type not in _VALID_TYPES:
             continue
+        release = raw.get("releaseInfo")
+        year = release[:4] if isinstance(release, str) and release[:4].isdigit() else None
+        rating = raw.get("imdbRating")
         items.append(
             MediaItem(
                 id=str(raw.get("id", "")),
                 type=m_type,
                 name=str(raw.get("name", "")),
                 poster=raw.get("poster"),
+                year=year,
+                imdb_rating=str(rating) if rating is not None else None,
             )
         )
     return items

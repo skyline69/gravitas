@@ -106,3 +106,21 @@ async def test_cache_hit_skips_second_search(qapp: object) -> None:
     await c._perform("matrix")  # second call served from cache
     assert stream.calls == ["matrix"]  # stream invoked only once
     assert model.rowCount() == 1
+
+
+async def test_clear_forces_loading_off(qapp: object) -> None:
+    a = MediaItem(id="tt1", type="movie", name="A", poster=None)
+    c, _ = _build([a], a)
+    events: list[bool] = []
+    c.loadingChanged.connect(events.append)
+    c.clear()
+    assert events[-1] is False
+
+
+async def test_empty_query_forces_loading_off(qapp: object) -> None:
+    a = MediaItem(id="tt1", type="movie", name="A", poster=None)
+    c, _ = _build([a], a)
+    events: list[bool] = []
+    c.loadingChanged.connect(events.append)
+    c.queueSearch("   ")
+    assert events[-1] is False
