@@ -19,6 +19,7 @@ Item {
             AppButton {
                 ghost: true
                 iconGlyph: Icons.arrowLeft
+                tooltip: "Back"
                 onClicked: settings.back()
             }
             Text {
@@ -80,6 +81,7 @@ Item {
                 AppButton {
                     ghost: true
                     iconGlyph: Icons.trash
+                    tooltip: "Remove addon"
                     visible: parent.removable
                     anchors.right: parent.right
                     anchors.rightMargin: 8

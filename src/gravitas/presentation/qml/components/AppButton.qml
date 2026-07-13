@@ -6,6 +6,8 @@ Button {
     id: control
     property bool ghost: false
     property string iconGlyph: ""
+    // Optional hover tooltip (mainly for icon-only buttons). Empty = none.
+    property string tooltip: ""
 
     // A mouse click should not leave the keyboard-focus ring behind; only
     // Tab navigation shows it. StrongFocus (the default) grabs focus on click.
@@ -15,6 +17,24 @@ Button {
     padding: Theme.spacing * 1.5
 
     HoverHandler { cursorShape: Qt.PointingHandCursor }
+
+    onHoveredChanged: {
+        if (control.tooltip.length === 0)
+            return
+        if (control.hovered)
+            tipTimer.restart()
+        else {
+            tipTimer.stop()
+            tip.close()
+        }
+    }
+    Timer { id: tipTimer; interval: 400; onTriggered: tip.open() }
+    AppToolTip {
+        id: tip
+        text: control.tooltip
+        x: (control.width - width) / 2
+        y: control.height + 8
+    }
 
     background: Rectangle {
         radius: Theme.radius

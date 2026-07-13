@@ -93,6 +93,7 @@ Rectangle {
         id: gearButton
         ghost: true
         iconGlyph: Icons.gear
+        tooltip: "Settings"
         anchors.right: parent.right
         anchors.rightMargin: 16
         anchors.verticalCenter: parent.verticalCenter
