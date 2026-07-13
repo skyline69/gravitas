@@ -10,11 +10,13 @@ Item {
 
     ListView {
         id: rowsView
-        anchors.top: parent.top
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        anchors.margins: 24
+        anchors.fill: parent
+        anchors.leftMargin: 24
+        anchors.rightMargin: 24
+        anchors.bottomMargin: 24
+        // Reserve space for the floating bar (top margin 12 + height 56 + gap);
+        // rows still scroll up underneath it and are hidden by the opaque bar.
+        topMargin: 80
         spacing: 28
         clip: true
         model: catalogRowsModel

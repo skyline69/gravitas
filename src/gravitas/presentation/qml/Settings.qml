@@ -11,7 +11,10 @@ Item {
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.margins: 24
+        anchors.leftMargin: 24
+        anchors.rightMargin: 24
+        // Clear the floating top bar (12 + 56 + 12 gap).
+        anchors.topMargin: 80
         spacing: 20
 
         Row {

@@ -16,9 +16,14 @@ ApplicationWindow {
 
     TopBar {
         id: topBar
+        // Floating bar: a shorter, horizontally-centered pill that sits ON TOP
+        // of the content (z:1) with a margin from the top edge. Content scrolls
+        // underneath it rather than being cut off in a gap.
+        z: 1
         anchors.top: parent.top
-        anchors.left: parent.left
-        anchors.right: parent.right
+        anchors.topMargin: 12
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: Math.min(parent.width - 24, 820)
         visible: {
             var it = stack.currentItem
             return it !== null
@@ -38,10 +43,9 @@ ApplicationWindow {
 
     StackView {
         id: stack
-        anchors.top: topBar.visible ? topBar.bottom : parent.top
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
+        // Fills the whole window; the floating bar overlays the top. Pages that
+        // show the bar (Home, Settings) inset their own content below it.
+        anchors.fill: parent
         initialItem: homePage
 
         // Tapping empty space clears keyboard focus (e.g. blurs a focused

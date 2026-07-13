@@ -13,6 +13,9 @@ Rectangle {
 
     height: 56
     color: Theme.surface
+    radius: Theme.radius * 2
+    border.width: 1
+    border.color: Theme.borderStrong
 
     readonly property var tabs: [
         { label: "All", mode: "all", icon: Icons.dashboard, color: Theme.accent },
