@@ -21,11 +21,10 @@ Button {
         color: control.ghost
             ? (control.pressed ? Theme.surfacePress : control.hovered ? Theme.surfaceHover : "transparent")
             : (control.pressed ? Theme.surfacePress : control.hovered ? Theme.surfaceHover : Theme.surface)
-        // A visible resting outline separates the control from whatever it
-        // sits on (page bg or the surface-colored top bar), so interactive
-        // elements never blend into their background. Accent ring on focus.
-        border.width: control.activeFocus ? 2 : 1
-        border.color: control.activeFocus ? Theme.accent : Theme.borderStrong
+        // Borderless soft chip, matching the nav tabs: no resting outline,
+        // just a hover/press wash. Accent ring appears only on keyboard focus.
+        border.width: control.activeFocus ? 2 : 0
+        border.color: Theme.accent
         Behavior on color { ColorAnimation { duration: Theme.durFast } }
     }
 
