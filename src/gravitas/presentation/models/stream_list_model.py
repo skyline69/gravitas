@@ -129,6 +129,8 @@ class StreamListModel(QAbstractListModel):
             StreamListModel.InstantRole: QByteArray(b"instant"),
             StreamListModel.TagsRole: QByteArray(b"tags"),
             StreamListModel.StarsRole: QByteArray(b"stars"),
-            StreamListModel.DetailRole: QByteArray(b"detail"),
+            # Exposed as "extra", not "detail": delegates receive role names as
+            # bare context properties, and "detail" shadows the Detail page id.
+            StreamListModel.DetailRole: QByteArray(b"extra"),
             StreamListModel.SubtitleRole: QByteArray(b"subtitle"),
         }

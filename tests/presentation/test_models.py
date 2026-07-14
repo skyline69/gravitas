@@ -73,7 +73,7 @@ def test_stream_model_display_roles(qapp: object) -> None:
     assert model.data(index, StreamListModel.StarsRole) == 1
     assert model.data(index, StreamListModel.SubtitleRole) == ""
     names = {bytes(v).decode() for v in model.roleNames().values()}
-    assert {"resolution", "instant", "tags", "stars", "detail", "subtitle"} <= names
+    assert {"resolution", "instant", "tags", "stars", "extra", "subtitle"} <= names
 
 
 def test_stream_model(qapp: object) -> None:
