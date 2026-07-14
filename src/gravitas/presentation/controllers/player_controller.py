@@ -160,6 +160,20 @@ class PlayerController(QObject):
             return
         self._player.set_audio_track(None if track_id < 0 else track_id)
 
+    @Slot(result=int)
+    def currentSubtitle(self) -> int:
+        if self._player is None:
+            return -1
+        current = self._player.current_subtitle_track()
+        return current if current is not None else -1
+
+    @Slot(result=int)
+    def currentAudio(self) -> int:
+        if self._player is None:
+            return -1
+        current = self._player.current_audio_track()
+        return current if current is not None else -1
+
     @Slot(result="QVariantList")
     def subtitleTracks(self) -> list[dict[str, object]]:
         if self._player is None:

@@ -78,6 +78,12 @@ class FakePlayer:
     def audio_tracks(self) -> list[tuple[int, str]]:
         return self._audio
 
+    def current_subtitle_track(self) -> int | None:
+        return self.sub if isinstance(self.sub, int) and self.sub >= 0 else None
+
+    def current_audio_track(self) -> int | None:
+        return self.aud if isinstance(self.aud, int) and self.aud >= 0 else None
+
     def set_tracks_changed_callback(self, callback: Callable[[], None] | None) -> None:
         self._tracks_changed_callback = callback
 
@@ -169,6 +175,18 @@ def test_audio_tracks_exposed_as_dicts(qapp: object) -> None:
     assert player.aud == 1
     controller.selectAudio(-1)
     assert player.aud is None
+
+
+def test_current_tracks_reported(qapp: object) -> None:
+    player = FakePlayer()
+    controller = PlayerController(lambda: player)
+    controller.play("http://s/v.mkv")
+    player.sub = 2
+    player.aud = 1
+    assert controller.currentSubtitle() == 2
+    assert controller.currentAudio() == 1
+    controller.selectSubtitle(-1)  # off
+    assert controller.currentSubtitle() == -1
 
 
 def test_select_subtitle(qapp: object) -> None:

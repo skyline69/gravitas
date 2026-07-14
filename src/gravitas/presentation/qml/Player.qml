@@ -11,8 +11,8 @@ Item {
     onUrlChanged: if (url.length) playerController.play(url)
 
     // Track selection state for the check mark in the menus. -1 = default/off.
-    property int currentAudio: 0
-    property int currentSub: 0
+    property int currentAudio: -1
+    property int currentSub: -1
     property bool controlsVisible: true
 
     // Polled (not bound): the duration property's change signal comes off
@@ -316,6 +316,7 @@ Item {
                         tooltip: "Audio track"
                         onClicked: {
                             audioMenu.tracks = playerController.audioTracks()
+                            player.currentAudio = playerController.currentAudio()
                             audioMenu.open()
                         }
                         TrackMenu {
@@ -336,6 +337,7 @@ Item {
                         tooltip: "Subtitles"
                         onClicked: {
                             subsMenu.tracks = playerController.subtitleTracks()
+                            player.currentSub = playerController.currentSubtitle()
                             subsMenu.open()
                         }
                         TrackMenu {

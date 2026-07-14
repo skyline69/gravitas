@@ -257,6 +257,17 @@ class MpvPlayer:
     def set_audio_track(self, track_id: int | None) -> None:
         self._mpv.aid = "no" if track_id is None else track_id
 
+    def current_subtitle_track(self) -> int | None:
+        return self._current_track("sid")
+
+    def current_audio_track(self) -> int | None:
+        return self._current_track("aid")
+
+    def _current_track(self, prop: str) -> int | None:
+        # mpv returns an int id, or False/"no"/None when disabled.
+        value = self._prop(prop)
+        return value if isinstance(value, int) and not isinstance(value, bool) else None
+
     def _tracks(self, kind: str) -> list[tuple[int, str]]:
         tracks: list[tuple[int, str]] = []
         for track in self._mpv.track_list:
