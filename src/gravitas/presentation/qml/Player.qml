@@ -207,6 +207,7 @@ Item {
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.margins: 16
+        blurTarget: video
         opacity: player.controlsVisible ? 1 : 0
         visible: opacity > 0
         Behavior on opacity { NumberAnimation { duration: Theme.durMed } }

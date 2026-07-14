@@ -38,10 +38,12 @@ Item {
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.margins: 16
+        blurTarget: flick
         onClicked: detail.back()
     }
 
     Flickable {
+        id: flick
         anchors.fill: parent
         contentWidth: width
         contentHeight: content.implicitHeight + 48
