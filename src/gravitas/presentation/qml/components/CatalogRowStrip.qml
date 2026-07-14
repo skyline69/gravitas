@@ -34,9 +34,13 @@ Item {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             text: "See All"
-            color: "#9aa0a6"
+            color: seeAllMouse.containsMouse ? "#f0f0f0" : "#9aa0a6"
+            font.underline: seeAllMouse.containsMouse
+            Behavior on color { ColorAnimation { duration: 120 } }
             MouseArea {
+                id: seeAllMouse
                 anchors.fill: parent
+                hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
                 onClicked: root.seeAll(root.addonId, root.type, root.catalogId)
             }

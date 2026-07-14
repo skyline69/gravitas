@@ -226,6 +226,12 @@ Item {
             NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durMed; easing.type: Easing.OutCubic }
             NumberAnimation { property: "y"; from: 12; duration: Theme.durMed; easing.type: Easing.OutCubic }
         }
+        // Initial page load and filter-driven model resets fade in the same
+        // way (`add` doesn't run on a model reset).
+        populate: Transition {
+            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durMed * 2; easing.type: Easing.OutCubic }
+            NumberAnimation { property: "y"; from: 16; duration: Theme.durMed * 2; easing.type: Easing.OutCubic }
+        }
         displaced: Transition {
             NumberAnimation { properties: "x,y"; duration: Theme.durMed; easing.type: Easing.OutCubic }
         }
