@@ -21,10 +21,8 @@ Item {
 
         Row {
             spacing: 12
-            AppButton {
-                ghost: true
-                iconGlyph: Icons.arrowLeft
-                tooltip: "Back"
+            BackButton {
+                anchors.verticalCenter: parent.verticalCenter
                 onClicked: sources.back()
             }
             Text {

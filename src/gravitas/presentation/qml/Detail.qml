@@ -32,32 +32,13 @@ Item {
     }
     Rectangle { anchors.fill: parent; color: Qt.rgba(0.078, 0.078, 0.078, 0.86) }
 
-    // floating back button, above the scrolling content. A semi-opaque dark
-    // backing keeps it legible over bright or busy background art.
-    Item {
-        id: backWrap
+    // floating back button, above the scrolling content
+    BackButton {
         z: 10
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.margins: 16
-        width: backBtn.width
-        height: backBtn.height
-
-        Rectangle {
-            anchors.fill: parent
-            radius: Theme.radius
-            color: Qt.rgba(0, 0, 0, 0.55)
-            border.width: 1
-            border.color: Qt.rgba(1, 1, 1, 0.18)
-        }
-
-        AppButton {
-            id: backBtn
-            ghost: true
-            iconGlyph: Icons.arrowLeft
-            text: "Back"
-            onClicked: detail.back()
-        }
+        onClicked: detail.back()
     }
 
     Flickable {

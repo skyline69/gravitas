@@ -201,32 +201,16 @@ Item {
         }
     }
 
-    // ---- top-left back pill ----
-    Item {
+    // ---- top-left back button ----
+    BackButton {
         z: 10
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.margins: 16
-        width: backBtn.width
-        height: backBtn.height
         opacity: player.controlsVisible ? 1 : 0
         visible: opacity > 0
         Behavior on opacity { NumberAnimation { duration: Theme.durMed } }
-
-        Rectangle {
-            anchors.fill: parent
-            radius: Theme.radius
-            color: Qt.rgba(0, 0, 0, 0.55)
-            border.width: 1
-            border.color: Qt.rgba(1, 1, 1, 0.18)
-        }
-        AppButton {
-            id: backBtn
-            ghost: true
-            iconGlyph: Icons.arrowLeft
-            text: "Back"
-            onClicked: player.leave()
-        }
+        onClicked: player.leave()
     }
 
     // ---- bottom control bar ----
