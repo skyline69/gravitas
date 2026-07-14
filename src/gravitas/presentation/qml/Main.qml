@@ -24,7 +24,6 @@ ApplicationWindow {
         // of the content (z:1) with a margin from the top edge. Content scrolls
         // underneath it rather than being cut off in a gap.
         z: 1
-        anchors.top: parent.top
         anchors.horizontalCenter: parent.horizontalCenter
         width: Math.min(parent.width - 24, 1040)
         readonly property bool shouldShow: {
@@ -35,16 +34,18 @@ ApplicationWindow {
                     || it.objectName === "searchResultsPage")
         }
         // Fly in from above / fly out when navigating to a bar-less page,
-        // with a fade riding along. `visible` only flips once fully gone so
-        // the exit animation isn't cut short.
-        anchors.topMargin: shouldShow ? 12 : -(height + 24)
+        // fading at the same time (fade runs quicker than the slide so it
+        // reads clearly). Plain `y`, not an anchor margin — Behaviors on
+        // grouped anchor properties don't animate reliably. `visible` only
+        // flips once fully transparent so the exit isn't cut short.
+        y: shouldShow ? 12 : -(height + 24)
         opacity: shouldShow ? 1 : 0
         visible: opacity > 0
-        Behavior on anchors.topMargin {
-            NumberAnimation { duration: Theme.durMed * 1.5; easing.type: Easing.OutCubic }
+        Behavior on y {
+            NumberAnimation { duration: 320; easing.type: Easing.OutCubic }
         }
         Behavior on opacity {
-            NumberAnimation { duration: Theme.durMed * 1.5; easing.type: Easing.OutCubic }
+            NumberAnimation { duration: 200; easing.type: Easing.OutCubic }
         }
         settingsActive: stack.currentItem !== null
             && stack.currentItem.objectName === "settingsPage"
