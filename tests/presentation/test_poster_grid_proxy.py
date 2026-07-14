@@ -92,6 +92,17 @@ def test_appended_rows_respect_active_sort(qapp: object) -> None:
     assert _names(proxy) == ["A", "B", "C"]
 
 
+def test_append_items_dedups_by_id(qapp: object) -> None:
+    model = PosterGridModel()
+    model.set_items([_item("1", "A"), _item("2", "B")])
+    appended = model.append_items([_item("2", "B"), _item("3", "C")])
+    assert appended == 1
+    assert model.rowCount() == 3
+    assert model.item_at(2).id == "3"
+    assert model.append_items([_item("1", "A")]) == 0
+    assert model.rowCount() == 3
+
+
 def test_year_and_rating_roles_exposed(qapp: object) -> None:
     model = PosterGridModel()
     model.set_items([_item("1", "Film", year="1999", rating="7.5")])

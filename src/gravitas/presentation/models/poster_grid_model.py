@@ -34,13 +34,25 @@ class PosterGridModel(QAbstractListModel):
         self._items = list(items)
         self.endResetModel()
 
-    def append_items(self, items: list[MediaItem]) -> None:
-        if not items:
-            return
+    def append_items(self, items: list[MediaItem]) -> int:
+        """Append items not already present (by id); returns how many were new.
+
+        Addons routinely repeat items across pagination pages (or ignore skip
+        entirely) — blind appends accumulate visible duplicates.
+        """
+        seen = {item.id for item in self._items}
+        fresh: list[MediaItem] = []
+        for item in items:
+            if item.id not in seen:
+                seen.add(item.id)
+                fresh.append(item)
+        if not fresh:
+            return 0
         start = len(self._items)
-        self.beginInsertRows(_ROOT_INDEX, start, start + len(items) - 1)
-        self._items.extend(items)
+        self.beginInsertRows(_ROOT_INDEX, start, start + len(fresh) - 1)
+        self._items.extend(fresh)
         self.endInsertRows()
+        return len(fresh)
 
     def item_at(self, row: int) -> MediaItem:
         return self._items[row]

@@ -146,10 +146,14 @@ class DiscoverController(QObject):
                 cat.addon_id, cat.type, cat.catalog_id, genre=self._genre, skip=self._skip
             )
             if append:
-                self._model.append_items(page.items)
+                appended = self._model.append_items(page.items)
+                # A page that adds nothing new means the addon is repeating
+                # itself (some ignore skip); keep paginating and every
+                # atYEnd would refetch the same page forever.
+                self._has_more = page.has_more and appended > 0
             else:
                 self._model.set_items(page.items)
-            self._has_more = page.has_more
+                self._has_more = page.has_more
         except GravitasError as exc:
             self._has_more = False
             self.errorOccurred.emit(str(exc))

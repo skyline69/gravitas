@@ -71,6 +71,25 @@ async def test_load_more_appends_and_respects_has_more(qapp: object) -> None:
     assert len(browse.calls) == calls_before
 
 
+async def test_load_more_stops_when_addon_repeats_page(qapp: object) -> None:
+    # Addons that ignore `skip` return the same items forever; pagination must
+    # stop once a page appends nothing new instead of refetching endlessly.
+    class RepeatingBrowse(FakeBrowse):
+        async def __call__(self, addon_id, type, catalog_id, *, genre=None, skip=0):
+            self.calls.append((addon_id, type, catalog_id, genre, skip))
+            return BoardPage(items=_items(100, offset=0), has_more=True)
+
+    model = PosterGridModel()
+    browse = RepeatingBrowse()
+    ctl = DiscoverController(browse, FakeRepo(), model)  # type: ignore[arg-type]
+    await ctl.open("a", "movie", "top")
+    await ctl.loadMore()  # same page again -> 0 appended
+    assert model.rowCount() == 100  # no duplicates
+    calls_before = len(browse.calls)
+    await ctl.loadMore()  # pagination now off
+    assert len(browse.calls) == calls_before
+
+
 async def test_error_emits_and_clears_loading(qapp: object) -> None:
     class Boom:
         async def __call__(self, *a, **k):
