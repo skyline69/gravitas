@@ -1,0 +1,54 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  linux:
+    # Oldest supported LTS: the AppImage inherits this glibc floor.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install libmpv and AppImage runtime deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libmpv-dev libfuse2
+      - run: uv sync
+      - name: Build one-dir bundle
+        run: uv run --with pyinstaller pyinstaller packaging/gravitas.spec --noconfirm
+      - name: Build AppImage
+        run: bash packaging/build_appimage.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gravitas-linux
+          path: dist/Gravitas-*.AppImage
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: dist/Gravitas-*.AppImage
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install libmpv
+        run: brew install mpv
+      - run: uv sync
+      - name: Build app bundle
+        run: uv run --with pyinstaller pyinstaller packaging/gravitas.spec --noconfirm
+      - name: Ad-hoc sign
+        run: codesign --force --deep --sign - dist/Gravitas.app
+      - name: Build dmg
+        run: hdiutil create -volname Gravitas -srcfolder dist/Gravitas.app -ov -format UDZO dist/Gravitas.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gravitas-macos
+          path: dist/Gravitas.dmg
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: dist/Gravitas.dmg
