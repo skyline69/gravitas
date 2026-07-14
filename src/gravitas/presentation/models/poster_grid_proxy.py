@@ -36,13 +36,17 @@ def _first_year(value: object) -> float | None:
     return float(match.group()) if match else None
 
 
+_RATING_RE = re.compile(r"\d+(?:[.,]\d+)?")
+
+
 def _rating(value: object) -> float | None:
+    """Parse '8.1', '8,1', '8.1/10', 'IMDb 8.1' — addons format ratings loosely."""
     if not isinstance(value, str):
         return None
-    try:
-        return float(value)
-    except ValueError:
+    match = _RATING_RE.search(value)
+    if match is None:
         return None
+    return float(match.group().replace(",", "."))
 
 
 class PosterGridProxy(QSortFilterProxyModel):

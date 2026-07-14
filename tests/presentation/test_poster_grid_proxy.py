@@ -77,6 +77,43 @@ def test_sort_by_rating_highest_first_missing_last(qapp: object) -> None:
     assert _names(proxy) == ["Top", "Mid", "None", "Junk"]
 
 
+def test_rating_parses_loose_addon_formats(qapp: object) -> None:
+    _, proxy = _build(
+        [
+            _item("1", "SlashTen", rating="8.1/10"),
+            _item("2", "Comma", rating="9,2"),
+            _item("3", "Prefixed", rating="IMDb 7.4"),
+            _item("4", "None"),
+        ]
+    )
+    proxy.setSortKey("rating")
+    assert _names(proxy) == ["Comma", "SlashTen", "Prefixed", "None"]
+
+
+def test_all_items_unrated_keeps_source_order(qapp: object) -> None:
+    # Catalogs without rating data (e.g. IMDB Catalogs addon) must not be
+    # shuffled by a rating sort — everything ties, stable sort preserves order.
+    _, proxy = _build([_item("1", "A"), _item("2", "B"), _item("3", "C")])
+    proxy.setSortKey("rating")
+    assert _names(proxy) == ["A", "B", "C"]
+
+
+def test_filter_and_sort_combine(qapp: object) -> None:
+    _, proxy = _build(
+        [
+            _item("1", "Alien", year="1979"),
+            _item("2", "Aliens", year="1986"),
+            _item("3", "Alien 3", year="1992"),
+            _item("4", "Blade", year="1998"),
+        ]
+    )
+    proxy.setSortKey("year")
+    proxy.setFilterText("alien")
+    assert _names(proxy) == ["Alien 3", "Aliens", "Alien"]
+    proxy.setFilterText("")
+    assert _names(proxy) == ["Blade", "Alien 3", "Aliens", "Alien"]
+
+
 def test_default_restores_source_order_after_sort(qapp: object) -> None:
     _, proxy = _build([_item("1", "Zebra"), _item("2", "Apple"), _item("3", "Mango")])
     proxy.setSortKey("name")
