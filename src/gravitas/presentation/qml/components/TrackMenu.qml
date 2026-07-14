@@ -17,6 +17,10 @@ Popup {
 
     x: parent ? (parent.width - width) / 2 : 0
     y: -implicitHeight - 8
+    // Modal: the press that dismisses the menu must NOT fall through to the
+    // video underneath (it toggled pause).
+    modal: true
+    dim: false
     // Sized to the longest entry so labels don't clip; past the cap the row
     // text elides instead. Imperative measure — a binding that writes
     // TextMetrics.text and reads its width would retrigger itself.

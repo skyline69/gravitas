@@ -167,13 +167,23 @@ Item {
         }
     }
 
+    // Single click pauses only after the double-click window passes —
+    // otherwise a double-click (fullscreen) also toggles pause twice.
+    Timer {
+        id: singleClickTimer
+        interval: 220
+        onTriggered: { playerController.togglePause(); player.showControls() }
+    }
     MouseArea {
         anchors.fill: parent
         hoverEnabled: true
         cursorShape: player.controlsVisible ? Qt.ArrowCursor : Qt.BlankCursor
         onPositionChanged: player.showControls()
-        onClicked: { playerController.togglePause(); player.showControls() }
-        onDoubleClicked: player.toggleFullscreen()
+        onClicked: singleClickTimer.restart()
+        onDoubleClicked: {
+            singleClickTimer.stop()
+            player.toggleFullscreen()
+        }
     }
 
     // ---- loading overlay ----

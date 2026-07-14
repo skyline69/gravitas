@@ -5,6 +5,10 @@ import "."
 Slider {
     id: control
     implicitHeight: 20
+    // Never grab keyboard focus on click: a focused Slider eats Space/arrow
+    // keys (Space "presses" it and commits a seek on release) instead of the
+    // player page's shortcuts.
+    focusPolicy: Qt.NoFocus
 
     HoverHandler { cursorShape: Qt.PointingHandCursor }
 
