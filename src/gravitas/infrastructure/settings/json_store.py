@@ -7,7 +7,7 @@ import logging
 import os
 from pathlib import Path
 
-from gravitas.domain.models import PersistedSettings
+from gravitas.domain.models import PersistedSettings, SubtitleStyle
 
 _log = logging.getLogger(__name__)
 
@@ -16,6 +16,25 @@ def default_settings_path() -> Path:
     base = os.environ.get("XDG_CONFIG_HOME", "")
     root = Path(base) if base else Path.home() / ".config"
     return root / "gravitas" / "settings.json"
+
+
+def _style_from(raw: object) -> SubtitleStyle:
+    if not isinstance(raw, dict):
+        return SubtitleStyle()
+    defaults = SubtitleStyle()
+
+    def _int(key: str, fallback: int) -> int:
+        value = raw.get(key)
+        return value if isinstance(value, int) and not isinstance(value, bool) else fallback
+
+    color = raw.get("color")
+    return SubtitleStyle(
+        font_size=_int("font_size", defaults.font_size),
+        color=color if isinstance(color, str) and color.startswith("#") else defaults.color,
+        border_size=_int("border_size", defaults.border_size),
+        back_opacity=_int("back_opacity", defaults.back_opacity),
+        bold=bool(raw.get("bold", defaults.bold)),
+    )
 
 
 class JsonSettingsStore:
@@ -35,12 +54,22 @@ class JsonSettingsStore:
         )
         raw_key = data.get("tmdb_key")
         key = raw_key if isinstance(raw_key, str) and raw_key else None
-        return PersistedSettings(addon_urls=urls, tmdb_key=key)
+        return PersistedSettings(
+            addon_urls=urls, tmdb_key=key, subtitle_style=_style_from(data.get("subtitle_style"))
+        )
 
     def save(self, settings: PersistedSettings) -> None:
+        style = settings.subtitle_style
         payload = {
             "addon_urls": list(settings.addon_urls),
             "tmdb_key": settings.tmdb_key,
+            "subtitle_style": {
+                "font_size": style.font_size,
+                "color": style.color,
+                "border_size": style.border_size,
+                "back_opacity": style.back_opacity,
+                "bold": style.bold,
+            },
         }
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)

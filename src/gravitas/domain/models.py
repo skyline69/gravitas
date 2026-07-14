@@ -91,9 +91,21 @@ class AddonManifest:
 
 
 @dataclass(frozen=True, slots=True)
+class SubtitleStyle:
+    """User-facing subtitle rendering preferences (mpv sub-* options)."""
+
+    font_size: int = 55
+    color: str = "#FFFFFF"
+    border_size: int = 3
+    back_opacity: int = 0  # 0-100 (%) black box behind the text
+    bold: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class PersistedSettings:
     """User state restored across launches. Protected (built-in) addons are
     re-installed by bootstrap and never persisted."""
 
     addon_urls: tuple[str, ...] = ()
     tmdb_key: str | None = None
+    subtitle_style: SubtitleStyle = SubtitleStyle()

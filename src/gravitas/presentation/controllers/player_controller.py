@@ -7,6 +7,7 @@ from collections.abc import Callable
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
 from gravitas.domain.errors import PlaybackFailed
+from gravitas.domain.models import SubtitleStyle
 from gravitas.domain.ports import MediaPlayer
 
 
@@ -15,9 +16,14 @@ class PlayerController(QObject):
     subtitleTracksChanged = Signal()
     stateChanged = Signal()
 
-    def __init__(self, player_factory: Callable[[], MediaPlayer]) -> None:
+    def __init__(
+        self,
+        player_factory: Callable[[], MediaPlayer],
+        style_provider: Callable[[], SubtitleStyle] | None = None,
+    ) -> None:
         super().__init__()
         self._factory = player_factory
+        self._style_provider = style_provider
         self._player: MediaPlayer | None = None
 
     def _ensure(self) -> MediaPlayer | None:
@@ -29,6 +35,7 @@ class PlayerController(QObject):
                 return None
             self._player.set_tracks_changed_callback(self._on_tracks_changed)
             self._player.set_state_changed_callback(self._on_state_changed)
+            self.applySubtitleStyle()
         return self._player
 
     def _on_tracks_changed(self) -> None:
@@ -147,6 +154,13 @@ class PlayerController(QObject):
         self.stateChanged.emit()
 
     # --- tracks ---
+
+    @Slot()
+    def applySubtitleStyle(self) -> None:
+        """Push the user's subtitle style to the player (live if playing)."""
+        if self._player is None or self._style_provider is None:
+            return
+        self._player.apply_subtitle_style(self._style_provider())
 
     @Slot(int)
     def selectSubtitle(self, track_id: int) -> None:

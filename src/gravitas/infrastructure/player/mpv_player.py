@@ -14,6 +14,7 @@ from collections.abc import Callable
 from typing import Any
 
 from gravitas.domain.errors import PlaybackFailed
+from gravitas.domain.models import SubtitleStyle
 
 MpvFactory = Callable[[], Any]
 
@@ -262,6 +263,15 @@ class MpvPlayer:
 
     def current_audio_track(self) -> int | None:
         return self._current_track("aid")
+
+    def apply_subtitle_style(self, style: SubtitleStyle) -> None:
+        self._mpv.sub_font_size = style.font_size
+        self._mpv.sub_color = style.color
+        self._mpv.sub_border_size = style.border_size
+        # mpv colors are #AARRGGBB; opacity % -> alpha byte on black.
+        alpha = round(style.back_opacity * 255 / 100)
+        self._mpv.sub_back_color = f"#{alpha:02X}000000"
+        self._mpv.sub_bold = style.bold
 
     def _current_track(self, prop: str) -> int | None:
         # mpv returns an int id, or False/"no"/None when disabled.

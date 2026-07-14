@@ -93,6 +93,9 @@ class FakePlayer:
     def render_handle(self) -> object | None:
         return None
 
+    def apply_subtitle_style(self, style: object) -> None:
+        self.calls.append(f"style:{style}")
+
     def trigger_tracks_changed(self, tracks: list[tuple[int, str]] | None = None) -> None:
         if tracks is not None:
             self._tracks = tracks
@@ -241,3 +244,16 @@ def test_state_callback_emits_state_changed(qapp: object) -> None:
     controller.stateChanged.connect(lambda: fired.append(None))
     player.trigger_state_changed()
     assert fired == [None]
+
+
+def test_subtitle_style_applied_on_creation_and_on_demand(qapp: object) -> None:
+    from gravitas.domain.models import SubtitleStyle
+
+    player = FakePlayer()
+    style = SubtitleStyle(font_size=70)
+    controller = PlayerController(lambda: player, lambda: style)
+    controller.play("http://s/v.mkv")
+    assert any(call.startswith("style:") for call in player.calls)
+    before = len(player.calls)
+    controller.applySubtitleStyle()
+    assert len(player.calls) == before + 1

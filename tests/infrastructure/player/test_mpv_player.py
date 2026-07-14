@@ -229,3 +229,17 @@ def test_state_callback_observes_pause_duration_mute_once() -> None:
 
     fake.observers[0][1]("pause", True)
     assert len(calls) == 1
+
+
+def test_apply_subtitle_style_maps_mpv_options() -> None:
+    from gravitas.domain.models import SubtitleStyle
+
+    player, fake = _player()
+    player.apply_subtitle_style(
+        SubtitleStyle(font_size=70, color="#FFE400", border_size=1, back_opacity=50, bold=True)
+    )
+    assert fake.sub_font_size == 70
+    assert fake.sub_color == "#FFE400"
+    assert fake.sub_border_size == 1
+    assert fake.sub_back_color == "#80000000"
+    assert fake.sub_bold is True

@@ -113,3 +113,38 @@ async def test_remove_addon_persists_remaining_urls(qapp: object) -> None:
     )
     await c.removeAddon("https://a/")
     assert store.saved == [PersistedSettings(addon_urls=("https://b/",), tmdb_key=None)]
+
+
+class _StyleHolder:
+    def __init__(self) -> None:
+        from gravitas.domain.models import SubtitleStyle
+
+        self.style = SubtitleStyle()
+
+
+async def test_subtitle_style_updates_persist_and_notify(qapp: object) -> None:
+    from gravitas.domain.models import SubtitleStyle
+
+    repo = AddonRepository(FakeSource())
+    store = _FakeStore()
+    styles = _StyleHolder()
+    c = SettingsController(
+        UninstallAddon(repo), repo, AddonListModel(), FakeCatalogController(), None, store, styles
+    )
+    fired: list[None] = []
+    c.subtitleStyleChanged.connect(lambda: fired.append(None))
+
+    c.setSubFontSize(70)
+    c.setSubColor("#FFE400")
+    c.setSubBold(True)
+    assert styles.style.font_size == 70
+    assert styles.style.color == "#FFE400"
+    assert styles.style.bold is True
+    assert len(fired) == 3
+    assert len(store.saved) == 3
+
+    c.setSubFontSize(999)  # clamped
+    assert styles.style.font_size == 100
+
+    c.resetSubtitleStyle()
+    assert styles.style == SubtitleStyle()

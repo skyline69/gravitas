@@ -199,6 +199,157 @@ Item {
 
             SettingsCard {
                 width: parent.width
+                title: "Subtitles"
+                caption: "Changes apply to the player instantly"
+                enterDelay: 90
+
+                // Live preview over a fake scene backdrop.
+                Rectangle {
+                    width: parent.width
+                    height: 150
+                    radius: Theme.radius
+                    clip: true
+                    gradient: Gradient {
+                        GradientStop { position: 0.0; color: "#2c3648" }
+                        GradientStop { position: 0.6; color: "#171c26" }
+                        GradientStop { position: 1.0; color: "#0b0d12" }
+                    }
+                    Rectangle {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.bottom: parent.bottom
+                        anchors.bottomMargin: 14
+                        width: previewText.implicitWidth + 20
+                        height: previewText.implicitHeight + 10
+                        radius: 4
+                        color: Qt.rgba(0, 0, 0,
+                            (settingsController.subBackOpacity !== undefined
+                                ? settingsController.subBackOpacity : 0) / 100)
+                        Text {
+                            id: previewText
+                            anchors.centerIn: parent
+                            text: "This is what subtitles will look like."
+                            color: settingsController.subColor ? settingsController.subColor : "#FFFFFF"
+                            // Preview at ~45% of mpv's rendering scale so the
+                            // strip stays proportionate.
+                            font.pixelSize: Math.round((settingsController.subFontSize || 55) * 0.45)
+                            font.bold: settingsController.subBold ? true : false
+                            style: settingsController.subBorderSize > 0 ? Text.Outline : Text.Normal
+                            styleColor: "black"
+                        }
+                    }
+                }
+
+                // External updates (reset) re-sync the sliders; user drags
+                // write through onMoved.
+                Connections {
+                    target: settingsController
+                    function onSubtitleStyleChanged() {
+                        if (!sizeSlider.pressed) sizeSlider.value = settingsController.subFontSize
+                        if (!outlineSlider.pressed) outlineSlider.value = settingsController.subBorderSize
+                        if (!backSlider.pressed) backSlider.value = settingsController.subBackOpacity
+                    }
+                }
+
+                Row {
+                    width: parent.width
+                    spacing: 12
+                    Text {
+                        width: 96
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "Size"
+                        color: Theme.textDim
+                        font.pixelSize: Theme.fontSmall
+                    }
+                    AppSlider {
+                        id: sizeSlider
+                        width: parent.width - 96 - 12
+                        from: 20; to: 100; stepSize: 1
+                        value: settingsController.subFontSize !== undefined ? settingsController.subFontSize : 55
+                        onMoved: settingsController.setSubFontSize(value)
+                    }
+                }
+                Row {
+                    width: parent.width
+                    spacing: 12
+                    Text {
+                        width: 96
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "Outline"
+                        color: Theme.textDim
+                        font.pixelSize: Theme.fontSmall
+                    }
+                    AppSlider {
+                        id: outlineSlider
+                        width: parent.width - 96 - 12
+                        from: 0; to: 8; stepSize: 1
+                        value: settingsController.subBorderSize !== undefined ? settingsController.subBorderSize : 3
+                        onMoved: settingsController.setSubBorderSize(value)
+                    }
+                }
+                Row {
+                    width: parent.width
+                    spacing: 12
+                    Text {
+                        width: 96
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "Background"
+                        color: Theme.textDim
+                        font.pixelSize: Theme.fontSmall
+                    }
+                    AppSlider {
+                        id: backSlider
+                        width: parent.width - 96 - 12
+                        from: 0; to: 100; stepSize: 5
+                        value: settingsController.subBackOpacity !== undefined ? settingsController.subBackOpacity : 0
+                        onMoved: settingsController.setSubBackOpacity(value)
+                    }
+                }
+                Row {
+                    width: parent.width
+                    spacing: 12
+                    Text {
+                        width: 96
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "Color"
+                        color: Theme.textDim
+                        font.pixelSize: Theme.fontSmall
+                    }
+                    Row {
+                        spacing: 8
+                        anchors.verticalCenter: parent.verticalCenter
+                        Repeater {
+                            model: ["#FFFFFF", "#FFE400", "#00E5FF", "#7CFF6B"]
+                            Rectangle {
+                                required property string modelData
+                                width: 26; height: 26; radius: 13
+                                color: modelData
+                                border.width: settingsController.subColor === modelData ? 3 : 1
+                                border.color: settingsController.subColor === modelData
+                                    ? Theme.accent : Theme.borderStrong
+                                HoverHandler { cursorShape: Qt.PointingHandCursor }
+                                TapHandler { onTapped: settingsController.setSubColor(modelData) }
+                            }
+                        }
+                    }
+                    Item { width: 24; height: 1 }
+                    AppButton {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "Bold"
+                        ghost: true
+                        selected: settingsController.subBold ? true : false
+                        onClicked: settingsController.setSubBold(!settingsController.subBold)
+                    }
+                    AppButton {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "Reset"
+                        ghost: true
+                        onClicked: settingsController.resetSubtitleStyle()
+                    }
+                }
+            }
+
+            SettingsCard {
+                width: parent.width
                 title: "About"
                 enterDelay: 120
 

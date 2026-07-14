@@ -24,6 +24,7 @@ from gravitas.application.resolve_stream import ResolveStream
 from gravitas.application.search_media import SearchMedia
 from gravitas.application.uninstall_addon import UninstallAddon
 from gravitas.domain.errors import GravitasError
+from gravitas.domain.models import SubtitleStyle
 from gravitas.domain.ports import MediaPlayer
 from gravitas.infrastructure.addons.client import AddonClient
 from gravitas.infrastructure.metadata.tmdb_resolver import TmdbResolver
@@ -86,6 +87,12 @@ def build_app(
     tmdb_key.key = persisted.tmdb_key
     tmdb_resolver = TmdbResolver(http, lambda: tmdb_key.key)
 
+    class _SubStyleHolder:
+        style: SubtitleStyle = SubtitleStyle()
+
+    sub_style = _SubStyleHolder()
+    sub_style.style = persisted.subtitle_style
+
     rows_model = CatalogRowsModel()
     stream_model = StreamListModel()
 
@@ -102,7 +109,13 @@ def build_app(
     addon_controller = AddonController(install_addon, catalog_controller)
     addon_list_model = AddonListModel()
     settings_controller = SettingsController(
-        UninstallAddon(repo), repo, addon_list_model, catalog_controller, tmdb_key, settings_store
+        UninstallAddon(repo),
+        repo,
+        addon_list_model,
+        catalog_controller,
+        tmdb_key,
+        settings_store,
+        sub_style,
     )
 
     # Keep the Settings list in sync — and the settings file current — after a
@@ -133,7 +146,9 @@ def build_app(
     def make_player() -> MediaPlayer:
         return MpvPlayer()
 
-    player_controller = PlayerController(make_player)
+    player_controller = PlayerController(make_player, lambda: sub_style.style)
+    # Live-apply subtitle style edits to an active player.
+    settings_controller.subtitleStyleChanged.connect(player_controller.applySubtitleStyle)
 
     ctx = engine.rootContext()
     ctx.setContextProperty("catalogController", catalog_controller)
