@@ -25,15 +25,26 @@ ApplicationWindow {
         // underneath it rather than being cut off in a gap.
         z: 1
         anchors.top: parent.top
-        anchors.topMargin: 12
         anchors.horizontalCenter: parent.horizontalCenter
         width: Math.min(parent.width - 24, 1040)
-        visible: {
+        readonly property bool shouldShow: {
             var it = stack.currentItem
             return it !== null
                 && (it.objectName === "homePage"
                     || it.objectName === "settingsPage"
                     || it.objectName === "searchResultsPage")
+        }
+        // Fly in from above / fly out when navigating to a bar-less page,
+        // with a fade riding along. `visible` only flips once fully gone so
+        // the exit animation isn't cut short.
+        anchors.topMargin: shouldShow ? 12 : -(height + 24)
+        opacity: shouldShow ? 1 : 0
+        visible: opacity > 0
+        Behavior on anchors.topMargin {
+            NumberAnimation { duration: Theme.durMed * 1.5; easing.type: Easing.OutCubic }
+        }
+        Behavior on opacity {
+            NumberAnimation { duration: Theme.durMed * 1.5; easing.type: Easing.OutCubic }
         }
         settingsActive: stack.currentItem !== null
             && stack.currentItem.objectName === "settingsPage"
