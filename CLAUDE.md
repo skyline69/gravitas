@@ -20,7 +20,7 @@ uv run mypy src               # type gate: mypy --strict, on src only
 
 The three quality gates (`ruff check`, `ruff format --check`, `mypy src`) are expected to pass on every commit.
 
-**libmpv is a system dependency, not a pip package.** `python-mpv` only wraps the native `libmpv` and loads it at runtime. Without it installed (`dnf install mpv-libs` / `apt install libmpv2`), the app launches and browses fine but playback raises `PlaybackFailed`. Tests never require libmpv (see the factory seam below).
+**libmpv is a system dependency, not a pip package.** `python-mpv` only wraps the native `libmpv` and loads it at runtime. Without it installed (`dnf install mpv-libs` / `apt install libmpv2` / `brew install mpv`), the app launches and browses fine but playback raises `PlaybackFailed`. On macOS, Homebrew's lib dir isn't on the dyld fallback path — `mpv_player._ensure_libmpv_discoverable()` extends it in-process before `import mpv`. Tests never require libmpv (see the factory seam below).
 
 ## Architecture
 

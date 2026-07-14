@@ -243,3 +243,26 @@ def test_apply_subtitle_style_maps_mpv_options() -> None:
     assert fake.sub_border_size == 1
     assert fake.sub_back_color == "#80000000"
     assert fake.sub_bold is True
+
+
+def test_libmpv_discovery_extends_dyld_path_on_macos() -> None:
+    from gravitas.infrastructure.player.mpv_player import (
+        _ensure_libmpv_discoverable,
+    )
+
+    env: dict[str, str] = {}
+    _ensure_libmpv_discoverable(env, platform="darwin")
+    parts = env["DYLD_FALLBACK_LIBRARY_PATH"].split(":")
+    assert parts[0] == "/opt/homebrew/lib"
+    assert "/usr/lib" in parts  # dyld defaults preserved
+
+    # existing value extended, not clobbered
+    env2 = {"DYLD_FALLBACK_LIBRARY_PATH": "/custom/lib"}
+    _ensure_libmpv_discoverable(env2, platform="darwin")
+    assert "/custom/lib" in env2["DYLD_FALLBACK_LIBRARY_PATH"]
+    assert "/opt/homebrew/lib" in env2["DYLD_FALLBACK_LIBRARY_PATH"]
+
+    # non-macOS untouched
+    env3: dict[str, str] = {}
+    _ensure_libmpv_discoverable(env3, platform="linux")
+    assert env3 == {}

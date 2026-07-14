@@ -8,7 +8,9 @@ PlayerController.attachVideo(); until then the item renders nothing.
 from __future__ import annotations
 
 import contextlib
+import ctypes
 import logging
+import sys
 from typing import Any
 
 from PySide6.QtCore import Property, QMetaObject, QSize, Qt, Slot
@@ -17,6 +19,21 @@ from PySide6.QtOpenGL import QOpenGLFramebufferObject
 from PySide6.QtQuick import QQuickFramebufferObject, QQuickItem
 
 _log = logging.getLogger(__name__)
+
+_MACOS_OPENGL_FRAMEWORK = "/System/Library/Frameworks/OpenGL.framework/OpenGL"
+_macos_gl: ctypes.CDLL | None = None
+
+
+def _macos_gl_symbol(name: bytes) -> int:
+    """Resolve a GL symbol from the OpenGL framework via dlsym."""
+    global _macos_gl
+    try:
+        if _macos_gl is None:
+            _macos_gl = ctypes.CDLL(_MACOS_OPENGL_FRAMEWORK)
+        fn = getattr(_macos_gl, name.decode("ascii"))
+        return ctypes.cast(fn, ctypes.c_void_p).value or 0
+    except (OSError, AttributeError, UnicodeDecodeError):
+        return 0
 
 
 class _Renderer(QQuickFramebufferObject.Renderer):
@@ -47,7 +64,13 @@ class _Renderer(QQuickFramebufferObject.Renderer):
             if glctx is None:
                 return 0
             addr = glctx.getProcAddress(name)
-            return int(addr) if addr else 0
+            if addr:
+                return int(addr)
+            # macOS/CGL: Qt occasionally returns null for core GL symbols;
+            # resolve them straight from the OpenGL framework instead.
+            if sys.platform == "darwin":
+                return _macos_gl_symbol(name)
+            return 0
 
         self._get_proc = mpv.MpvGlGetProcAddressFn(get_proc_address)
         self._ctx = mpv.MpvRenderContext(

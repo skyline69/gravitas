@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import contextlib
 import locale
+import os
+import sys
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, MutableMapping
 from typing import Any
 
 from gravitas.domain.errors import PlaybackFailed
@@ -18,12 +20,38 @@ from gravitas.domain.models import SubtitleStyle
 
 MpvFactory = Callable[[], Any]
 
+# Where Homebrew puts libmpv.dylib (Apple Silicon, then Intel).
+_MACOS_LIBMPV_DIRS = ("/opt/homebrew/lib", "/usr/local/lib")
+# dyld's built-in fallback list — overridden (not extended) the moment the
+# variable is set, so it must be re-included explicitly.
+_MACOS_DYLD_DEFAULTS = (os.path.expanduser("~/lib"), "/usr/local/lib", "/lib", "/usr/lib")
+
+
+def _ensure_libmpv_discoverable(
+    environ: MutableMapping[str, str] = os.environ, platform: str = sys.platform
+) -> None:
+    """macOS: python-mpv locates libmpv with ctypes.util.find_library, which
+    searches DYLD_FALLBACK_LIBRARY_PATH — Homebrew's prefix is not in it on
+    Apple Silicon, so the import fails with libmpv installed. ctypes reads the
+    environment at lookup time, so extending it here (in-process) works."""
+    if platform != "darwin":
+        return
+    existing = [p for p in environ.get("DYLD_FALLBACK_LIBRARY_PATH", "").split(":") if p]
+    if not existing:
+        existing = list(_MACOS_DYLD_DEFAULTS)
+    for candidate in _MACOS_LIBMPV_DIRS:
+        if candidate not in existing:
+            existing.insert(0, candidate)
+    environ["DYLD_FALLBACK_LIBRARY_PATH"] = ":".join(existing)
+
 
 def _default_factory() -> Any:
     # libmpv needs the C numeric locale; Qt may have changed it. Must run
     # right before mpv.MPV() construction (after QGuiApplication init),
     # not at import time.
     locale.setlocale(locale.LC_NUMERIC, "C")
+
+    _ensure_libmpv_discoverable()
 
     import mpv  # type: ignore[import-untyped]
 
