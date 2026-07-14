@@ -298,7 +298,7 @@ Item {
                         instant: model.instant
                         tags: model.tags
                         stars: model.stars
-                        detail: model.detail
+                        detailText: model.detail
                         onClicked: if (model.url) detail.playUrl(model.url)
                     }
                 }

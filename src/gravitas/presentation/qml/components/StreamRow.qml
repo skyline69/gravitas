@@ -12,10 +12,13 @@ Rectangle {
     property bool instant: false
     property var tags: []
     property int stars: 0
-    property string detail: ""
+    // Named detailText, not `detail`: a property named `detail` shadows the
+    // Detail page id inside delegates and breaks `detail.playUrl(...)`.
+    property string detailText: ""
     signal clicked()
 
-    readonly property bool structured: resolution.length > 0 || instant || tags.length > 0 || stars > 0
+    readonly property bool structured: resolution.length > 0 || instant
+        || tags.length > 0 || stars > 0
 
     height: 64
     radius: Theme.radiusSmall
@@ -114,7 +117,7 @@ Rectangle {
             // title line when it genuinely differs from the name.
             Text {
                 visible: text.length > 0 && root.structured
-                text: root.detail
+                text: root.detailText
                 color: Theme.textDim
                 font.pixelSize: Theme.fontSmall
                 elide: Text.ElideRight
