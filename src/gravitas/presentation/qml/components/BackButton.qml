@@ -34,7 +34,7 @@ Item {
         id: frost
         anchors.fill: parent
         source: grab
-        radius: 36
+        radius: 64
         visible: false
     }
     Rectangle { id: discMask; anchors.fill: parent; radius: width / 2; visible: false }
@@ -50,7 +50,7 @@ Item {
         anchors.fill: parent
         radius: width / 2
         color: root.blurTarget !== null
-            ? Qt.rgba(0, 0, 0, hover.hovered ? 0.18 : 0.32)
+            ? Qt.rgba(0, 0, 0, hover.hovered ? 0.38 : 0.55)
             : (hover.hovered ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.5))
         border.width: 1
         border.color: Qt.rgba(1, 1, 1, hover.hovered ? 0.35 : 0.16)
