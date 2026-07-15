@@ -77,8 +77,28 @@ def test_clear(tmp_path: Path) -> None:
     assert store.load_all() == []
 
 
-def test_missing_file_loads_empty(tmp_path: Path) -> None:
+def test_missing_parent_dir_is_auto_provisioned_and_loads_empty(tmp_path: Path) -> None:
+    """A "missing" path just gets mkdir -p'd into a fresh valid database by
+    _connect(); this only pins that a brand-new table has no rows to load."""
     assert SqliteProgressStore(tmp_path / "nope" / "progress.db").load_all() == []
+
+
+def test_unwritable_database_degrades_quietly(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    """Force _connect() into its OSError branch (e.g. an unwritable data
+    directory) and confirm every operation degrades instead of raising."""
+    import sqlite3
+
+    def _raise(*args: object, **kwargs: object) -> sqlite3.Connection:
+        raise OSError("unable to open database file")
+
+    monkeypatch.setattr(sqlite3, "connect", _raise)
+    store = SqliteProgressStore(tmp_path / "progress.db")
+    assert store.load_all() == []
+    # Every mutation must degrade quietly too.
+    store.save(entry())
+    store.delete("tt1")
+    store.clear()
+    assert store.load_all() == []
 
 
 def test_corrupt_file_loads_empty_and_never_raises(tmp_path: Path) -> None:
