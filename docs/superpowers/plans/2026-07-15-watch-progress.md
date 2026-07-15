@@ -23,6 +23,7 @@
 ## File Structure
 
 **Create:**
+- `src/gravitas/presentation/models/progress_roles.py` — the movie-vs-series progress lookup, shared by every poster model.
 - `src/gravitas/infrastructure/progress/__init__.py` — package marker.
 - `src/gravitas/infrastructure/progress/sqlite_store.py` — `SqliteProgressStore`, `default_progress_path`.
 - `src/gravitas/application/watch_progress.py` — `WatchProgressRepository`, `MIN_POSITION`, `WATCHED_AT`.
@@ -1127,10 +1128,12 @@ def test_stop_records_and_halts_the_timer(qapp: object) -> None:
     controller = PlayerController(lambda: player, None, progress)
     controller.setMediaContext(CONTEXT)
     controller.play("http://s/v.mkv")
+    assert controller.is_recording() is True
     player.seek(300.0)
     controller.stop()
     assert len(progress.records) == 1
-    assert controller._save_timer.isActive() is False
+    # A timer left running would keep writing after playback ended.
+    assert controller.is_recording() is False
 
 
 def test_empty_poster_recorded_as_none(qapp: object) -> None:
@@ -1270,6 +1273,12 @@ Add the progress block after the `# --- controls ---` methods:
     def flushProgress(self) -> None:
         """Record now. Wired to aboutToQuit so the last seconds survive."""
         self._record()
+
+    def is_recording(self) -> bool:
+        """True while the autosave timer is live. Not a Slot — QML has no use
+        for it; it exists so a test can assert the timer's lifecycle without
+        waiting out a real interval."""
+        return self._save_timer.isActive()
 
     def _on_tick(self) -> None:
         if self._player is not None and not self._player.is_paused():
@@ -1451,6 +1460,7 @@ git commit -m "feat(detail): expose the selected media context for playback"
 ### Task 7: Progress roles on the list models
 
 **Files:**
+- Create: `src/gravitas/presentation/models/progress_roles.py`
 - Modify: `src/gravitas/presentation/models/episode_list_model.py`
 - Modify: `src/gravitas/presentation/models/poster_grid_model.py`
 - Modify: `src/gravitas/presentation/models/catalog_rows_model.py`
@@ -1458,8 +1468,8 @@ git commit -m "feat(detail): expose the selected media context for playback"
 - Test: `tests/presentation/test_models.py`
 
 **Interfaces:**
-- Consumes: `WatchProgressRepository` (Task 3).
-- Produces: on all four models, an optional first constructor arg `progress: WatchProgressRepository | None = None`, a `refresh_progress() -> None` method, and QML roles `progressFraction` (float) and `watched` (bool). `EpisodeListModel` additionally gains `set_media_id(media_id: str) -> None`.
+- Consumes: `WatchProgressRepository` (Task 3), `MediaItem`.
+- Produces: `progress_roles.fraction_for(progress, item) -> float` and `progress_roles.is_watched(progress, item) -> bool`, both taking `WatchProgressRepository | None` and a `MediaItem`. On all four models, an optional first constructor arg `progress: WatchProgressRepository | None = None`, a `refresh_progress() -> None` method, and QML roles `progressFraction` (float) and `watched` (bool). `EpisodeListModel` additionally gains `set_media_id(media_id: str) -> None` and a read-only `media_id` property.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1589,7 +1599,44 @@ def test_search_results_model_exposes_progress_roles(qapp: object) -> None:
 Run: `uv run pytest tests/presentation/test_models.py -v -k progress`
 Expected: FAIL with `AttributeError: type object 'EpisodeListModel' has no attribute 'ProgressFractionRole'`
 
-- [ ] **Step 3: Update EpisodeListModel**
+- [ ] **Step 3: Write the shared lookup**
+
+`PosterGridModel` and `SearchResultsModel` both hold plain `MediaItem` lists and need the identical movie-vs-series rule, so it lives in one place rather than being copied into each.
+
+Create `src/gravitas/presentation/models/progress_roles.py`:
+
+```python
+"""The progress lookup shared by every model that shows poster cards.
+
+PosterGridModel and SearchResultsModel both hold MediaItems and need the same
+movie-vs-series rule; keeping it here means the rule has one definition.
+"""
+
+from __future__ import annotations
+
+from gravitas.application.watch_progress import WatchProgressRepository
+from gravitas.domain.models import MediaItem
+
+
+def fraction_for(progress: WatchProgressRepository | None, item: MediaItem) -> float:
+    if progress is None:
+        return 0.0
+    if item.type == "series":
+        # A series poster shows how far into the in-progress episode we are.
+        entry = progress.latest_for(item.id)
+        return entry.fraction if entry is not None else 0.0
+    return progress.fraction_for(item.id)
+
+
+def is_watched(progress: WatchProgressRepository | None, item: MediaItem) -> bool:
+    # One finished episode does not finish a series, and a grid has no episode
+    # count to judge by — so only movies ever badge as watched.
+    if progress is None or item.type == "series":
+        return False
+    return progress.is_watched(item.id)
+```
+
+- [ ] **Step 4: Update EpisodeListModel**
 
 In `src/gravitas/presentation/models/episode_list_model.py`, add the import and the roles:
 
@@ -1611,6 +1658,10 @@ Replace `__init__` and add the two methods:
         self._videos: list[Video] = []
         self._progress = progress
         self._media_id = ""
+
+    @property
+    def media_id(self) -> str:
+        return self._media_id
 
     def set_media_id(self, media_id: str) -> None:
         """The series these episodes belong to — progress is keyed by it."""
@@ -1647,12 +1698,13 @@ Add to `roleNames`:
             EpisodeListModel.WatchedRole: QByteArray(b"watched"),
 ```
 
-- [ ] **Step 4: Update PosterGridModel**
+- [ ] **Step 5: Update PosterGridModel**
 
-In `src/gravitas/presentation/models/poster_grid_model.py`, add the import:
+In `src/gravitas/presentation/models/poster_grid_model.py`, add the imports:
 
 ```python
 from gravitas.application.watch_progress import WatchProgressRepository
+from gravitas.presentation.models import progress_roles
 ```
 
 Add the roles:
@@ -1662,29 +1714,13 @@ Add the roles:
     WatchedRole = Qt.ItemDataRole.UserRole + 8
 ```
 
-Replace `__init__` and add the helpers:
+Replace `__init__` and add `refresh_progress`:
 
 ```python
     def __init__(self, progress: WatchProgressRepository | None = None) -> None:
         super().__init__()
         self._items: list[MediaItem] = []
         self._progress = progress
-
-    def _fraction(self, item: MediaItem) -> float:
-        if self._progress is None:
-            return 0.0
-        if item.type == "series":
-            # A series poster shows how far into the in-progress episode we are.
-            entry = self._progress.latest_for(item.id)
-            return entry.fraction if entry is not None else 0.0
-        return self._progress.fraction_for(item.id)
-
-    def _watched(self, item: MediaItem) -> bool:
-        # One finished episode does not finish a series, and the grid has no
-        # episode count to judge by — so only movies ever badge as watched.
-        if self._progress is None or item.type == "series":
-            return False
-        return self._progress.is_watched(item.id)
 
     def refresh_progress(self) -> None:
         if not self._items:
@@ -1700,9 +1736,9 @@ Add to `data`'s `match role:` block:
 
 ```python
             case PosterGridModel.ProgressFractionRole:
-                return self._fraction(item)
+                return progress_roles.fraction_for(self._progress, item)
             case PosterGridModel.WatchedRole:
-                return self._watched(item)
+                return progress_roles.is_watched(self._progress, item)
 ```
 
 Add to `roleNames`:
@@ -1712,11 +1748,18 @@ Add to `roleNames`:
             PosterGridModel.WatchedRole: QByteArray(b"watched"),
 ```
 
-- [ ] **Step 5: Update SearchResultsModel**
+- [ ] **Step 6: Update SearchResultsModel**
 
-Apply the identical treatment to `src/gravitas/presentation/models/search_results_model.py`: import `WatchProgressRepository`, add `ProgressFractionRole = Qt.ItemDataRole.UserRole + 6` and `WatchedRole = Qt.ItemDataRole.UserRole + 7`, take `progress: WatchProgressRepository | None = None` as the first constructor arg and store it as `self._progress`, copy the same `_fraction`/`_watched`/`refresh_progress` helpers (swapping `PosterGridModel` for `SearchResultsModel` and `self._items` for whatever the file names its list), add the two `case` arms to `data`, and add the two `roleNames` entries.
+Apply the same treatment to `src/gravitas/presentation/models/search_results_model.py`, calling the same shared helper — do NOT copy the lookup rule in:
 
-- [ ] **Step 6: Update CatalogRowsModel to propagate the repo**
+- add both imports (`WatchProgressRepository`, `progress_roles`);
+- add `ProgressFractionRole = Qt.ItemDataRole.UserRole + 6` and `WatchedRole = Qt.ItemDataRole.UserRole + 7`;
+- take `progress: WatchProgressRepository | None = None` as the first constructor arg, stored as `self._progress`;
+- add a `refresh_progress` mirroring `PosterGridModel`'s, over whatever the file names its item list;
+- add the two `case` arms, calling `progress_roles.fraction_for(self._progress, item)` and `progress_roles.is_watched(self._progress, item)`;
+- add the two `roleNames` entries.
+
+- [ ] **Step 7: Update CatalogRowsModel to propagate the repo**
 
 In `src/gravitas/presentation/models/catalog_rows_model.py`, add the import, then replace `__init__` and `set_rows`, and add `refresh_progress`:
 
@@ -1746,12 +1789,12 @@ In `src/gravitas/presentation/models/catalog_rows_model.py`, add the import, the
             row[4].refresh_progress()
 ```
 
-- [ ] **Step 7: Run tests and gates**
+- [ ] **Step 8: Run tests and gates**
 
 Run: `uv run pytest tests/presentation -q && uv run ruff check . && uv run ruff format --check . && uv run mypy src`
 Expected: all pass.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add src/gravitas/presentation/models tests/presentation/test_models.py
@@ -2281,7 +2324,7 @@ async def test_episode_model_is_bound_to_the_series(qapp: object) -> None:
     await ctl.load("series", "tt1")
     # Episode progress is keyed by (media_id, video_id). Without this the model
     # looks every episode up under an empty media id and every bar reads zero.
-    assert episode_model._media_id == "tt1"
+    assert episode_model.media_id == "tt1"
 ```
 
 Then in `src/gravitas/presentation/controllers/detail_controller.py`, in `load`, replace the existing two-line block:
@@ -3090,4 +3133,5 @@ Recorded during the plan's own review pass, for the implementer:
 - **`Window.window` in `ContextMenu`/`ConfirmDialog`** requires `import QtQuick` (present) — `Window` is an attached property available to any Item.
 - **The `revision` idiom** (Tasks 8, 12) is load-bearing and easy to "clean up" by mistake. A `@Slot` call inside a QML binding registers no dependency, so `visible: progressController.hasProgress(id)` alone would go stale forever. Do not remove the `revision >= 0` term.
 - **Task 11's poster delegates are the one place still needing a read-first.** `Discover.qml`, `SearchResults.qml`, and `CatalogRowStrip.qml` each bind `PosterCard` against a different model, and `SearchResultsModel` names its id role `mediaId` where `PosterGridModel` names it `id`. Match each delegate's existing role names rather than pasting one version three times.
-- **Task 5's `test_stop_records_and_halts_the_timer` reaches into `controller._save_timer`**, a private. It is the only way to prove the timer stops without a 5-second sleep; the alternative (waiting for a tick) makes the suite slow and flaky.
+- **Two narrow accessors exist for testability**, by explicit decision: `PlayerController.is_recording()` (Task 5) and `EpisodeListModel.media_id` (Task 7). Both assert behaviour with no other public witness — a timer that never stops leaks writes after playback, and a wrong media id silently zeroes every episode bar. Neither is a Slot; QML does not use them. Do not replace them with private access in tests, and do not widen them.
+- **`progress_roles.py` is deliberately shared** (Task 7) rather than copied into each poster model. The movie-vs-series rule has exactly one definition; if the series rule changes, it changes in one file.
