@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import Property, QObject, Signal, Slot
+from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
+from gravitas.application.watch_progress import WatchProgressRepository
 from gravitas.domain.errors import PlaybackFailed
-from gravitas.domain.models import SubtitleStyle
+from gravitas.domain.models import MediaType, SubtitleStyle
 from gravitas.domain.ports import MediaPlayer
 
 
@@ -15,16 +16,28 @@ class PlayerController(QObject):
     errorOccurred = Signal(str)
     subtitleTracksChanged = Signal()
     stateChanged = Signal()
+    resumed = Signal(float)
+    progressRecorded = Signal()
+
+    # Frequent enough that a hard kill costs seconds, not minutes; rare enough
+    # that a two-hour film writes ~1400 rows' worth of UPSERTs, not 7 million.
+    SAVE_INTERVAL_MS = 5000
 
     def __init__(
         self,
         player_factory: Callable[[], MediaPlayer],
         style_provider: Callable[[], SubtitleStyle] | None = None,
+        progress: WatchProgressRepository | None = None,
     ) -> None:
         super().__init__()
         self._factory = player_factory
         self._style_provider = style_provider
+        self._progress = progress
         self._player: MediaPlayer | None = None
+        self._context: dict[str, str] = {}
+        self._save_timer = QTimer(self)
+        self._save_timer.setInterval(PlayerController.SAVE_INTERVAL_MS)
+        self._save_timer.timeout.connect(self._on_tick)
 
     def _ensure(self) -> MediaPlayer | None:
         if self._player is None:
@@ -92,21 +105,29 @@ class PlayerController(QObject):
         player = self._ensure()
         if player is None:
             return
+        start = self._resume_position()
         try:
-            player.play(url)
+            player.play(url, start=start)
         except PlaybackFailed as exc:
             self.errorOccurred.emit(str(exc))
+            return
+        if start > 0:
+            self.resumed.emit(start)
+        self._save_timer.start()
         self.stateChanged.emit()
 
     @Slot()
     def stop(self) -> None:
         if self._player is not None:
+            self._record()
+            self._save_timer.stop()
             self._player.stop()
 
     @Slot()
     def pause(self) -> None:
         if self._player is not None:
             self._player.pause()
+            self._record()
 
     @Slot()
     def resume(self) -> None:
@@ -152,6 +173,61 @@ class PlayerController(QObject):
             return
         self._player.set_muted(not self._player.is_muted())
         self.stateChanged.emit()
+
+    # --- watch progress ---
+
+    @Slot("QVariantMap")
+    def setMediaContext(self, context: dict[str, object]) -> None:
+        """Identify what is about to play. QML calls this immediately before
+        play(url); without it nothing is recorded and nothing resumes.
+
+        Keys: mediaId, videoId, type, name, poster, label.
+        """
+        self._context = {
+            str(key): "" if value is None else str(value) for key, value in context.items()
+        }
+
+    @Slot()
+    def flushProgress(self) -> None:
+        """Record now. Wired to aboutToQuit so the last seconds survive."""
+        self._record()
+
+    def is_recording(self) -> bool:
+        """True while the autosave timer is live. Not a Slot — QML has no use
+        for it; it exists so a test can assert the timer's lifecycle without
+        waiting out a real interval."""
+        return self._save_timer.isActive()
+
+    def _on_tick(self) -> None:
+        if self._player is not None and not self._player.is_paused():
+            self._record()
+
+    def _resume_position(self) -> float:
+        media_id = self._context.get("mediaId", "")
+        if self._progress is None or not media_id:
+            return 0.0
+        return self._progress.resume_position(media_id, self._context.get("videoId", ""))
+
+    def _record(self) -> None:
+        media_id = self._context.get("mediaId", "")
+        if self._progress is None or self._player is None or not media_id:
+            return
+        duration = self._player.duration()
+        if duration <= 0:
+            # mpv has not parsed the file yet; a fraction against 0 is noise.
+            return
+        media_type: MediaType = "series" if self._context.get("type") == "series" else "movie"
+        self._progress.record(
+            media_id=media_id,
+            video_id=self._context.get("videoId", ""),
+            type=media_type,
+            name=self._context.get("name", ""),
+            poster=self._context.get("poster") or None,
+            label=self._context.get("label", ""),
+            position=self._player.position(),
+            duration=duration,
+        )
+        self.progressRecorded.emit()
 
     # --- tracks ---
 

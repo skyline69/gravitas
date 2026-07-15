@@ -14,17 +14,21 @@ class FakePlayer:
         self.loading = False
         self._volume = 100.0
         self._position = 0.0
+        self.start = 0.0
         self._duration = 100.0
         self._tracks: list[tuple[int, str]] = [(2, "English")]
         self._audio: list[tuple[int, str]] = [(1, "eng · 5.1")]
         self._tracks_changed_callback: Callable[[], None] | None = None
         self._state_changed_callback: Callable[[], None] | None = None
 
-    def play(self, url: str) -> None:
+    def play(self, url: str, *, start: float = 0.0) -> None:
         if self.fail:
             from gravitas.domain.errors import PlaybackFailed
 
             raise PlaybackFailed("boom")
+        self.start = start
+        self._position = start
+        # Recorded without `start` so the existing call-order assertions hold.
         self.calls.append(f"play:{url}")
 
     def stop(self) -> None:
@@ -257,3 +261,155 @@ def test_subtitle_style_applied_on_creation_and_on_demand(qapp: object) -> None:
     before = len(player.calls)
     controller.applySubtitleStyle()
     assert len(player.calls) == before + 1
+
+
+CONTEXT = {
+    "mediaId": "tt9",
+    "videoId": "tt9:1:1",
+    "type": "series",
+    "name": "The Show",
+    "poster": "http://p/9.jpg",
+    "label": "S1E1 · Pilot",
+}
+
+
+class FakeProgress:
+    def __init__(self, resume: float = 0.0) -> None:
+        self._resume = resume
+        self.records: list[dict[str, object]] = []
+
+    def resume_position(self, media_id: str, video_id: str = "") -> float:
+        return self._resume
+
+    def record(self, **kwargs: object) -> None:
+        self.records.append(kwargs)
+
+
+def test_play_resumes_from_saved_position(qapp: object) -> None:
+    player = FakePlayer()
+    progress = FakeProgress(resume=1820.5)
+    controller = PlayerController(lambda: player, None, progress)
+    controller.setMediaContext(CONTEXT)
+    controller.play("http://s/v.mkv")
+    assert player.start == 1820.5
+
+
+def test_play_emits_resumed_only_when_resuming(qapp: object) -> None:
+    player = FakePlayer()
+    controller = PlayerController(lambda: player, None, FakeProgress(resume=90.0))
+    seen: list[float] = []
+    controller.resumed.connect(seen.append)
+    controller.setMediaContext(CONTEXT)
+    controller.play("http://s/v.mkv")
+    assert seen == [90.0]
+
+
+def test_play_from_scratch_does_not_emit_resumed(qapp: object) -> None:
+    player = FakePlayer()
+    controller = PlayerController(lambda: player, None, FakeProgress(resume=0.0))
+    seen: list[float] = []
+    controller.resumed.connect(seen.append)
+    controller.setMediaContext(CONTEXT)
+    controller.play("http://s/v.mkv")
+    assert seen == []
+    assert player.start == 0.0
+
+
+def test_records_context_on_flush(qapp: object) -> None:
+    player = FakePlayer()
+    progress = FakeProgress()
+    controller = PlayerController(lambda: player, None, progress)
+    controller.setMediaContext(CONTEXT)
+    controller.play("http://s/v.mkv")
+    player.seek(300.0)
+    controller.flushProgress()
+    assert progress.records == [
+        {
+            "media_id": "tt9",
+            "video_id": "tt9:1:1",
+            "type": "series",
+            "name": "The Show",
+            "poster": "http://p/9.jpg",
+            "label": "S1E1 · Pilot",
+            "position": 300.0,
+            "duration": 100.0,
+        }
+    ]
+
+
+def test_no_context_means_no_record(qapp: object) -> None:
+    player = FakePlayer()
+    progress = FakeProgress()
+    controller = PlayerController(lambda: player, None, progress)
+    controller.play("http://s/v.mkv")  # played from an unknown surface
+    player.seek(300.0)
+    controller.flushProgress()
+    assert progress.records == []  # a nameless row helps nobody
+
+
+def test_unknown_duration_means_no_record(qapp: object) -> None:
+    player = FakePlayer()
+    player._duration = 0.0  # mpv has not parsed the file yet
+    progress = FakeProgress()
+    controller = PlayerController(lambda: player, None, progress)
+    controller.setMediaContext(CONTEXT)
+    controller.play("http://s/v.mkv")
+    controller.flushProgress()
+    assert progress.records == []
+
+
+def test_pause_records(qapp: object) -> None:
+    player = FakePlayer()
+    progress = FakeProgress()
+    controller = PlayerController(lambda: player, None, progress)
+    controller.setMediaContext(CONTEXT)
+    controller.play("http://s/v.mkv")
+    player.seek(300.0)
+    controller.pause()
+    assert len(progress.records) == 1
+
+
+def test_stop_records_and_halts_the_timer(qapp: object) -> None:
+    player = FakePlayer()
+    progress = FakeProgress()
+    controller = PlayerController(lambda: player, None, progress)
+    controller.setMediaContext(CONTEXT)
+    controller.play("http://s/v.mkv")
+    assert controller.is_recording() is True
+    player.seek(300.0)
+    controller.stop()
+    assert len(progress.records) == 1
+    # A timer left running would keep writing after playback ended.
+    assert controller.is_recording() is False
+
+
+def test_empty_poster_recorded_as_none(qapp: object) -> None:
+    player = FakePlayer()
+    progress = FakeProgress()
+    controller = PlayerController(lambda: player, None, progress)
+    controller.setMediaContext({**CONTEXT, "poster": ""})
+    controller.play("http://s/v.mkv")
+    player.seek(300.0)
+    controller.flushProgress()
+    assert progress.records[0]["poster"] is None
+
+
+def test_timer_tick_skips_while_paused(qapp: object) -> None:
+    player = FakePlayer()
+    progress = FakeProgress()
+    controller = PlayerController(lambda: player, None, progress)
+    controller.setMediaContext(CONTEXT)
+    controller.play("http://s/v.mkv")
+    player.seek(300.0)
+    player._paused = True
+    controller._on_tick()
+    assert progress.records == []
+
+
+def test_works_without_a_progress_repo(qapp: object) -> None:
+    player = FakePlayer()
+    controller = PlayerController(lambda: player)  # progress disabled
+    controller.setMediaContext(CONTEXT)
+    controller.play("http://s/v.mkv")
+    controller.flushProgress()
+    assert player.start == 0.0
