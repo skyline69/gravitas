@@ -23,18 +23,21 @@ from gravitas.application.resolve_media_link import ResolveMediaLink
 from gravitas.application.resolve_stream import ResolveStream
 from gravitas.application.search_media import SearchMedia
 from gravitas.application.uninstall_addon import UninstallAddon
+from gravitas.application.watch_progress import WatchProgressRepository
 from gravitas.domain.errors import GravitasError
 from gravitas.domain.models import SubtitleStyle
 from gravitas.domain.ports import MediaPlayer
 from gravitas.infrastructure.addons.client import AddonClient
 from gravitas.infrastructure.metadata.tmdb_resolver import TmdbResolver
 from gravitas.infrastructure.player.mpv_player import MpvPlayer
+from gravitas.infrastructure.progress.sqlite_store import SqliteProgressStore
 from gravitas.infrastructure.settings.json_store import JsonSettingsStore
 from gravitas.presentation.controllers.addon_controller import AddonController
 from gravitas.presentation.controllers.catalog_controller import CatalogController
 from gravitas.presentation.controllers.detail_controller import DetailController
 from gravitas.presentation.controllers.discover_controller import DiscoverController
 from gravitas.presentation.controllers.player_controller import PlayerController
+from gravitas.presentation.controllers.progress_controller import ProgressController
 from gravitas.presentation.controllers.search_controller import SearchController
 from gravitas.presentation.controllers.settings_controller import SettingsController
 from gravitas.presentation.models.addon_list_model import AddonListModel
@@ -44,6 +47,7 @@ from gravitas.presentation.models.poster_grid_model import PosterGridModel
 from gravitas.presentation.models.poster_grid_proxy import PosterGridProxy
 from gravitas.presentation.models.search_results_model import SearchResultsModel
 from gravitas.presentation.models.stream_list_model import StreamListModel
+from gravitas.presentation.models.watched_list_model import WatchedListModel
 
 _QML_DIR = Path(__file__).parent / "presentation" / "qml"
 DEFAULT_ADDON = "https://v3-cinemeta.strem.io/manifest.json"
@@ -83,6 +87,8 @@ def build_app(
     settings_store = JsonSettingsStore()
     persisted = settings_store.load()
 
+    progress_repo = WatchProgressRepository(SqliteProgressStore())
+
     tmdb_key = _TmdbKeyHolder()
     tmdb_key.key = persisted.tmdb_key
     tmdb_resolver = TmdbResolver(http, lambda: tmdb_key.key)
@@ -93,15 +99,15 @@ def build_app(
     sub_style = _SubStyleHolder()
     sub_style.style = persisted.subtitle_style
 
-    rows_model = CatalogRowsModel()
+    rows_model = CatalogRowsModel(progress_repo)
     stream_model = StreamListModel()
 
-    discover_model = PosterGridModel()
+    discover_model = PosterGridModel(progress_repo)
     discover_proxy = PosterGridProxy(discover_model)
     discover_controller = DiscoverController(BrowseBoard(repo), repo, discover_model)
 
     catalog_controller = CatalogController(BrowseCatalog(repo), rows_model)
-    episode_model = EpisodeListModel()
+    episode_model = EpisodeListModel(progress_repo)
     detail_controller = DetailController(
         GetDetail(repo), ResolveStream(repo), stream_model, episode_model
     )
@@ -126,8 +132,8 @@ def build_app(
 
     addon_controller.addonInstalled.connect(_on_addon_installed)
 
-    search_results_model = SearchResultsModel()
-    search_page_model = SearchResultsModel()
+    search_results_model = SearchResultsModel(progress_repo)
+    search_page_model = SearchResultsModel(progress_repo)
     search_controller = SearchController(
         SearchMedia(repo),
         ResolveMediaLink(repo, tmdb_resolver),
@@ -146,9 +152,27 @@ def build_app(
     def make_player() -> MediaPlayer:
         return MpvPlayer()
 
-    player_controller = PlayerController(make_player, lambda: sub_style.style)
+    watched_model = WatchedListModel()
+    progress_controller = ProgressController(progress_repo, watched_model)
+
+    player_controller = PlayerController(make_player, lambda: sub_style.style, progress_repo)
     # Live-apply subtitle style edits to an active player.
     settings_controller.subtitleStyleChanged.connect(player_controller.applySubtitleStyle)
+
+    # Bars are model roles, so every surface showing progress must re-read them
+    # when the underlying index moves -- whether the player advanced it or the
+    # user forgot something.
+    def _refresh_progress_bars() -> None:
+        rows_model.refresh_progress()
+        discover_model.refresh_progress()
+        episode_model.refresh_progress()
+        search_results_model.refresh_progress()
+        search_page_model.refresh_progress()
+
+    progress_controller.progressChanged.connect(_refresh_progress_bars)
+    player_controller.progressRecorded.connect(_refresh_progress_bars)
+    # The final seconds of a session would otherwise die with the process.
+    app.aboutToQuit.connect(player_controller.flushProgress)
 
     ctx = engine.rootContext()
     ctx.setContextProperty("catalogController", catalog_controller)
@@ -166,6 +190,8 @@ def build_app(
     ctx.setContextProperty("searchController", search_controller)
     ctx.setContextProperty("searchResultsModel", search_results_model)
     ctx.setContextProperty("searchPageModel", search_page_model)
+    ctx.setContextProperty("progressController", progress_controller)
+    ctx.setContextProperty("watchedListModel", watched_model)
 
     async def bootstrap() -> None:
         # Install the default addon as protected (non-removable), restore the
@@ -209,6 +235,8 @@ def build_app(
         addon_list_model,
         search_results_model,
         search_page_model,
+        progress_controller,
+        watched_model,
     )
     engine._gravitas_bootstrap = bootstrap  # type: ignore[attr-defined]
     engine._gravitas_http = http  # type: ignore[attr-defined]

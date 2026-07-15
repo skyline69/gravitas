@@ -283,3 +283,11 @@ async def test_load_resets_the_context(qapp: object) -> None:
     # A stale episode id would attribute the next play to the wrong episode.
     assert ctl.mediaContext()["videoId"] == ""
     assert ctl.mediaContext()["label"] == ""
+
+
+async def test_episode_model_is_bound_to_the_series(qapp: object) -> None:
+    ctl, _stream_model, episode_model = _series_ctl()
+    await ctl.load("series", "tt1")
+    # Episode progress is keyed by (media_id, video_id). Without this the model
+    # looks every episode up under an empty media id and every bar reads zero.
+    assert episode_model.media_id == "tt1"

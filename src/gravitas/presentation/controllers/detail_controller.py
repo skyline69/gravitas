@@ -226,6 +226,7 @@ class DetailController(QObject):
         self._media_type = media_type
         self._episode_label = ""
         if self._episode_model is not None:
+            self._episode_model.set_media_id(item_id)
             self._episode_model.set_videos([])
         self.episodesChanged.emit()
         self.sourcesChanged.emit()

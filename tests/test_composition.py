@@ -1,4 +1,7 @@
 import asyncio
+from pathlib import Path
+
+from pytest import MonkeyPatch
 
 from gravitas.main import build_app
 
@@ -159,3 +162,32 @@ def test_search_results_qml_loads(qapp: object) -> None:
     component = QQmlComponent(engine, str(qml))
     obj = component.create()
     assert obj is not None, f"SearchResults.qml failed to load: {component.errorString()}"
+
+
+def test_build_app_wires_watch_progress(
+    qapp: object, tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    # Never touch the developer's real progress database from a test.
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        _app, engine = build_app(
+            argv=[], default_addon_url="https://v3-cinemeta.strem.io/manifest.json"
+        )
+        assert engine.rootObjects(), "Main.qml failed to load (QML parse/type error)"
+        ctx = engine.rootContext()
+        assert ctx.contextProperty("progressController") is not None
+        assert ctx.contextProperty("watchedListModel") is not None
+        # setContextProperty does not take ownership; without a surviving
+        # Python reference these read back as null in QML.
+        names = {type(ref).__name__ for ref in engine._gravitas_refs}
+        assert "ProgressController" in names
+        assert "WatchedListModel" in names
+    finally:
+        pending = asyncio.all_tasks(loop)
+        for task in pending:
+            task.cancel()
+        if pending:
+            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        loop.close()
