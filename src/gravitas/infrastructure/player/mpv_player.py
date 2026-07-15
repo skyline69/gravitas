@@ -221,8 +221,12 @@ class MpvPlayer:
 
     # --- playback ---
 
-    def play(self, url: str) -> None:
+    def play(self, url: str, *, start: float = 0.0) -> None:
         try:
+            # `start` is applied by mpv when the file loads, so resuming needs
+            # no seek-after-file-loaded race. Always assign it: mpv keeps the
+            # option across loads, and a stale value would seek the next file.
+            self._mpv.start = start if start > 0 else 0
             self._mpv.play(url)
             self._mpv.pause = False
         except Exception as exc:

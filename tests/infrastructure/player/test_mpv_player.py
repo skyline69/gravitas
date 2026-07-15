@@ -17,6 +17,7 @@ class FakeMpv:
         self.sid: Any = "auto"
         self.aid: Any = "auto"
         self.played: list[str] = []
+        self.start = 0.0
         self.commands: list[tuple[Any, ...]] = []
         self.seeks: list[tuple[float, str]] = []
         self.terminated = False
@@ -266,3 +267,19 @@ def test_libmpv_discovery_extends_dyld_path_on_macos() -> None:
     env3: dict[str, str] = {}
     _ensure_libmpv_discoverable(env3, platform="linux")
     assert env3 == {}
+
+
+def test_play_sets_start_option_for_resume() -> None:
+    player, fake = _player()
+    player.play("http://s/v.mkv", start=1820.5)
+    # mpv applies `start` at load time, so resume needs no seek-after-load.
+    assert fake.start == 1820.5
+    assert fake.played == ["http://s/v.mkv"]
+
+
+def test_play_from_zero_clears_start_option() -> None:
+    player, fake = _player()
+    player.play("http://s/v.mkv", start=900.0)
+    player.play("http://s/other.mkv")
+    # A stale `start` would silently seek the NEXT file to the old position.
+    assert fake.start == 0
