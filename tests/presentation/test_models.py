@@ -1,5 +1,7 @@
-from gravitas.domain.models import AddonManifest, MediaItem, Stream
+from gravitas.application.watch_progress import WatchProgressRepository
+from gravitas.domain.models import AddonManifest, MediaItem, PlaybackProgress, Stream, Video
 from gravitas.presentation.models.addon_list_model import AddonListModel
+from gravitas.presentation.models.episode_list_model import EpisodeListModel
 from gravitas.presentation.models.poster_grid_model import PosterGridModel
 from gravitas.presentation.models.search_results_model import SearchResultsModel
 from gravitas.presentation.models.stream_list_model import StreamListModel
@@ -124,3 +126,126 @@ def test_search_results_model_roles(qapp: object) -> None:
     assert model.data(i, SearchResultsModel.NameRole) == "A"
     assert model.data(i, SearchResultsModel.YearRole) == "1999"
     assert model.data(i, SearchResultsModel.PosterRole) == "p"
+
+
+class _Store:
+    def __init__(self, entries: list[PlaybackProgress]) -> None:
+        self.entries = entries
+
+    def load_all(self) -> list[PlaybackProgress]:
+        return list(self.entries)
+
+    def save(self, entry: PlaybackProgress) -> None: ...
+    def delete(self, media_id: str, video_id: str | None = None) -> None: ...
+    def clear(self) -> None: ...
+
+
+def _entry(media_id: str, video_id: str, **kw: object) -> PlaybackProgress:
+    base: dict[str, object] = {
+        "media_id": media_id,
+        "video_id": video_id,
+        "type": "movie",
+        "name": "N",
+        "poster": None,
+        "label": "",
+        "position": 150.0,
+        "duration": 600.0,
+        "watched": False,
+        "updated_at": 100,
+    }
+    base.update(kw)
+    return PlaybackProgress(**base)  # type: ignore[arg-type]
+
+
+def test_episode_model_exposes_progress_roles(qapp: object) -> None:
+    repo = WatchProgressRepository(
+        _Store(
+            [
+                _entry("tt9", "tt9:1:1", type="series", position=150.0),
+                _entry("tt9", "tt9:1:2", type="series", watched=True, position=0.0),
+            ]
+        )
+    )
+    model = EpisodeListModel(repo)
+    model.set_media_id("tt9")
+    model.set_videos(
+        [
+            Video(id="tt9:1:1", title="One", season=1, episode=1),
+            Video(id="tt9:1:2", title="Two", season=1, episode=2),
+            Video(id="tt9:1:3", title="Three", season=1, episode=3),
+        ]
+    )
+    frac = EpisodeListModel.ProgressFractionRole
+    watched = EpisodeListModel.WatchedRole
+    assert model.data(model.index(0, 0), frac) == 0.25
+    assert model.data(model.index(1, 0), watched) is True
+    assert model.data(model.index(2, 0), frac) == 0.0  # never started
+    names = model.roleNames()
+    assert names[frac] == b"progressFraction"
+    assert names[watched] == b"watched"
+
+
+def test_episode_model_without_a_repo_reports_zero(qapp: object) -> None:
+    model = EpisodeListModel()
+    model.set_videos([Video(id="v1", title="One", season=1, episode=1)])
+    assert model.data(model.index(0, 0), EpisodeListModel.ProgressFractionRole) == 0.0
+
+
+def test_poster_model_movie_reads_its_own_entry(qapp: object) -> None:
+    repo = WatchProgressRepository(_Store([_entry("tt1", "")]))
+    model = PosterGridModel(repo)
+    model.set_items([MediaItem(id="tt1", type="movie", name="M", poster=None)])
+    assert model.data(model.index(0, 0), PosterGridModel.ProgressFractionRole) == 0.25
+
+
+def test_poster_model_series_reads_the_latest_episode(qapp: object) -> None:
+    repo = WatchProgressRepository(
+        _Store(
+            [
+                _entry("tt9", "tt9:1:1", type="series", position=60.0, updated_at=100),
+                _entry("tt9", "tt9:1:2", type="series", position=300.0, updated_at=200),
+            ]
+        )
+    )
+    model = PosterGridModel(repo)
+    model.set_items([MediaItem(id="tt9", type="series", name="S", poster=None)])
+    assert model.data(model.index(0, 0), PosterGridModel.ProgressFractionRole) == 0.5
+
+
+def test_poster_model_series_never_reports_watched(qapp: object) -> None:
+    repo = WatchProgressRepository(
+        _Store(
+            [
+                _entry("tt9", "tt9:1:1", type="series", watched=True, position=0.0),
+            ]
+        )
+    )
+    model = PosterGridModel(repo)
+    model.set_items([MediaItem(id="tt9", type="series", name="S", poster=None)])
+    # One finished episode does not finish the show.
+    assert model.data(model.index(0, 0), PosterGridModel.WatchedRole) is False
+
+
+def test_refresh_progress_emits_datachanged_for_progress_roles(qapp: object) -> None:
+    repo = WatchProgressRepository(_Store([]))
+    model = PosterGridModel(repo)
+    model.set_items([MediaItem(id="tt1", type="movie", name="M", poster=None)])
+    seen: list[list[int]] = []
+    model.dataChanged.connect(lambda tl, br, roles: seen.append(list(roles)))
+    model.refresh_progress()
+    assert seen == [[PosterGridModel.ProgressFractionRole, PosterGridModel.WatchedRole]]
+
+
+def test_refresh_progress_on_empty_model_is_a_noop(qapp: object) -> None:
+    model = PosterGridModel(WatchProgressRepository(_Store([])))
+    seen: list[object] = []
+    model.dataChanged.connect(lambda *a: seen.append(a))
+    model.refresh_progress()
+    assert seen == []  # index(-1, 0) would be invalid
+
+
+def test_search_results_model_exposes_progress_roles(qapp: object) -> None:
+    repo = WatchProgressRepository(_Store([_entry("tt1", "")]))
+    model = SearchResultsModel(repo)
+    model.set_items([MediaItem(id="tt1", type="movie", name="M", poster=None)])
+    assert model.data(model.index(0, 0), SearchResultsModel.ProgressFractionRole) == 0.25

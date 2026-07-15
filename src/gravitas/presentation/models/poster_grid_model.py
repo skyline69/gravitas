@@ -12,7 +12,9 @@ from PySide6.QtCore import (
     Qt,
 )
 
+from gravitas.application.watch_progress import WatchProgressRepository
 from gravitas.domain.models import MediaItem
+from gravitas.presentation.models import progress_roles
 
 _ROOT_INDEX = QModelIndex()
 
@@ -24,15 +26,27 @@ class PosterGridModel(QAbstractListModel):
     PosterRole = Qt.ItemDataRole.UserRole + 4
     YearRole = Qt.ItemDataRole.UserRole + 5
     RatingRole = Qt.ItemDataRole.UserRole + 6
+    ProgressFractionRole = Qt.ItemDataRole.UserRole + 7
+    WatchedRole = Qt.ItemDataRole.UserRole + 8
 
-    def __init__(self) -> None:
+    def __init__(self, progress: WatchProgressRepository | None = None) -> None:
         super().__init__()
         self._items: list[MediaItem] = []
+        self._progress = progress
 
     def set_items(self, items: list[MediaItem]) -> None:
         self.beginResetModel()
         self._items = list(items)
         self.endResetModel()
+
+    def refresh_progress(self) -> None:
+        if not self._items:
+            return
+        self.dataChanged.emit(
+            self.index(0, 0, _ROOT_INDEX),
+            self.index(len(self._items) - 1, 0, _ROOT_INDEX),
+            [PosterGridModel.ProgressFractionRole, PosterGridModel.WatchedRole],
+        )
 
     def append_items(self, items: list[MediaItem]) -> int:
         """Append items not already present (by id); returns how many were new.
@@ -81,6 +95,10 @@ class PosterGridModel(QAbstractListModel):
                 return item.year
             case PosterGridModel.RatingRole:
                 return item.imdb_rating
+            case PosterGridModel.ProgressFractionRole:
+                return progress_roles.fraction_for(self._progress, item)
+            case PosterGridModel.WatchedRole:
+                return progress_roles.is_watched(self._progress, item)
         return None
 
     def roleNames(self) -> dict[int, QByteArray]:
@@ -91,4 +109,6 @@ class PosterGridModel(QAbstractListModel):
             PosterGridModel.PosterRole: QByteArray(b"poster"),
             PosterGridModel.YearRole: QByteArray(b"year"),
             PosterGridModel.RatingRole: QByteArray(b"rating"),
+            PosterGridModel.ProgressFractionRole: QByteArray(b"progressFraction"),
+            PosterGridModel.WatchedRole: QByteArray(b"watched"),
         }

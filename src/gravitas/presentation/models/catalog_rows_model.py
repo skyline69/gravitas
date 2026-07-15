@@ -13,6 +13,7 @@ from PySide6.QtCore import (
 )
 
 from gravitas.application.browse_catalog import CatalogRow
+from gravitas.application.watch_progress import WatchProgressRepository
 from gravitas.presentation.models.poster_grid_model import PosterGridModel
 
 _ROOT_INDEX = QModelIndex()
@@ -25,8 +26,9 @@ class CatalogRowsModel(QAbstractListModel):
     CatalogIdRole = Qt.ItemDataRole.UserRole + 4
     PostersRole = Qt.ItemDataRole.UserRole + 5
 
-    def __init__(self) -> None:
+    def __init__(self, progress: WatchProgressRepository | None = None) -> None:
         super().__init__()
+        self._progress = progress
         # Full row set and the currently-visible (filtered) subset. Rows are
         # (title, addon_id, type, catalog_id, poster_model); the PosterGridModel
         # reference is held here to keep it alive for QML binding.
@@ -38,12 +40,18 @@ class CatalogRowsModel(QAbstractListModel):
         self.beginResetModel()
         built: list[tuple[str, str, str, str, PosterGridModel]] = []
         for row in rows:
-            poster_model = PosterGridModel()
+            poster_model = PosterGridModel(self._progress)
             poster_model.set_items(row.items)
             built.append((row.title, row.addon_id, row.type, row.catalog_id, poster_model))
         self._all_rows = built
         self._rows = self._filtered(self._all_rows, self._filter)
         self.endResetModel()
+
+    def refresh_progress(self) -> None:
+        # The nested poster models own the visible cells; refresh every row's,
+        # not just the filtered subset — a filter switch must not show stale bars.
+        for row in self._all_rows:
+            row[4].refresh_progress()
 
     def set_filter(self, mode: str) -> None:
         self.beginResetModel()

@@ -16,6 +16,7 @@ from PySide6.QtCore import (
     Qt,
 )
 
+from gravitas.application.watch_progress import WatchProgressRepository
 from gravitas.domain.models import Video
 
 _ROOT_INDEX = QModelIndex()
@@ -29,15 +30,37 @@ class EpisodeListModel(QAbstractListModel):
     ThumbnailRole = Qt.ItemDataRole.UserRole + 5
     OverviewRole = Qt.ItemDataRole.UserRole + 6
     ReleasedRole = Qt.ItemDataRole.UserRole + 7
+    ProgressFractionRole = Qt.ItemDataRole.UserRole + 8
+    WatchedRole = Qt.ItemDataRole.UserRole + 9
 
-    def __init__(self) -> None:
+    def __init__(self, progress: WatchProgressRepository | None = None) -> None:
         super().__init__()
         self._videos: list[Video] = []
+        self._progress = progress
+        self._media_id = ""
+
+    @property
+    def media_id(self) -> str:
+        return self._media_id
+
+    def set_media_id(self, media_id: str) -> None:
+        """The series these episodes belong to — progress is keyed by it."""
+        self._media_id = media_id
 
     def set_videos(self, videos: list[Video]) -> None:
         self.beginResetModel()
         self._videos = list(videos)
         self.endResetModel()
+
+    def refresh_progress(self) -> None:
+        """Re-read the progress roles for every row (the underlying dict moved)."""
+        if not self._videos:
+            return
+        self.dataChanged.emit(
+            self.index(0, 0, _ROOT_INDEX),
+            self.index(len(self._videos) - 1, 0, _ROOT_INDEX),
+            [EpisodeListModel.ProgressFractionRole, EpisodeListModel.WatchedRole],
+        )
 
     def rowCount(self, parent: QModelIndex | QPersistentModelIndex = _ROOT_INDEX) -> int:
         return len(self._videos)
@@ -65,6 +88,14 @@ class EpisodeListModel(QAbstractListModel):
                 return video.overview or ""
             case EpisodeListModel.ReleasedRole:
                 return video.released or ""
+            case EpisodeListModel.ProgressFractionRole:
+                if self._progress is None:
+                    return 0.0
+                return self._progress.fraction_for(self._media_id, video.id)
+            case EpisodeListModel.WatchedRole:
+                if self._progress is None:
+                    return False
+                return self._progress.is_watched(self._media_id, video.id)
         return None
 
     def roleNames(self) -> dict[int, QByteArray]:
@@ -76,4 +107,6 @@ class EpisodeListModel(QAbstractListModel):
             EpisodeListModel.ThumbnailRole: QByteArray(b"thumbnail"),
             EpisodeListModel.OverviewRole: QByteArray(b"overview"),
             EpisodeListModel.ReleasedRole: QByteArray(b"released"),
+            EpisodeListModel.ProgressFractionRole: QByteArray(b"progressFraction"),
+            EpisodeListModel.WatchedRole: QByteArray(b"watched"),
         }
