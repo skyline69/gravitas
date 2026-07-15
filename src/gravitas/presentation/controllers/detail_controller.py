@@ -42,6 +42,9 @@ class DetailController(QObject):
         self._selected_episode = ""
         self._sources_label = "Sources"
         self._streams_loading = False
+        self._media_id = ""
+        self._media_type: MediaType = "movie"
+        self._episode_label = ""
         # bumped on every load(); an in-flight load whose token no longer
         # matches is stale (a newer selection started) and must not apply its
         # result — otherwise a slow earlier load clobbers a newer one. Episode
@@ -107,6 +110,14 @@ class DetailController(QObject):
     def directors(self) -> list[str]:
         return self._directors()
 
+    @Property(str, notify=metaChanged)
+    def mediaId(self) -> str:
+        return self._media_id
+
+    @Property(str, notify=metaChanged)
+    def mediaType(self) -> str:
+        return self._media_type
+
     # --- episodes (series only) ---
 
     @Property("QVariantList", notify=episodesChanged)  # type: ignore[arg-type]
@@ -120,6 +131,19 @@ class DetailController(QObject):
     @Property(str, notify=sourcesChanged)
     def selectedEpisodeId(self) -> str:
         return self._selected_episode
+
+    @Slot(result="QVariantMap")
+    def mediaContext(self) -> dict[str, str]:
+        """What is currently selected for playback — the movie, or the chosen
+        episode. Handed to PlayerController.setMediaContext() before play()."""
+        return {
+            "mediaId": self._media_id,
+            "videoId": self._selected_episode,
+            "type": self._media_type,
+            "name": self.title,  # type: ignore[dict-item]
+            "poster": self.poster,  # type: ignore[dict-item]
+            "label": self._episode_label,
+        }
 
     @Property(str, notify=sourcesChanged)
     def sourcesLabel(self) -> str:
@@ -162,6 +186,7 @@ class DetailController(QObject):
         self._ep_seq += 1
         ep_token = self._ep_seq
         self._selected_episode = video_id
+        self._episode_label = f"S{season}E{episode} · {title}" if title else f"S{season}E{episode}"
         label = f"Sources — S{season}E{episode}"
         self._sources_label = f"{label} · {title}" if title else label
         self._streams_loading = True
@@ -197,6 +222,9 @@ class DetailController(QObject):
         self._selected_episode = ""
         self._sources_label = "Sources"
         self._streams_loading = False
+        self._media_id = item_id
+        self._media_type = media_type
+        self._episode_label = ""
         if self._episode_model is not None:
             self._episode_model.set_videos([])
         self.episodesChanged.emit()

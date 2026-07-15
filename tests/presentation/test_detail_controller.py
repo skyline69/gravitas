@@ -239,3 +239,47 @@ async def test_movie_flow_unchanged_by_episode_model(qapp: object) -> None:
     await ctl.load("movie", "tt1")
     assert stream_model.rowCount() == 1
     assert list(ctl.seasonOptions) == []
+
+
+async def test_media_context_for_a_movie(qapp: object) -> None:
+    ctl = DetailController(FakeGetDetail(), FakeResolve(), StreamListModel())  # type: ignore[arg-type]
+    await ctl.load("movie", "tt2")
+    assert ctl.mediaContext() == {
+        "mediaId": "tt2",
+        "videoId": "",
+        "type": "movie",
+        "name": "Film",
+        "poster": "p",
+        "label": "",
+    }
+
+
+async def test_media_context_for_a_selected_episode(qapp: object) -> None:
+    ctl, _stream_model, _episode_model = _series_ctl()
+    await ctl.load("series", "tt1")
+    await ctl.selectEpisode("tt1:1:2", 1, 2, "Two")
+    assert ctl.mediaContext() == {
+        "mediaId": "tt1",
+        "videoId": "tt1:1:2",
+        "type": "series",
+        "name": "Show",
+        "poster": "",
+        "label": "S1E2 · Two",
+    }
+
+
+async def test_episode_label_without_a_title(qapp: object) -> None:
+    ctl, _stream_model, _episode_model = _series_ctl()
+    await ctl.load("series", "tt1")
+    await ctl.selectEpisode("tt1:1:2", 1, 2, "")
+    assert ctl.mediaContext()["label"] == "S1E2"
+
+
+async def test_load_resets_the_context(qapp: object) -> None:
+    ctl, _stream_model, _episode_model = _series_ctl()
+    await ctl.load("series", "tt1")
+    await ctl.selectEpisode("tt1:1:2", 1, 2, "Two")
+    await ctl.load("series", "tt1")
+    # A stale episode id would attribute the next play to the wrong episode.
+    assert ctl.mediaContext()["videoId"] == ""
+    assert ctl.mediaContext()["label"] == ""
