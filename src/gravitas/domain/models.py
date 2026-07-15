@@ -109,3 +109,33 @@ class PersistedSettings:
     addon_urls: tuple[str, ...] = ()
     tmdb_key: str | None = None
     subtitle_style: SubtitleStyle = SubtitleStyle()
+
+
+@dataclass(frozen=True, slots=True)
+class PlaybackProgress:
+    """One resumable position. `video_id` is "" for movies.
+
+    `name`, `poster` and `label` are denormalized onto the entry so the
+    Settings list can render an item without refetching its meta.
+    """
+
+    media_id: str
+    video_id: str
+    type: MediaType
+    name: str
+    poster: str | None
+    label: str
+    position: float
+    duration: float
+    watched: bool
+    updated_at: int
+
+    @property
+    def fraction(self) -> float:
+        """0.0-1.0, for a progress bar."""
+        if self.watched:
+            # A watched entry has had its position zeroed, but reads as done.
+            return 1.0
+        if self.duration <= 0:
+            return 0.0
+        return min(1.0, self.position / self.duration)

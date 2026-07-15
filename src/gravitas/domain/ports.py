@@ -12,6 +12,7 @@ from gravitas.domain.models import (
     MediaType,
     MetaDetail,
     PersistedSettings,
+    PlaybackProgress,
     ResolvedMedia,
     Stream,
     SubtitleStyle,
@@ -94,3 +95,17 @@ class SettingsStore(Protocol):
 
     def load(self) -> PersistedSettings: ...
     def save(self, settings: PersistedSettings) -> None: ...
+
+
+@runtime_checkable
+class ProgressStore(Protocol):
+    """Durable store for playback progress. load_all() must never raise on
+    missing or corrupt data — it returns an empty list instead."""
+
+    def load_all(self) -> list[PlaybackProgress]: ...
+    def save(self, entry: PlaybackProgress) -> None: ...
+    def delete(self, media_id: str, video_id: str | None = None) -> None:
+        """video_id None removes every entry for the media (a whole series)."""
+        ...
+
+    def clear(self) -> None: ...

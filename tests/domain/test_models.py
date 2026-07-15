@@ -119,3 +119,31 @@ def test_resolved_media_constructs() -> None:
 
     r = ResolvedMedia(imdb_id="tt5", type="series", name="X", poster=None, year="2020")
     assert r.imdb_id == "tt5" and r.type == "series"
+
+
+def test_playback_progress_fraction() -> None:
+    from gravitas.domain.models import PlaybackProgress
+
+    def entry(**kw: object) -> PlaybackProgress:
+        base: dict[str, object] = {
+            "media_id": "tt1",
+            "video_id": "",
+            "type": "movie",
+            "name": "Movie",
+            "poster": None,
+            "label": "",
+            "position": 0.0,
+            "duration": 0.0,
+            "watched": False,
+            "updated_at": 0,
+        }
+        base.update(kw)
+        return PlaybackProgress(**base)  # type: ignore[arg-type]
+
+    assert entry(position=50.0, duration=200.0).fraction == 0.25
+    # Watched entries drop their position; the bar must still read full.
+    assert entry(position=0.0, duration=200.0, watched=True).fraction == 1.0
+    # Duration is unknown until mpv parses the file.
+    assert entry(position=50.0, duration=0.0).fraction == 0.0
+    # A position past a stale duration must not overflow the bar.
+    assert entry(position=300.0, duration=200.0).fraction == 1.0
