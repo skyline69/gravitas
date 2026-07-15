@@ -1,9 +1,19 @@
 import asyncio
 from pathlib import Path
 
+import pytest
 from pytest import MonkeyPatch
 
 from gravitas.main import build_app
+
+
+@pytest.fixture(autouse=True)
+def _isolated_progress_db(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    # build_app() constructs a WatchProgressRepository backed by a real
+    # SqliteProgressStore, which eagerly opens (and creates) its database file
+    # on construction. Every test in this module that calls build_app() must
+    # not touch the developer's real ~/.local/share/gravitas/progress.db.
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
 
 
 def test_build_app_registers_context_properties(qapp: object) -> None:
