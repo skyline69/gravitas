@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from dataclasses import replace
 
 from gravitas.domain.models import MediaType, PlaybackProgress
 from gravitas.domain.ports import ProgressStore
@@ -183,6 +184,17 @@ class WatchProgressRepository:
     ) -> None:
         if not media_id:
             return
+        if type == "series" and not video_id:
+            # Finishing a whole show has to mean it. A bare marker would leave
+            # half-watched episodes behind, so the show would keep its bar and
+            # its Continue Watching slot while its poster claimed a checkmark.
+            # Episodes never started have no row and stay that way — we cannot
+            # know they exist from a grid.
+            for started in [e for key, e in self._by_key.items() if key[0] == media_id]:
+                if not started.watched:
+                    self._put(
+                        replace(started, position=0.0, watched=True, updated_at=self._clock())
+                    )
         existing = self._by_key.get((media_id, video_id))
         self._put(
             PlaybackProgress(

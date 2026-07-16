@@ -23,14 +23,13 @@ Item {
         if (!root.forgetContext)
             return
         var items = []
-        // Movies only. A series poster can never show a watched badge (the
-        // model reports watched=false for series), so offering "Mark as
-        // watched" here would be a UI lie -- there's nothing for it to
-        // visibly flip. Marking a whole series watched from the grid would
-        // also need per-episode knowledge the grid doesn't have (which
-        // episodes exist, which are already watched). Episodes are marked
-        // watched from the Detail page, where that knowledge lives.
-        if (!root.watched && root.forgetContext.type !== "series") {
+        // Offered for a series too. The grid cannot infer that a show is
+        // finished -- it has no episode list -- but it does not need to: the
+        // user is saying so, and the repository finishes the episodes it knows
+        // were started, so the show badges and leaves Continue Watching rather
+        // than keeping a bar. Marking a single EPISODE watched still lives on
+        // the Detail page, where the episodes are.
+        if (!root.watched) {
             items.push({
                 label: "Mark as watched",
                 action: () => progressController.markWatched(root.forgetContext)

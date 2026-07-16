@@ -229,6 +229,14 @@ re-evaluation.
   would also disagree with `in_progress()` (watched-exclusive) simultaneously
   saying the same show is not in progress. Both are cheap, so a cell costs
   nothing. `PosterGridProxy` passes roles through untouched.
+- `watched` is the `(media_id, "")` row for both kinds: for a movie that is the
+  movie; for a series it is the marker written when the user marks the show
+  finished from its context menu. A grid cannot infer that for a series — it
+  has no episode list — but it does not need to infer what the user stated. A
+  finished *episode* still never badges the show, since an episode's row is
+  keyed by its own `video_id`. A series that is marked finished and then
+  resumed yields the badge back to the bar, so a poster never claims done while
+  showing progress.
 
 Role names were checked against every delegate that consumes these models per
 the role-shadowing gotcha (a role named `detail` breaks `detail.someFunction()`

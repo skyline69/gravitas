@@ -405,3 +405,100 @@ def test_in_progress_drops_a_media_once_every_entry_is_watched() -> None:
         ]
     )
     assert repo(store).in_progress() == []
+
+
+def test_mark_watched_on_a_series_finishes_its_started_episodes() -> None:
+    # "Mark as watched" on a whole show has to mean it: leaving a half-watched
+    # episode behind would keep the show bar-ed and in Continue Watching while
+    # its poster claimed a watched badge.
+    store = FakeStore(
+        [
+            entry("tt9", "tt9:1:1", type="series", position=300.0, updated_at=100),
+            entry("tt9", "tt9:1:2", type="series", position=120.0, updated_at=200),
+            entry("tt1", "", position=200.0, updated_at=150),
+        ]
+    )
+    r = repo(store)
+    r.mark_watched(media_id="tt9", video_id="", type="series", name="Show", poster=None, label="")
+    assert r.latest_unwatched_for("tt9") is None
+    assert r.get("tt9", "tt9:1:1").watched is True  # type: ignore[union-attr]
+    assert r.get("tt9", "tt9:1:2").watched is True  # type: ignore[union-attr]
+    assert r.is_watched("tt9") is True
+
+
+def test_mark_watched_on_a_series_leaves_other_titles_alone() -> None:
+    store = FakeStore(
+        [
+            entry("tt9", "tt9:1:1", type="series", position=300.0),
+            entry("tt1", "", position=200.0),
+        ]
+    )
+    r = repo(store)
+    r.mark_watched(media_id="tt9", video_id="", type="series", name="Show", poster=None, label="")
+    assert [e.media_id for e in r.in_progress()] == ["tt1"]
+
+
+def test_mark_watched_on_a_series_persists_every_flipped_row() -> None:
+    store = FakeStore(
+        [
+            entry("tt9", "tt9:1:1", type="series", position=300.0),
+            entry("tt9", "tt9:1:2", type="series", position=120.0),
+        ]
+    )
+    r = repo(store)
+    r.mark_watched(media_id="tt9", video_id="", type="series", name="Show", poster=None, label="")
+    # A flip that lives only in memory is a flip that dies at exit.
+    saved = {(e.media_id, e.video_id): e for e in store.saved}
+    assert saved[("tt9", "tt9:1:1")].watched is True
+    assert saved[("tt9", "tt9:1:2")].watched is True
+    assert saved[("tt9", "")].watched is True
+
+
+def test_mark_watched_on_a_series_with_no_episodes_started() -> None:
+    r = repo(FakeStore([]))
+    r.mark_watched(media_id="tt9", video_id="", type="series", name="Show", poster=None, label="")
+    assert r.is_watched("tt9") is True
+    assert r.in_progress() == []
+
+
+def test_marking_one_episode_watched_does_not_finish_the_show() -> None:
+    store = FakeStore(
+        [
+            entry("tt9", "tt9:1:1", type="series", position=300.0, updated_at=100),
+            entry("tt9", "tt9:1:2", type="series", position=120.0, updated_at=200),
+        ]
+    )
+    r = repo(store)
+    r.mark_watched(
+        media_id="tt9",
+        video_id="tt9:1:1",
+        type="series",
+        name="Show",
+        poster=None,
+        label="S1E1",
+    )
+    # E2 is still going, so the show is still in progress.
+    assert r.is_watched("tt9") is False
+    entry_left = r.latest_unwatched_for("tt9")
+    assert entry_left is not None and entry_left.video_id == "tt9:1:2"
+
+
+def test_resuming_a_series_after_marking_it_watched_reopens_it() -> None:
+    r = repo(FakeStore([]), now=500)
+    r.mark_watched(media_id="tt9", video_id="", type="series", name="Show", poster=None, label="")
+    r.record(
+        media_id="tt9",
+        video_id="tt9:2:1",
+        type="series",
+        name="Show",
+        poster=None,
+        label="S2E1",
+        position=100.0,
+        duration=600.0,
+    )
+    # Starting a new episode means you are not done after all. The marker row
+    # itself is left alone -- it is the unwatched episode that makes the show
+    # live again, which is what every surface actually reads.
+    assert [e.video_id for e in r.in_progress()] == ["tt9:2:1"]
+    resumable = r.latest_unwatched_for("tt9")
+    assert resumable is not None and resumable.video_id == "tt9:2:1"

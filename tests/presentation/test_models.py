@@ -344,3 +344,50 @@ def test_poster_model_label_without_a_repo(qapp: object) -> None:
     model = PosterGridModel()
     model.set_items([MediaItem(id="tt9", type="series", name="Show", poster=None)])
     assert model.data(model.index(0, 0), PosterGridModel.ProgressLabelRole) == ""
+
+
+def test_series_badges_watched_once_you_say_it_is_finished(qapp: object) -> None:
+    # A grid cannot infer a show is finished -- but the user can say so, and
+    # then the badge is honest rather than a guess.
+    repo = WatchProgressRepository(
+        _Store(
+            [
+                _entry("tt9", "", type="series", watched=True, position=0.0),
+            ]
+        )
+    )
+    model = PosterGridModel(repo)
+    model.set_items([MediaItem(id="tt9", type="series", name="Show", poster=None)])
+    assert model.data(model.index(0, 0), PosterGridModel.WatchedRole) is True
+
+
+def test_series_does_not_badge_from_one_finished_episode(qapp: object) -> None:
+    # Still the old rule: finishing an episode is not finishing the show.
+    repo = WatchProgressRepository(
+        _Store(
+            [
+                _entry("tt9", "tt9:1:1", type="series", watched=True, position=0.0),
+            ]
+        )
+    )
+    model = PosterGridModel(repo)
+    model.set_items([MediaItem(id="tt9", type="series", name="Show", poster=None)])
+    assert model.data(model.index(0, 0), PosterGridModel.WatchedRole) is False
+
+
+def test_series_badge_drops_when_a_new_episode_is_started(qapp: object) -> None:
+    # Marked finished, then resumed: the badge must yield to the bar, or the
+    # poster claims done while showing progress.
+    repo = WatchProgressRepository(
+        _Store(
+            [
+                _entry("tt9", "", type="series", watched=True, position=0.0, updated_at=100),
+                _entry("tt9", "tt9:2:1", type="series", position=150.0, updated_at=200),
+            ]
+        )
+    )
+    model = PosterGridModel(repo)
+    model.set_items([MediaItem(id="tt9", type="series", name="Show", poster=None)])
+    index = model.index(0, 0)
+    assert model.data(index, PosterGridModel.WatchedRole) is False
+    assert model.data(index, PosterGridModel.ProgressFractionRole) == 0.25

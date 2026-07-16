@@ -38,8 +38,17 @@ def label_for(progress: WatchProgressRepository | None, item: MediaItem) -> str:
 
 
 def is_watched(progress: WatchProgressRepository | None, item: MediaItem) -> bool:
-    # One finished episode does not finish a series, and a grid has no episode
-    # count to judge by — so only movies ever badge as watched.
-    if progress is None or item.type == "series":
+    if progress is None:
         return False
-    return progress.is_watched(item.id)
+    # The (media_id, "") row means "the title itself is finished" for both
+    # kinds: for a movie that is the movie; for a series it is the marker
+    # written when the user says the show is done. A grid cannot infer that for
+    # a series — it has no episode count — but it does not need to: the user
+    # said so. One finished EPISODE still never badges the show, because an
+    # episode's row is keyed by its own video_id, not "".
+    if not progress.is_watched(item.id):
+        return False
+    # ...unless something is mid-episode again. Resuming a show you had marked
+    # finished must yield the badge to the bar, or the poster claims done while
+    # showing progress.
+    return item.type != "series" or progress.latest_unwatched_for(item.id) is None
