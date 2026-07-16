@@ -482,7 +482,7 @@ Item {
                     id: resetDialog
                     property int count: 0
                     heading: "Forget progress for " + count
-                        + (count === 1 ? " title?" : " titles?")
+                        + (count === 1 ? " saved position?" : " saved positions?")
                     body: "Every saved position is cleared, including finished ones. This cannot be undone."
                     confirmText: "Reset all"
                     onConfirmed: progressController.resetAll()
