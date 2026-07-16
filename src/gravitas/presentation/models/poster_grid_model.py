@@ -28,6 +28,7 @@ class PosterGridModel(QAbstractListModel):
     RatingRole = Qt.ItemDataRole.UserRole + 6
     ProgressFractionRole = Qt.ItemDataRole.UserRole + 7
     WatchedRole = Qt.ItemDataRole.UserRole + 8
+    ProgressLabelRole = Qt.ItemDataRole.UserRole + 9
 
     def __init__(self, progress: WatchProgressRepository | None = None) -> None:
         super().__init__()
@@ -45,7 +46,11 @@ class PosterGridModel(QAbstractListModel):
         self.dataChanged.emit(
             self.index(0, 0, _ROOT_INDEX),
             self.index(len(self._items) - 1, 0, _ROOT_INDEX),
-            [PosterGridModel.ProgressFractionRole, PosterGridModel.WatchedRole],
+            [
+                PosterGridModel.ProgressFractionRole,
+                PosterGridModel.WatchedRole,
+                PosterGridModel.ProgressLabelRole,
+            ],
         )
 
     def append_items(self, items: list[MediaItem]) -> int:
@@ -99,6 +104,8 @@ class PosterGridModel(QAbstractListModel):
                 return progress_roles.fraction_for(self._progress, item)
             case PosterGridModel.WatchedRole:
                 return progress_roles.is_watched(self._progress, item)
+            case PosterGridModel.ProgressLabelRole:
+                return progress_roles.label_for(self._progress, item)
         return None
 
     def roleNames(self) -> dict[int, QByteArray]:
@@ -111,4 +118,5 @@ class PosterGridModel(QAbstractListModel):
             PosterGridModel.RatingRole: QByteArray(b"rating"),
             PosterGridModel.ProgressFractionRole: QByteArray(b"progressFraction"),
             PosterGridModel.WatchedRole: QByteArray(b"watched"),
+            PosterGridModel.ProgressLabelRole: QByteArray(b"progressLabel"),
         }

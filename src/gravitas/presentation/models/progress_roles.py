@@ -24,6 +24,19 @@ def fraction_for(progress: WatchProgressRepository | None, item: MediaItem) -> f
     return progress.fraction_for(item.id)
 
 
+def label_for(progress: WatchProgressRepository | None, item: MediaItem) -> str:
+    """Names the episode a series would resume into ("S1E3 · Pilot").
+
+    Empty for a movie — its card title already says everything — and empty when
+    nothing is in progress. Reads the same entry as `fraction_for`, so the bar
+    and the label can never describe different episodes.
+    """
+    if progress is None or item.type != "series":
+        return ""
+    entry = progress.latest_unwatched_for(item.id)
+    return entry.label if entry is not None else ""
+
+
 def is_watched(progress: WatchProgressRepository | None, item: MediaItem) -> bool:
     # One finished episode does not finish a series, and a grid has no episode
     # count to judge by — so only movies ever badge as watched.

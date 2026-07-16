@@ -133,3 +133,144 @@ def test_refresh_progress_reaches_rows_hidden_by_the_active_filter(qapp: object)
     assert all(fired for fired in seen), "every row's poster model must fire dataChanged"
     # "New Series" (index 1) is filtered out under "movie" but must still refresh.
     assert seen[1], "a filtered-out row's poster model was not refreshed"
+
+
+# --- Continue Watching -------------------------------------------------------
+#
+# Held apart from the catalog rows on purpose: progress changes every few
+# seconds during playback, and rebuilding this row must never re-hit an
+# addon's /catalog over the network.
+
+from gravitas.domain.models import PlaybackProgress  # noqa: E402
+
+
+def _progress(media_id: str, type_: str = "movie", **kw: object) -> PlaybackProgress:
+    base: dict[str, object] = {
+        "media_id": media_id,
+        "video_id": "",
+        "type": type_,
+        "name": media_id.upper(),
+        "poster": "http://p/1.jpg",
+        "label": "",
+        "position": 150.0,
+        "duration": 600.0,
+        "watched": False,
+        "updated_at": 100,
+    }
+    base.update(kw)
+    return PlaybackProgress(**base)  # type: ignore[arg-type]
+
+
+_CATALOGS = [
+    _typed_row("Popular Movies", "movie", "top"),
+    _typed_row("New Series", "series", "year"),
+]
+
+
+def test_cw_no_row_when_nothing_is_in_progress(qapp: object) -> None:
+    model = CatalogRowsModel()
+    model.set_rows(_CATALOGS)
+    model.set_continue_watching([])
+    assert _titles(model) == ["Popular Movies", "New Series"]
+
+
+def test_cw_row_is_first(qapp: object) -> None:
+    model = CatalogRowsModel()
+    model.set_rows(_CATALOGS)
+    model.set_continue_watching([_progress("tt1")])
+    assert _titles(model) == ["Continue Watching", "Popular Movies", "New Series"]
+
+
+def test_cw_row_survives_set_rows_arriving_after_it(qapp: object) -> None:
+    # Bootstrap order is not guaranteed: progress is local and instant, the
+    # catalogs are a network round-trip.
+    model = CatalogRowsModel()
+    model.set_continue_watching([_progress("tt1")])
+    model.set_rows(_CATALOGS)
+    assert _titles(model)[0] == "Continue Watching"
+
+
+def test_cw_row_filters_to_the_active_tab(qapp: object) -> None:
+    model = CatalogRowsModel()
+    model.set_rows(_CATALOGS)
+    model.set_continue_watching([_progress("tt1", "movie"), _progress("tt9", "series")])
+
+    model.set_filter("movie")
+    assert _titles(model) == ["Continue Watching", "Popular Movies"]
+    posters = model.data(model.index(0, 0), CatalogRowsModel.PostersRole)
+    assert [posters.item_at(i).id for i in range(posters.rowCount())] == ["tt1"]
+
+    model.set_filter("series")
+    posters = model.data(model.index(0, 0), CatalogRowsModel.PostersRole)
+    assert [posters.item_at(i).id for i in range(posters.rowCount())] == ["tt9"]
+
+
+def test_cw_row_absent_when_the_tab_has_no_matching_entries(qapp: object) -> None:
+    model = CatalogRowsModel()
+    model.set_rows(_CATALOGS)
+    model.set_continue_watching([_progress("tt9", "series")])
+    model.set_filter("movie")
+    # An empty Continue Watching row is worse than no row.
+    assert _titles(model) == ["Popular Movies"]
+
+
+def test_cw_row_absent_from_the_trending_tab(qapp: object) -> None:
+    model = CatalogRowsModel()
+    model.set_rows(_CATALOGS)
+    model.set_continue_watching([_progress("tt1")])
+    model.set_filter("trending")
+    # Trending is what is hot, not what you personally started.
+    assert "Continue Watching" not in _titles(model)
+
+
+def test_cw_row_renders_straight_from_the_stored_entry(qapp: object) -> None:
+    model = CatalogRowsModel()
+    model.set_continue_watching([_progress("tt9", "series", name="The Show")])
+    posters = model.data(model.index(0, 0), CatalogRowsModel.PostersRole)
+    built = posters.item_at(0)
+    # No network, no catalog lookup — every field is denormalized on the row.
+    assert (built.id, built.type, built.name, built.poster) == (
+        "tt9",
+        "series",
+        "The Show",
+        "http://p/1.jpg",
+    )
+
+
+def test_cw_row_is_flagged_for_qml(qapp: object) -> None:
+    model = CatalogRowsModel()
+    model.set_rows(_CATALOGS)
+    model.set_continue_watching([_progress("tt1")])
+    assert model.data(model.index(0, 0), CatalogRowsModel.ContinueWatchingRole) is True
+    assert model.data(model.index(1, 0), CatalogRowsModel.ContinueWatchingRole) is False
+    assert model.roleNames()[CatalogRowsModel.ContinueWatchingRole] == b"continueWatching"
+
+
+def test_cw_row_has_no_addon_or_catalog_behind_it(qapp: object) -> None:
+    model = CatalogRowsModel()
+    model.set_continue_watching([_progress("tt1")])
+    index = model.index(0, 0)
+    # See All has nowhere to go for this row; QML hides it on the flag above.
+    assert model.data(index, CatalogRowsModel.AddonIdRole) == ""
+    assert model.data(index, CatalogRowsModel.CatalogIdRole) == ""
+
+
+def test_cw_rebuild_does_not_disturb_catalog_rows(qapp: object) -> None:
+    model = CatalogRowsModel()
+    model.set_rows(_CATALOGS)
+    before = model.data(model.index(0, 0), CatalogRowsModel.PostersRole)
+    model.set_continue_watching([_progress("tt1")])
+    after = model.data(model.index(1, 0), CatalogRowsModel.PostersRole)
+    # Same nested model object: rebuilding this row must never re-fetch a
+    # catalog over the network.
+    assert before is after
+
+
+def test_cw_update_replaces_rather_than_appends(qapp: object) -> None:
+    model = CatalogRowsModel()
+    model.set_rows(_CATALOGS)
+    model.set_continue_watching([_progress("tt1")])
+    model.set_continue_watching([_progress("tt1"), _progress("tt9", "series")])
+    assert _titles(model).count("Continue Watching") == 1
+    posters = model.data(model.index(0, 0), CatalogRowsModel.PostersRole)
+    assert posters.rowCount() == 2

@@ -283,7 +283,15 @@ def test_refresh_progress_emits_datachanged_for_progress_roles(qapp: object) -> 
     seen: list[list[int]] = []
     model.dataChanged.connect(lambda tl, br, roles: seen.append(list(roles)))
     model.refresh_progress()
-    assert seen == [[PosterGridModel.ProgressFractionRole, PosterGridModel.WatchedRole]]
+    # The label must refresh with the bar — a stale label would name an
+    # episode the bar no longer describes.
+    assert seen == [
+        [
+            PosterGridModel.ProgressFractionRole,
+            PosterGridModel.WatchedRole,
+            PosterGridModel.ProgressLabelRole,
+        ]
+    ]
 
 
 def test_refresh_progress_on_empty_model_is_a_noop(qapp: object) -> None:
@@ -299,3 +307,40 @@ def test_search_results_model_exposes_progress_roles(qapp: object) -> None:
     model = SearchResultsModel(repo)
     model.set_items([MediaItem(id="tt1", type="movie", name="M", poster=None)])
     assert model.data(model.index(0, 0), SearchResultsModel.ProgressFractionRole) == 0.25
+
+
+def test_poster_model_exposes_the_episode_label_for_series(qapp: object) -> None:
+    repo = WatchProgressRepository(
+        _Store(
+            [
+                _entry("tt9", "tt9:1:1", type="series", updated_at=100, label="S1E1 · Pilot"),
+                _entry("tt9", "tt9:1:2", type="series", updated_at=200, label="S1E2 · Two"),
+            ]
+        )
+    )
+    model = PosterGridModel(repo)
+    model.set_items([MediaItem(id="tt9", type="series", name="Show", poster=None)])
+    index = model.index(0, 0)
+    # The label names the episode you would resume — the newest unwatched one.
+    assert model.data(index, PosterGridModel.ProgressLabelRole) == "S1E2 · Two"
+    assert model.roleNames()[PosterGridModel.ProgressLabelRole] == b"progressLabel"
+
+
+def test_poster_model_label_is_empty_for_a_movie(qapp: object) -> None:
+    repo = WatchProgressRepository(_Store([_entry("tt1", "", label="")]))
+    model = PosterGridModel(repo)
+    model.set_items([MediaItem(id="tt1", type="movie", name="M", poster=None)])
+    # A movie has no episode to name; the card title already says everything.
+    assert model.data(model.index(0, 0), PosterGridModel.ProgressLabelRole) == ""
+
+
+def test_poster_model_label_is_empty_when_nothing_in_progress(qapp: object) -> None:
+    model = PosterGridModel(WatchProgressRepository(_Store([])))
+    model.set_items([MediaItem(id="tt9", type="series", name="Show", poster=None)])
+    assert model.data(model.index(0, 0), PosterGridModel.ProgressLabelRole) == ""
+
+
+def test_poster_model_label_without_a_repo(qapp: object) -> None:
+    model = PosterGridModel()
+    model.set_items([MediaItem(id="tt9", type="series", name="Show", poster=None)])
+    assert model.data(model.index(0, 0), PosterGridModel.ProgressLabelRole) == ""

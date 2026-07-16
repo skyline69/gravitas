@@ -378,19 +378,30 @@ def test_in_progress_survives_an_older_episode_finishing() -> None:
     # Watch E2 halfway, then finish E1. _latest now points at E1 (watched),
     # but E2 is still half-watched, so the show IS still in progress — the
     # poster bar says so via _latest_unwatched, and this must agree with it.
-    store = FakeStore([
-        entry("tt9", "tt9:1:2", type="series", position=300.0, updated_at=100, label="S1E2"),
-        entry("tt9", "tt9:1:1", type="series", watched=True, position=0.0, updated_at=200,
-              label="S1E1"),
-    ])
+    store = FakeStore(
+        [
+            entry("tt9", "tt9:1:2", type="series", position=300.0, updated_at=100, label="S1E2"),
+            entry(
+                "tt9",
+                "tt9:1:1",
+                type="series",
+                watched=True,
+                position=0.0,
+                updated_at=200,
+                label="S1E1",
+            ),
+        ]
+    )
     r = repo(store)
     rows = r.in_progress()
     assert [e.label for e in rows] == ["S1E2"]
 
 
 def test_in_progress_drops_a_media_once_every_entry_is_watched() -> None:
-    store = FakeStore([
-        entry("tt9", "tt9:1:1", type="series", watched=True, position=0.0, updated_at=200),
-        entry("tt1", "", watched=True, position=0.0, updated_at=100),
-    ])
+    store = FakeStore(
+        [
+            entry("tt9", "tt9:1:1", type="series", watched=True, position=0.0, updated_at=200),
+            entry("tt1", "", watched=True, position=0.0, updated_at=100),
+        ]
+    )
     assert repo(store).in_progress() == []
