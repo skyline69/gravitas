@@ -39,6 +39,15 @@ class ProgressController(QObject):
     def inProgressCount(self) -> int:
         return len(self._progress.in_progress())
 
+    @Slot(result=int)
+    def totalCount(self) -> int:
+        """Every saved row, watched included — what Reset all actually
+        deletes. Settings gates the Reset all button (and the confirm
+        dialog's count) on this, not on inProgressCount(): a user who
+        finished every title they started has 0 in-progress rows but dozens
+        of watched ones, and the button must still be reachable."""
+        return self._progress.total_count()
+
     # --- mutations ---
 
     @Slot(str, str)
@@ -77,6 +86,15 @@ class ProgressController(QObject):
     def refreshWatched(self) -> None:
         """Repopulate the Settings list (called when the page opens)."""
         self._model.set_entries(self._progress.in_progress())
+
+    @Slot()
+    def notifyRecorded(self) -> None:
+        """Wired to PlayerController.progressRecorded — the player writes
+        progress through a path that never touches this controller's own
+        mutations, so without this the `revision` this controller owns (and
+        anything bound to it, like Detail's Forget-progress visibility) goes
+        stale even though the bars themselves (model roles) refresh fine."""
+        self._changed()
 
     def _changed(self) -> None:
         self._revision += 1

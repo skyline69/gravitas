@@ -170,7 +170,13 @@ def build_app(
         search_page_model.refresh_progress()
 
     progress_controller.progressChanged.connect(_refresh_progress_bars)
-    player_controller.progressRecorded.connect(_refresh_progress_bars)
+    # Route through ProgressController rather than wiring straight to
+    # _refresh_progress_bars: the player writes progress on a path that never
+    # touches this controller's own mutations, so `revision` (and anything
+    # bound to it, like Detail's Forget-progress visibility) would go stale
+    # even though the bars themselves refreshed fine. progressChanged above
+    # already fans out to the bars, so this does not double-refresh them.
+    player_controller.progressRecorded.connect(progress_controller.notifyRecorded)
     # The final seconds of a session would otherwise die with the process.
     app.aboutToQuit.connect(player_controller.flushProgress)
 

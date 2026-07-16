@@ -107,3 +107,26 @@ def test_mark_watched_without_a_media_id_is_ignored(qapp: object) -> None:
     controller, _, _ = build([])
     controller.markWatched({"mediaId": "", "videoId": "", "type": "movie"})
     assert controller.inProgressCount() == 0
+
+
+def test_total_count_includes_watched_titles(qapp: object) -> None:
+    """Reset all must be reachable even when every saved title is finished —
+    inProgressCount() would read 0 here and hide the button."""
+    controller, _, _ = build([entry("tt1", watched=True), entry("tt2", watched=True), entry("tt3")])
+    assert controller.totalCount() == 3
+    assert controller.inProgressCount() == 1
+
+
+def test_notify_recorded_bumps_revision_and_fires_progress_changed(qapp: object) -> None:
+    """This is the seam PlayerController.progressRecorded is wired to in
+    main.py: the player's writes never go through forget/markWatched/resetAll,
+    so without this the Detail page's Forget-progress button (bound to
+    `revision`) would stay hidden right after a title was just watched, even
+    though the bars themselves refresh fine via progressChanged."""
+    controller, _, _ = build([entry()])
+    before = controller.revision
+    fired: list[None] = []
+    controller.progressChanged.connect(lambda: fired.append(None))
+    controller.notifyRecorded()
+    assert controller.revision == before + 1
+    assert fired == [None]  # exactly once — no double-refresh
