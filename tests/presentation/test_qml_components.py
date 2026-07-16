@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QtMsgType, qInstallMessageHandler
+from PySide6.QtGui import QFont, QFontDatabase, QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine, QQmlComponent, QQmlEngine
 from pytest import MonkeyPatch
 
@@ -23,7 +24,23 @@ _COMPONENTS_DIR = _QML_DIR / "components"
 
 
 @pytest.fixture
-def qml_warnings(qapp: object) -> Iterator[list[str]]:
+def app_font(qapp: QGuiApplication) -> None:
+    """Give the test process the application font build_app installs.
+
+    Without it the Basic style asks for its default family, "Sans Serif", which
+    does not exist on macOS: Qt then spends ~120ms populating font aliases and
+    warns about the cost -- a warning this test rightly refuses to ignore, but
+    one the real app never emits because it runs with Inter. Same reason the
+    style is pinned in conftest: what is measured here has to be what ships.
+    """
+    font_id = QFontDatabase.addApplicationFont(str(_QML_DIR / "assets" / "Inter.ttf"))
+    families = QFontDatabase.applicationFontFamilies(font_id)
+    if families:
+        qapp.setFont(QFont(families[0]))
+
+
+@pytest.fixture
+def qml_warnings(qapp: object, app_font: None) -> Iterator[list[str]]:
     """Collect Qt warnings emitted while a component is instantiated."""
     collected: list[str] = []
 
@@ -41,10 +58,11 @@ def qml_warnings(qapp: object) -> Iterator[list[str]]:
 def _instantiate(source: str) -> None:
     """Build `source` as QML inside a real Window, then tear it down.
 
-    The Quick Controls style is left alone: QQuickStyle.setStyle() only takes
-    effect before the first Controls import in the process, so setting it here
-    would itself warn once another test has loaded QML. Style does not affect
-    what this test measures.
+    The style is not set here -- QQuickStyle.setStyle() only takes effect before
+    the first Controls import in the process, so calling it from a test is
+    already too late and warns in turn. conftest pins QT_QUICK_CONTROLS_STYLE
+    instead, which Qt reads first. Style very much does affect what this
+    measures: under a native style every customized App* component warns.
     """
     engine = QQmlEngine()
     engine.addImportPath(str(_QML_DIR))

@@ -608,19 +608,32 @@ def test_prune_deletes_in_one_bulk_call_not_row_by_row() -> None:
     assert len(store.deleted) == 490
 
 
-def test_prune_scales_linearly_not_quadratically() -> None:
-    import time
+def test_prune_deletes_in_one_bulk_call_however_many_rows() -> None:
+    """Pins the O(n^2) regression prune() exists to avoid.
 
-    def elapsed(n: int) -> float:
-        r = repo(FakeStore([_watched(f"tt{i}", updated_at=i) for i in range(n)]))
-        start = time.perf_counter()
-        r.prune(max_watched=0)
-        return time.perf_counter() - start
+    Dropping rows via forget() commits one DELETE and rescans the table per
+    row -- measured at 33 SECONDS for 28k rows, on startup. What rules that out
+    is the shape of the store traffic, not the clock: one delete_many for the
+    whole batch, no matter how many rows, and no per-row delete().
 
-    small, large = elapsed(500), elapsed(5000)
-    # 10x the rows must not cost ~100x the time. Generous bound: this guards
-    # against an O(n^2) regression, not against ordinary noise.
-    assert large < small * 30, f"pruning looks quadratic: {small:.4f}s -> {large:.4f}s"
+    This replaces a wall-clock ratio (large < small * 30), which compared two
+    sub-millisecond measurements dominated by constant overhead and flaked
+    under parallel load. A perf test that cries wolf gets muted, and then the
+    regression it was guarding ships.
+    """
+    for n in (500, 5000):
+        store = FakeStore([_watched(f"tt{i}", updated_at=i) for i in range(n)])
+        r = repo(store)
+
+        dropped = r.prune(max_watched=0)
+
+        assert dropped == n
+        assert store.delete_many_calls == 1
+        # Oldest first, and every row accounted for in that single call.
+        assert store.deleted == [(f"tt{i}", "") for i in range(n)]
+        # Pruning is a delete, never a rewrite.
+        assert store.saved == []
+        assert r.in_progress() == []
 
 
 def test_record_just_under_the_threshold_stays_unwatched() -> None:
