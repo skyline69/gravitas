@@ -2718,7 +2718,13 @@ Add the function and menu at the root level (after the `signal clicked()` line):
         if (!root.forgetContext)
             return
         var items = []
-        if (!root.watched) {
+        // Movies only. A series poster can never show a watched badge (the
+        // model reports watched=false for series), and marking one watched
+        // here would write a videoId-less, zero-duration entry that becomes
+        // the series' latest_for() — silently hiding real episode progress
+        // with no badge, no feedback, and no undo. Episodes are marked
+        // watched from the Detail page, where the episodes actually are.
+        if (!root.watched && root.forgetContext.type !== "series") {
             items.push({
                 label: "Mark as watched",
                 action: () => progressController.markWatched(root.forgetContext)
