@@ -69,3 +69,31 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload rolling dist/Gravitas.dmg --repo "$GITHUB_REPOSITORY" --clobber
+
+  flatpak:
+    needs: prepare
+    # Independent of the AppImage/dmg jobs: a Flatpak failure never blocks them.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install libmpv, flatpak, and the freedesktop runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libmpv-dev flatpak flatpak-builder
+          sudo flatpak remote-add --if-not-exists flathub \
+            https://dl.flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install -y flathub \
+            org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08
+      - run: uv sync
+      - name: Build the same one-dir bundle the manifest packages
+        run: uv run --with pyinstaller pyinstaller packaging/gravitas.spec --noconfirm
+      - name: Build the Flatpak and export a single-file bundle
+        run: |
+          flatpak-builder --user --disable-rofiles-fuse --force-clean --repo=build/repo \
+            build/flatpak packaging/flatpak/dev.skyline.Gravitas.yaml
+          flatpak build-bundle build/repo dist/Gravitas.flatpak dev.skyline.Gravitas
+      - name: Upload to the rolling release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload rolling dist/Gravitas.flatpak --repo "$GITHUB_REPOSITORY" --clobber

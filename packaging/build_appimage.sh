@@ -22,7 +22,7 @@ cp -a "$DIST" "$APPDIR/usr/app"
 cat > "$APPDIR/gravitas.desktop" <<'EOF'
 [Desktop Entry]
 Name=Gravitas
-Comment=Memory-efficient, Linux-first media center
+Comment=Minimal, no-nonsense alternative to Stremio
 Exec=gravitas %u
 Icon=gravitas
 Type=Application
@@ -45,5 +45,9 @@ if [ ! -x "$TOOL" ]; then
     chmod +x "$TOOL"
 fi
 
-ARCH="$ARCH" "$TOOL" "$APPDIR" "$ROOT/dist/Gravitas-${ARCH}.AppImage"
+# appimagetool reads $ARCH from the environment to pick the target arch.
+# APPIMAGE_EXTRACT_AND_RUN lets it (itself an AppImage) run where FUSE is
+# unavailable — CI containers, sandboxes — instead of erroring on mount.
+export ARCH APPIMAGE_EXTRACT_AND_RUN=1
+"$TOOL" "$APPDIR" "$ROOT/dist/Gravitas-${ARCH}.AppImage"
 echo "built dist/Gravitas-${ARCH}.AppImage"
