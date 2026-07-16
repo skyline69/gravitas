@@ -286,6 +286,7 @@ class PersistedSettings:
 
     addon_urls: tuple[str, ...] = ()
     tmdb_key: str | None = None
+    mdblist_key: str | None = None
     subtitle_style: SubtitleStyle = SubtitleStyle()
 
 

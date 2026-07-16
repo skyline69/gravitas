@@ -54,8 +54,13 @@ class JsonSettingsStore:
         )
         raw_key = data.get("tmdb_key")
         key = raw_key if isinstance(raw_key, str) and raw_key else None
+        raw_mdb = data.get("mdblist_key")
+        mdb_key = raw_mdb if isinstance(raw_mdb, str) and raw_mdb else None
         return PersistedSettings(
-            addon_urls=urls, tmdb_key=key, subtitle_style=_style_from(data.get("subtitle_style"))
+            addon_urls=urls,
+            tmdb_key=key,
+            mdblist_key=mdb_key,
+            subtitle_style=_style_from(data.get("subtitle_style")),
         )
 
     def save(self, settings: PersistedSettings) -> None:
@@ -63,6 +68,7 @@ class JsonSettingsStore:
         payload = {
             "addon_urls": list(settings.addon_urls),
             "tmdb_key": settings.tmdb_key,
+            "mdblist_key": settings.mdblist_key,
             "subtitle_style": {
                 "font_size": style.font_size,
                 "color": style.color,
