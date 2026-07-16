@@ -348,8 +348,142 @@ Item {
 
             SettingsCard {
                 width: parent.width
-                title: "About"
+                title: "Watch progress"
+                caption: "Saved playback positions, kept on this device only"
                 enterDelay: 120
+
+                // The list is only correct while the page is open; repopulate
+                // on entry rather than keeping it live for a hidden page.
+                Component.onCompleted: progressController.refreshWatched()
+
+                Text {
+                    visible: watchedList.count === 0
+                    text: "Nothing in progress yet. Positions are saved automatically after 30 seconds of playback."
+                    color: Theme.textDim
+                    font.pixelSize: Theme.fontSmall
+                    wrapMode: Text.WordWrap
+                    width: parent.width
+                }
+
+                ListView {
+                    id: watchedList
+                    width: parent.width
+                    height: Math.min(contentHeight, 320)
+                    visible: count > 0
+                    model: watchedListModel
+                    interactive: contentHeight > height
+                    clip: true
+                    spacing: 6
+                    ScrollBar.vertical: AppScrollBar {}
+                    remove: Transition {
+                        NumberAnimation { property: "opacity"; to: 0; duration: Theme.durFast }
+                    }
+                    displaced: Transition {
+                        NumberAnimation { property: "y"; duration: Theme.durMed; easing.type: Easing.OutCubic }
+                    }
+                    delegate: Rectangle {
+                        id: watchedRow
+                        width: ListView.view.width
+                        height: 56
+                        radius: Theme.radius
+                        color: watchedHover.hovered ? Theme.surfaceHover : Theme.bg
+                        Behavior on color { ColorAnimation { duration: Theme.durFast } }
+                        required property string mediaId
+                        required property string name
+                        required property string poster
+                        required property string label
+                        required property real progressFraction
+                        HoverHandler { id: watchedHover }
+
+                        Row {
+                            anchors.left: parent.left
+                            anchors.leftMargin: 12
+                            anchors.right: forgetButton.left
+                            anchors.rightMargin: 8
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 12
+
+                            Item {
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 28; height: 40
+                                Rectangle {
+                                    anchors.fill: parent
+                                    radius: 4
+                                    color: Theme.surfaceHover
+                                    visible: thumb.status !== Image.Ready
+                                }
+                                Image {
+                                    id: thumb
+                                    anchors.fill: parent
+                                    source: Img.sized(watchedRow.poster, 80)
+                                    sourceSize.width: 80
+                                    fillMode: Image.PreserveAspectCrop
+                                    asynchronous: true
+                                }
+                            }
+                            Column {
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 2
+                                width: parent.width - 40
+                                Text {
+                                    width: parent.width
+                                    text: watchedRow.name
+                                    color: Theme.text
+                                    font.pixelSize: Theme.fontBody
+                                    elide: Text.ElideRight
+                                }
+                                Text {
+                                    width: parent.width
+                                    text: (watchedRow.label.length > 0 ? watchedRow.label + " · " : "")
+                                        + Math.round(watchedRow.progressFraction * 100) + "%"
+                                    color: Theme.textDim
+                                    font.pixelSize: Theme.fontSmall
+                                    elide: Text.ElideRight
+                                }
+                            }
+                        }
+
+                        // Fires immediately: it forgets one title, and watching
+                        // it again puts it straight back.
+                        AppButton {
+                            id: forgetButton
+                            ghost: true
+                            iconGlyph: Icons.trash
+                            tooltip: "Forget progress"
+                            tone: "negative"
+                            anchors.right: parent.right
+                            anchors.rightMargin: 8
+                            anchors.verticalCenter: parent.verticalCenter
+                            onClicked: progressController.forgetMedia(watchedRow.mediaId)
+                        }
+                    }
+                }
+
+                AppButton {
+                    text: "Reset all progress"
+                    tone: "negative"
+                    visible: watchedList.count > 0
+                    onClicked: {
+                        resetDialog.count = progressController.inProgressCount()
+                        resetDialog.ask()
+                    }
+                }
+
+                ConfirmDialog {
+                    id: resetDialog
+                    property int count: 0
+                    heading: "Forget progress for " + count
+                        + (count === 1 ? " title?" : " titles?")
+                    body: "Every saved position is cleared, including finished ones. This cannot be undone."
+                    confirmText: "Reset all"
+                    onConfirmed: progressController.resetAll()
+                }
+            }
+
+            SettingsCard {
+                width: parent.width
+                title: "About"
+                enterDelay: 150
 
                 Row {
                     spacing: 10
