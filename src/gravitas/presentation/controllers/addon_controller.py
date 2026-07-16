@@ -30,6 +30,16 @@ class AddonController(QObject):
 
     @asyncSlot(str)  # type: ignore[untyped-decorator]
     async def addAddon(self, url: str) -> None:
+        await self.install(url)
+
+    async def install(self, url: str) -> None:
+        """Install and bring the UI up to date. The one install path.
+
+        A plain coroutine, not the slot: the deep-link flow awaits this so its
+        own confirmation coroutine can finish afterwards, and everything that
+        installs an addon -- Settings field, deep link -- lands on the same
+        refresh and persistence wiring.
+        """
         url = url.strip()
         if not url:
             return

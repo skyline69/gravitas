@@ -15,3 +15,4 @@ AppChip 1.0 AppChip.qml
 AppToolTip 1.0 AppToolTip.qml
 SearchBar 1.0 SearchBar.qml
 AppScrollBar 1.0 AppScrollBar.qml
+AddonInstallDialog 1.0 AddonInstallDialog.qml

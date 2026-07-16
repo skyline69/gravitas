@@ -31,3 +31,7 @@ class PlaybackFailed(GravitasError):
 
 class TmdbUnavailable(GravitasError):
     """TMDB could not resolve an external id (no API key, or the lookup failed)."""
+
+
+class UnsupportedLink(GravitasError):
+    """A stremio:// link Gravitas does not handle (only addon installs are)."""

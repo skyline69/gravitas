@@ -184,3 +184,57 @@ def test_poster_card_builds_its_menu_only_when_asked(qml_warnings: list[str]) ->
         """
     )
     assert qml_warnings == []
+
+
+def test_addon_install_dialog_instantiates_without_warnings(qml_warnings: list[str]) -> None:
+    _instantiate(
+        """
+        import QtQuick
+        import QtQuick.Controls
+        import "."
+
+        ApplicationWindow {
+            width: 1280; height: 800
+            AddonInstallDialog { id: dialog }
+            Component.onCompleted: dialog.ask({
+                name: "PTube",
+                version: "1.0.0",
+                host: "ptube.ers.pw",
+                description: "Streams things.",
+                logo: "",
+                adult: true,
+                p2p: true,
+                configurationRequired: false,
+                configureUrl: "https://ptube.ers.pw/configure"
+            })
+        }
+        """
+    )
+    assert qml_warnings == []
+
+
+def test_addon_install_dialog_configuration_required_variant(qml_warnings: list[str]) -> None:
+    _instantiate(
+        """
+        import QtQuick
+        import QtQuick.Controls
+        import "."
+
+        ApplicationWindow {
+            width: 1280; height: 800
+            AddonInstallDialog { id: dialog }
+            Component.onCompleted: dialog.ask({
+                name: "Needs Setup",
+                version: "2.0",
+                host: "addon.example",
+                description: "",
+                logo: "",
+                adult: false,
+                p2p: false,
+                configurationRequired: true,
+                configureUrl: "https://addon.example/configure"
+            })
+        }
+        """
+    )
+    assert qml_warnings == []

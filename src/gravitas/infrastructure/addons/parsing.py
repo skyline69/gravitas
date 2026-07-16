@@ -9,6 +9,7 @@ from urllib.parse import quote
 
 from gravitas.domain.errors import InvalidManifest, InvalidResponse
 from gravitas.domain.models import (
+    AddonBehaviorHints,
     AddonManifest,
     CatalogRef,
     ExtraSpec,
@@ -116,6 +117,17 @@ def _str_tuple(v: Any) -> tuple[str, ...]:
     return ()
 
 
+def _parse_behavior_hints(raw: Any) -> AddonBehaviorHints:
+    if not isinstance(raw, dict):
+        return AddonBehaviorHints()
+    return AddonBehaviorHints(
+        adult=bool(raw.get("adult", False)),
+        p2p=bool(raw.get("p2p", False)),
+        configurable=bool(raw.get("configurable", False)),
+        configuration_required=bool(raw.get("configurationRequired", False)),
+    )
+
+
 def parse_manifest(data: dict[str, Any], base_url: str) -> AddonManifest:
     manifest_id = _require(data, "id", "manifest")
     name = _require(data, "name", "manifest")
@@ -151,6 +163,9 @@ def parse_manifest(data: dict[str, Any], base_url: str) -> AddonManifest:
         catalogs=tuple(catalogs),
         base_url=base_url if base_url.endswith("/") else base_url + "/",
         id_prefixes=_str_tuple(data.get("idPrefixes")),
+        description=_str_or_none(data.get("description")),
+        logo=_str_or_none(data.get("logo")),
+        behavior_hints=_parse_behavior_hints(data.get("behaviorHints")),
     )
 
 

@@ -75,5 +75,14 @@ if sys.platform == "darwin":
         info_plist={
             "NSHighResolutionCapable": True,
             "CFBundleShortVersionString": "0.1.0",
+            # Register as a stremio:// handler so addon sites' "Install" links
+            # open here. macOS delivers these as a QFileOpenEvent to the running
+            # app (never as an argv), which DeepLinkListener catches.
+            "CFBundleURLTypes": [
+                {
+                    "CFBundleURLName": "dev.skyline.gravitas.stremio",
+                    "CFBundleURLSchemes": ["stremio"],
+                }
+            ],
         },
     )

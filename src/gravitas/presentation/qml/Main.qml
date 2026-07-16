@@ -194,6 +194,25 @@ ApplicationWindow {
         function onErrorOccurred(msg) { toast.show(msg, true) }
     }
     Connections {
+        target: deepLinkController
+        function onErrorOccurred(msg) { toast.show(msg, true) }
+        function onInstallRequested(info) { installDialog.ask(info) }
+        // A stremio:// link was clicked in a browser: the app has to come
+        // forward, or the dialog opens behind whatever the user is looking at.
+        function onActivateRequested() {
+            window.show()
+            window.raise()
+            window.requestActivate()
+        }
+    }
+
+    AddonInstallDialog {
+        id: installDialog
+        onConfirmed: deepLinkController.confirmInstall()
+        onCancelled: deepLinkController.cancelInstall()
+        onConfigureRequested: (url) => deepLinkController.openConfigure(url)
+    }
+    Connections {
         target: searchController
         function onErrorOccurred(msg) { toast.show(msg, true) }
     }

@@ -21,6 +21,7 @@ from gravitas.application.browse_catalog import BrowseCatalog
 from gravitas.application.continue_watching import ContinueWatching
 from gravitas.application.get_detail import GetDetail
 from gravitas.application.install_addon import InstallAddon
+from gravitas.application.preview_addon import PreviewAddon
 from gravitas.application.resolve_media_link import ResolveMediaLink
 from gravitas.application.resolve_stream import ResolveStream
 from gravitas.application.search_media import SearchMedia
@@ -31,12 +32,17 @@ from gravitas.domain.models import SubtitleStyle
 from gravitas.domain.ports import MediaPlayer
 from gravitas.infrastructure.addons.client import AddonClient
 from gravitas.infrastructure.cache.network_cache import CachingNetworkAccessManagerFactory
+from gravitas.infrastructure.desktop.url_scheme import (
+    DeepLinkListener,
+    forward_to_running_instance,
+)
 from gravitas.infrastructure.metadata.tmdb_resolver import TmdbResolver
 from gravitas.infrastructure.player.mpv_player import MpvPlayer
 from gravitas.infrastructure.progress.sqlite_store import SqliteProgressStore
 from gravitas.infrastructure.settings.json_store import JsonSettingsStore
 from gravitas.presentation.controllers.addon_controller import AddonController
 from gravitas.presentation.controllers.catalog_controller import CatalogController
+from gravitas.presentation.controllers.deep_link_controller import DeepLinkController
 from gravitas.presentation.controllers.detail_controller import DetailController
 from gravitas.presentation.controllers.discover_controller import DiscoverController
 from gravitas.presentation.controllers.player_controller import PlayerController
@@ -56,6 +62,20 @@ _log = logging.getLogger(__name__)
 
 _QML_DIR = Path(__file__).parent / "presentation" / "qml"
 DEFAULT_ADDON = "https://v3-cinemeta.strem.io/manifest.json"
+_LINK_SCHEME = "stremio://"
+
+
+def pending_link(argv: list[str]) -> str | None:
+    """The stremio:// URL this process was launched with, if any.
+
+    Linux browsers hand a registered scheme over as `gravitas <url>`. macOS
+    never does -- it posts a QFileOpenEvent instead -- so this returns None
+    there and DeepLinkListener carries it.
+    """
+    for arg in argv[1:]:
+        if arg.lower().startswith(_LINK_SCHEME):
+            return arg
+    return None
 
 
 def build_app(
@@ -125,6 +145,7 @@ def build_app(
     )
     install_addon = InstallAddon(repo)
     addon_controller = AddonController(install_addon, catalog_controller)
+    deep_link_controller = DeepLinkController(PreviewAddon(source), addon_controller)
     addon_list_model = AddonListModel()
     settings_controller = SettingsController(
         UninstallAddon(repo),
@@ -224,6 +245,14 @@ def build_app(
     ctx.setContextProperty("searchPageModel", search_page_model)
     ctx.setContextProperty("progressController", progress_controller)
     ctx.setContextProperty("watchedListModel", watched_model)
+    ctx.setContextProperty("deepLinkController", deep_link_controller)
+
+    # One listener owns both delivery paths: forwarded links from a second
+    # process (Linux) and QFileOpenEvent (macOS). It is created even when
+    # listen() failed in main(), so the macOS path works regardless.
+    deep_links = DeepLinkListener()
+    deep_links.linkReceived.connect(deep_link_controller.handleLink)
+    deep_links.install_macos_handler(app)
 
     async def bootstrap() -> None:
         # Install the default addon as protected (non-removable), restore the
@@ -243,6 +272,12 @@ def build_app(
         # After load_catalog: set_rows() rebuilds the visible rows, so priming
         # this first would be discarded. It is a dict read, not a fetch.
         rows_model.set_continue_watching(continue_watching())
+        # A link that launched the app is handled only now: installing into the
+        # repository requires the repository to exist, and the confirmation
+        # dialog needs a window to be centred on.
+        link = pending_link(argv)
+        if link is not None:
+            await deep_link_controller.handleLink(link)
 
     engine.load(str(_QML_DIR / "Main.qml"))
 
@@ -272,7 +307,11 @@ def build_app(
         search_page_model,
         progress_controller,
         watched_model,
+        deep_link_controller,
     )
+    # Same rule as the context properties: nothing else holds this, and a
+    # collected listener means links silently stop arriving.
+    engine._gravitas_deep_links = deep_links  # type: ignore[attr-defined]
     engine._gravitas_nam_factory = nam_factory  # type: ignore[attr-defined]
     engine._gravitas_bootstrap = bootstrap  # type: ignore[attr-defined]
     engine._gravitas_http = http  # type: ignore[attr-defined]
@@ -281,11 +320,25 @@ def build_app(
 
 def main() -> int:
     app = QGuiApplication(sys.argv)
+
+    # Before anything is built: a browser launching `gravitas stremio://...`
+    # starts a SECOND process while one is very likely already running. Hand the
+    # link over and leave -- two instances would mean two windows fighting over
+    # the same SQLite and settings files.
+    link = pending_link(sys.argv)
+    if link is not None and forward_to_running_instance(link):
+        return 0
+
     loop = qasync.QEventLoop(app)
     asyncio.set_event_loop(loop)
     _, engine = build_app(sys.argv, DEFAULT_ADDON)
     if not engine.rootObjects():
         return 1
+    listener: DeepLinkListener = engine._gravitas_deep_links  # type: ignore[attr-defined]
+    # Claim the socket so the next `gravitas stremio://...` forwards here.
+    # Failure is not fatal: links stop arriving from other processes, the app
+    # otherwise works, and url_scheme logs why.
+    listener.listen()
     with loop:
         bootstrap: Callable[[], Awaitable[None]] = engine._gravitas_bootstrap  # type: ignore[attr-defined]
         loop.create_task(bootstrap())

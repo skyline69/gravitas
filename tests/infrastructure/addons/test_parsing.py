@@ -1,7 +1,7 @@
 import pytest
 
 from gravitas.domain.errors import InvalidManifest
-from gravitas.domain.models import CatalogRef, ExtraSpec, ResourceSpec
+from gravitas.domain.models import AddonBehaviorHints, CatalogRef, ExtraSpec, ResourceSpec
 from gravitas.infrastructure.addons.parsing import (
     catalog_path,
     catalog_path_extra,
@@ -546,3 +546,43 @@ def test_catalog_path_extra_supplies_a_required_genre() -> None:
 def test_catalog_path_extra_does_not_invent_a_genre_when_optional() -> None:
     ref = CatalogRef(type="movie", id="top", name="Top", extra=(ExtraSpec(name="genre"),))
     assert catalog_path_extra(ref, None, 0) == "catalog/movie/top.json"
+
+
+def test_parse_manifest_reads_behavior_hints() -> None:
+    data = {
+        "id": "x",
+        "name": "X",
+        "description": "Streams things",
+        "logo": "https://x/logo.png",
+        "behaviorHints": {
+            "adult": True,
+            "p2p": True,
+            "configurable": True,
+            "configurationRequired": True,
+        },
+    }
+    m = parse_manifest(data, base_url="https://x/")
+    assert m.description == "Streams things"
+    assert m.logo == "https://x/logo.png"
+    assert m.behavior_hints == AddonBehaviorHints(
+        adult=True, p2p=True, configurable=True, configuration_required=True
+    )
+    assert m.configure_url == "https://x/configure"
+
+
+def test_parse_manifest_behavior_hints_default_false() -> None:
+    m = parse_manifest({"id": "x", "name": "X"}, base_url="https://x/")
+    assert m.behavior_hints == AddonBehaviorHints()
+    assert m.description is None
+
+
+def test_parse_manifest_tolerates_malformed_behavior_hints() -> None:
+    m = parse_manifest({"id": "x", "name": "X", "behaviorHints": "nope"}, base_url="https://x/")
+    assert m.behavior_hints == AddonBehaviorHints()
+
+
+def test_configure_url_when_manifest_url_had_no_trailing_slash() -> None:
+    # base_url is normalised by parse_manifest, so configure_url must not
+    # produce a doubled or missing slash.
+    m = parse_manifest({"id": "x", "name": "X"}, base_url="https://x")
+    assert m.configure_url == "https://x/configure"

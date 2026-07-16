@@ -193,6 +193,18 @@ class ResourceSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class AddonBehaviorHints:
+    """A manifest's `behaviorHints`: what the addon says about itself."""
+
+    adult: bool = False
+    p2p: bool = False
+    configurable: bool = False
+    # The addon cannot serve anything until configured on its own web page.
+    # Installing one regardless yields an addon that silently returns nothing.
+    configuration_required: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class AddonManifest:
     id: str
     name: str
@@ -202,6 +214,14 @@ class AddonManifest:
     catalogs: tuple[CatalogRef, ...]
     base_url: str
     id_prefixes: tuple[str, ...] = ()
+    description: str | None = None
+    logo: str | None = None
+    behavior_hints: AddonBehaviorHints = AddonBehaviorHints()
+
+    @property
+    def configure_url(self) -> str:
+        """The addon's own configuration page."""
+        return self.base_url + "configure"
 
     def _resource(self, resource: str) -> ResourceSpec | None:
         for spec in self.resources:

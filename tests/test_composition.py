@@ -245,3 +245,37 @@ def test_build_app_rebuilds_continue_watching_on_progress_change(
         if pending:
             loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
         loop.close()
+
+
+def test_deep_link_controller_is_wired_into_qml(qapp: object) -> None:
+    from gravitas.main import DEFAULT_ADDON, build_app
+
+    _, engine = build_app([], DEFAULT_ADDON)
+    assert engine.rootObjects(), "Main.qml failed to load"
+    assert engine.rootContext().contextProperty("deepLinkController") is not None
+
+
+def test_deep_link_listener_is_kept_alive_on_the_engine(qapp: object) -> None:
+    # setContextProperty does not take ownership and nothing else references
+    # the listener; collected, it would stop delivering links with no error.
+    from gravitas.main import DEFAULT_ADDON, build_app
+
+    _, engine = build_app([], DEFAULT_ADDON)
+    assert engine._gravitas_deep_links is not None
+
+
+def test_pending_link_finds_a_stremio_argument() -> None:
+    from gravitas.main import pending_link
+
+    assert pending_link(["gravitas", "stremio://a/manifest.json"]) == "stremio://a/manifest.json"
+    assert pending_link(["gravitas", "STREMIO://a/manifest.json"]) == "STREMIO://a/manifest.json"
+
+
+def test_pending_link_ignores_ordinary_launches() -> None:
+    from gravitas.main import pending_link
+
+    assert pending_link(["gravitas"]) is None
+    assert pending_link([]) is None
+    # argv[0] is never a link, even if someone names the binary oddly.
+    assert pending_link(["stremio://not-an-arg/manifest.json"]) is None
+    assert pending_link(["gravitas", "--debug", "https://example/manifest.json"]) is None
