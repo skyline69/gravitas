@@ -1,7 +1,7 @@
 [project]
 name = "gravitas"
 version = "0.1.0"
-description = "Memory-efficient, Linux-first Stremio-addon media center"
+description = "Minimal, no-nonsense alternative to Stremio"
 requires-python = ">=3.12"
 dependencies = [
     "pyside6>=6.9",

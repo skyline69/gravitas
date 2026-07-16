@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Gravitas is a memory-efficient, Linux-first desktop media center — a Stremio alternative that consumes Stremio addons. Python + PySide6 (Qt6/QML) + libmpv.
+Gravitas is a minimal, no-nonsense alternative to Stremio that consumes Stremio addons. Python + PySide6 (Qt6/QML) + libmpv.
 
 ## Commands
 

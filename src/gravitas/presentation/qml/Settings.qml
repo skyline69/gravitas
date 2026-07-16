@@ -522,7 +522,7 @@ Item {
                     }
                 }
                 Text {
-                    text: "A memory-efficient, Linux-first media center."
+                    text: "A minimal, no-nonsense alternative to Stremio."
                     color: Theme.textDim
                     font.pixelSize: Theme.fontSmall
                 }
