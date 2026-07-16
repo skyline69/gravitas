@@ -46,6 +46,7 @@ GLYPHS = [
     "fullscreen_exit",
     "replay_10",
     "forward_10",
+    "check",
 ]
 
 OUT = Path(__file__).parent.parent / ("src/gravitas/presentation/qml/assets/MaterialSymbols.ttf")
