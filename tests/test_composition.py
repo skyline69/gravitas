@@ -194,6 +194,17 @@ def test_build_app_wires_watch_progress(
         names = {type(ref).__name__ for ref in engine._gravitas_refs}
         assert "ProgressController" in names
         assert "WatchedListModel" in names
+
+        # The player writes progress on a path that never touches
+        # ProgressController's own mutations (see main.py's comment on the
+        # progressRecorded -> notifyRecorded connection): without that wire,
+        # `revision` goes stale even though the bars themselves refresh fine.
+        # Exercise the actual signal, not just the presence of both objects.
+        player_controller = ctx.contextProperty("playerController")
+        progress_controller = ctx.contextProperty("progressController")
+        revision_before = progress_controller.revision
+        player_controller.progressRecorded.emit()
+        assert progress_controller.revision == revision_before + 1
     finally:
         pending = asyncio.all_tasks(loop)
         for task in pending:
