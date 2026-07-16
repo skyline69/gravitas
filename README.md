@@ -14,9 +14,11 @@ A minimal, no-nonsense alternative to Stremio that consumes Stremio addons. Buil
 
 ## Current State
 
-<img width="1392" height="932" alt="Demo 1" src="https://github.com/user-attachments/assets/98d557b0-35f3-4886-a3e9-0774f745781e" />
+<img width="1392" height="932" alt="image" src="https://github.com/user-attachments/assets/6a961ec3-451b-4cbb-aeef-342c9717d32b" />
 
-<img width="1392" height="932" alt="Demo 2" src="https://github.com/user-attachments/assets/0d93480a-9899-4dc5-b269-38c5770f6ae6" />
+
+<img width="1392" height="932" alt="image" src="https://github.com/user-attachments/assets/87b18ffb-bb31-4cc5-aa25-0fb48844928c" />
+
 
 ## Requirements
 
