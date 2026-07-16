@@ -13,6 +13,10 @@ Rectangle {
     property string overview
     property string released
     property bool active: false
+    property real progressFraction: 0
+    property bool watched: false
+    // { mediaId, videoId, type, name, poster, label } — null disables the menu.
+    property var forgetContext: null
     signal clicked()
 
     height: 106
@@ -27,6 +31,40 @@ Rectangle {
 
     HoverHandler { id: hover; cursorShape: Qt.PointingHandCursor }
     TapHandler { onTapped: root.clicked() }
+    TapHandler {
+        acceptedButtons: Qt.RightButton
+        onTapped: (event) => root.openMenu(event.position)
+    }
+    TapHandler {
+        // Touch/trackpad equivalent of a right-click.
+        acceptedDevices: PointerDevice.TouchScreen
+        onLongPressed: root.openMenu(point.position)
+    }
+
+    function openMenu(position) {
+        if (!root.forgetContext)
+            return
+        var items = []
+        if (!root.watched) {
+            items.push({
+                label: "Mark as watched",
+                action: () => progressController.markWatched(root.forgetContext)
+            })
+        }
+        if (root.progressFraction > 0 || root.watched) {
+            items.push({
+                label: "Forget progress",
+                action: () => progressController.forget(
+                    root.forgetContext.mediaId, root.forgetContext.videoId)
+            })
+        }
+        if (items.length === 0)
+            return
+        rowMenu.entries = items
+        rowMenu.popupAt(root, position)
+    }
+
+    ContextMenu { id: rowMenu }
 
     Row {
         anchors.fill: parent
@@ -102,13 +140,20 @@ Rectangle {
                     font.bold: true
                 }
                 Text {
-                    width: parent.width - 90
+                    width: parent.width - 90 - (root.watched ? 24 : 0)
                     text: root.title
-                    color: Theme.text
+                    color: root.watched ? Theme.textDim : Theme.text
                     font.pixelSize: Theme.fontBody
                     font.bold: true
                     elide: Text.ElideRight
                     maximumLineCount: 1
+                }
+                AppIcon {
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: root.watched
+                    glyph: Icons.check
+                    font.pixelSize: 16
+                    color: Theme.positive
                 }
             }
             Text {
@@ -127,6 +172,27 @@ Rectangle {
                 elide: Text.ElideRight
                 maximumLineCount: 2
             }
+        }
+    }
+
+    // Resume bar, pinned to the row's bottom edge inside its rounded corners.
+    Rectangle {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.margins: 2
+        height: 3
+        radius: 1.5
+        color: Theme.border
+        visible: root.progressFraction > 0 && !root.watched
+        Rectangle {
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            width: parent.width * Math.max(0, Math.min(1, root.progressFraction))
+            radius: 1.5
+            color: Theme.accent
+            Behavior on width { NumberAnimation { duration: Theme.durMed; easing.type: Easing.OutCubic } }
         }
     }
 }

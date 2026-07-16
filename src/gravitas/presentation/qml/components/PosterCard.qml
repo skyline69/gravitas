@@ -7,9 +7,37 @@ Item {
     property string title
     property string posterUrl
     property string mediaType: "" // "movie" | "series" — picks the filler icon
+    property real progressFraction: 0
+    property bool watched: false
+    // { mediaId, videoId, type, name, poster, label } — null disables the menu.
+    property var forgetContext: null
     signal clicked()
     width: 160
     height: 260
+
+    function openMenu(position) {
+        if (!root.forgetContext)
+            return
+        var items = []
+        if (!root.watched) {
+            items.push({
+                label: "Mark as watched",
+                action: () => progressController.markWatched(root.forgetContext)
+            })
+        }
+        if (root.progressFraction > 0 || root.watched) {
+            items.push({
+                label: "Forget progress",
+                action: () => progressController.forgetMedia(root.forgetContext.mediaId)
+            })
+        }
+        if (items.length === 0)
+            return
+        cardMenu.entries = items
+        cardMenu.popupAt(root, position)
+    }
+
+    ContextMenu { id: cardMenu }
 
     // lift the hovered card above its neighbours so the scaled-up poster
     // overlaps them instead of being drawn underneath
@@ -121,12 +149,55 @@ Item {
                 visible: mouse.containsMouse
             }
 
+            // Resume bar across the poster's bottom edge, inside the rounding.
+            Rectangle {
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.margins: 6
+                height: 4
+                radius: 2
+                color: Qt.rgba(0, 0, 0, 0.55)
+                visible: root.progressFraction > 0 && !root.watched
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    width: parent.width * Math.max(0, Math.min(1, root.progressFraction))
+                    radius: 2
+                    color: Theme.accent
+                    Behavior on width { NumberAnimation { duration: Theme.durMed; easing.type: Easing.OutCubic } }
+                }
+            }
+
+            Rectangle {
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.margins: 8
+                width: 24; height: 24; radius: 12
+                color: Qt.rgba(0, 0, 0, 0.6)
+                visible: root.watched
+                AppIcon {
+                    anchors.centerIn: parent
+                    glyph: Icons.check
+                    font.pixelSize: 15
+                    color: Theme.positive
+                }
+            }
+
             MouseArea {
                 id: mouse
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onClicked: root.clicked()
+                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                onClicked: (event) => {
+                    if (event.button === Qt.RightButton)
+                        root.openMenu(Qt.point(event.x, event.y))
+                    else
+                        root.clicked()
+                }
+                onPressAndHold: (event) => root.openMenu(Qt.point(event.x, event.y))
             }
         }
 

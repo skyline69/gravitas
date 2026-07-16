@@ -244,6 +244,16 @@ Item {
             title: model.name
             posterUrl: model.poster ? model.poster : ""
             mediaType: model.type
+            progressFraction: model.progressFraction
+            watched: model.watched
+            forgetContext: ({
+                mediaId: model.id,
+                videoId: "",
+                type: model.type,
+                name: model.name,
+                poster: model.poster ? model.poster : "",
+                label: ""
+            })
             onClicked: root.openDetail(model.type, model.id)
         }
         onAtYEndChanged: if (atYEnd && discoverController) discoverController.loadMore()

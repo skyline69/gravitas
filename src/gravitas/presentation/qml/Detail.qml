@@ -221,6 +221,17 @@ Item {
                             released: model.released
                             active: detailController
                                 && detailController.selectedEpisodeId === model.videoId
+                            progressFraction: model.progressFraction
+                            watched: model.watched
+                            forgetContext: ({
+                                mediaId: detail.mediaId,
+                                videoId: model.videoId,
+                                type: "series",
+                                name: detailController ? detailController.title : "",
+                                poster: detailController ? detailController.poster : "",
+                                label: "S" + model.season + "E" + model.episode
+                                    + (model.title ? " · " + model.title : "")
+                            })
                             onClicked: {
                                 detailController.selectEpisode(
                                     model.videoId, model.season, model.episode, model.title)
