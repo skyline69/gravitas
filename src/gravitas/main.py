@@ -28,6 +28,7 @@ from gravitas.application.browse_board import BrowseBoard
 from gravitas.application.browse_catalog import BrowseCatalog
 from gravitas.application.continue_watching import ContinueWatching
 from gravitas.application.get_detail import GetDetail
+from gravitas.application.get_ratings import GetRatings
 from gravitas.application.install_addon import InstallAddon
 from gravitas.application.preview_addon import PreviewAddon
 from gravitas.application.resolve_media_link import ResolveMediaLink
@@ -44,6 +45,7 @@ from gravitas.infrastructure.desktop.url_scheme import (
     DeepLinkListener,
     forward_to_running_instance,
 )
+from gravitas.infrastructure.metadata.mdblist_resolver import MdbListResolver
 from gravitas.infrastructure.metadata.tmdb_resolver import TmdbResolver
 from gravitas.infrastructure.player.mpv_player import MpvPlayer
 from gravitas.infrastructure.progress.sqlite_store import SqliteProgressStore
@@ -170,7 +172,7 @@ def build_app(
     source = AddonClient(http)
     repo = AddonRepository(source)
 
-    class _TmdbKeyHolder:
+    class _KeyHolder:
         key: str | None = None
 
     settings_store = JsonSettingsStore()
@@ -185,9 +187,14 @@ def build_app(
     if pruned:
         _log.info("pruned %d old watched progress rows", pruned)
 
-    tmdb_key = _TmdbKeyHolder()
+    tmdb_key = _KeyHolder()
     tmdb_key.key = persisted.tmdb_key
     tmdb_resolver = TmdbResolver(http, lambda: tmdb_key.key)
+
+    mdblist_key = _KeyHolder()
+    mdblist_key.key = persisted.mdblist_key
+    mdblist_resolver = MdbListResolver(http, lambda: mdblist_key.key)
+    get_ratings = GetRatings(mdblist_resolver)
 
     class _SubStyleHolder:
         style: SubtitleStyle = SubtitleStyle()
@@ -205,7 +212,12 @@ def build_app(
     catalog_controller = CatalogController(BrowseCatalog(repo), rows_model)
     episode_model = EpisodeListModel(progress_repo)
     detail_controller = DetailController(
-        GetDetail(repo), ResolveStream(repo), stream_model, episode_model, progress_repo
+        GetDetail(repo),
+        ResolveStream(repo),
+        stream_model,
+        episode_model,
+        progress_repo,
+        get_ratings=get_ratings,
     )
     install_addon = InstallAddon(repo)
     addon_controller = AddonController(install_addon, catalog_controller)
@@ -219,6 +231,7 @@ def build_app(
         tmdb_key,
         settings_store,
         sub_style,
+        mdblist_key,
     )
 
     # Keep the Settings list in sync — and the settings file current — after a
