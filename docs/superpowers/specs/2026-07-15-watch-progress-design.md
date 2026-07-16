@@ -154,9 +154,16 @@ Reads (pure dict hits, no I/O):
 
 - `get(media_id, video_id="") -> PlaybackProgress | None`
 - `latest_for(media_id) -> PlaybackProgress | None`
+- `latest_unwatched_for(media_id) -> PlaybackProgress | None` — like
+  `latest_for`, but skips watched rows (scans `_by_key`, since `_latest`
+  discards watched-state across ties). What a series poster/row bar reads,
+  so a just-finished episode doesn't read as the whole show being done.
 - `fraction_for(media_id, video_id="") -> float` — 0.0 when absent.
 - `in_progress() -> list[PlaybackProgress]` — one entry per media (the latest),
   unwatched only, sorted by `updated_at` descending. Feeds the Settings list.
+- `total_count() -> int` — every saved row, watched included; what `reset_all`
+  actually deletes. Gates Settings' Reset-all affordance instead of
+  `in_progress()`, which would hide it once every saved title is finished.
 
 Writes:
 
@@ -209,7 +216,10 @@ re-evaluation.
   and `WatchedRole` → `watched` (bool). Both read the repo by
   `(media_id, video.id)`; the model takes the repo and the current `media_id`.
 - `PosterGridModel` gains the same two roles. A movie reads its own entry; a
-  series reads `latest_for(media_id)`. Both are dict hits, so a cell costs
+  series reads `latest_unwatched_for(media_id)` (not `latest_for`) — a
+  finished episode must not read as the whole show being 100% done, which
+  would also disagree with `in_progress()` (watched-exclusive) simultaneously
+  saying the same show is not in progress. Both are cheap, so a cell costs
   nothing. `PosterGridProxy` passes roles through untouched.
 
 Role names were checked against every delegate that consumes these models per
