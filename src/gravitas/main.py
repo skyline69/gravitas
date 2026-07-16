@@ -11,7 +11,13 @@ from pathlib import Path
 
 import httpx
 import qasync  # type: ignore[import-untyped]
-from PySide6.QtCore import QMessageLogContext, QtMsgType, qInstallMessageHandler
+from PySide6.QtCore import (
+    QCoreApplication,
+    QEvent,
+    QMessageLogContext,
+    QtMsgType,
+    qInstallMessageHandler,
+)
 from PySide6.QtGui import QFont, QFontDatabase, QGuiApplication, QIcon
 from PySide6.QtQml import QQmlApplicationEngine, qmlRegisterType
 from PySide6.QtQuick import QQuickWindow, QSGRendererInterface
@@ -410,6 +416,18 @@ def main() -> int:
         bootstrap: Callable[[], Awaitable[None]] = engine._gravitas_bootstrap  # type: ignore[attr-defined]
         loop.create_task(bootstrap())
         loop.run_forever()
+        # run_forever() returns once the app is quitting. Destroy the QML scene
+        # HERE — still inside `with loop` (loop open) and before this function
+        # returns (context-property objects still referenced). Otherwise the
+        # scene is torn down later, after the loop closes and during interpreter
+        # GC, where teardown re-evaluations hit a closed loop (an `onAtYEndChanged`
+        # → loadMore asyncSlot does ensure_future → "Event loop is closed") or a
+        # freed context object ("TypeError: Cannot read property 'count' of null").
+        # Deferred-delete must be flushed synchronously: the loop is no longer
+        # running, so nothing else will process the posted delete events.
+        for obj in engine.rootObjects():
+            obj.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     return 0
 
 
