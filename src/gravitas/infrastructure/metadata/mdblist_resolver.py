@@ -8,10 +8,12 @@ from typing import Any
 import httpx
 
 from gravitas.domain.errors import MdbListUnavailable
-from gravitas.domain.models import Ratings
+from gravitas.domain.models import MediaType, Ratings
 from gravitas.infrastructure.cache.ttl_cache import TtlCache
 
-_API = "https://api.mdblist.com/"
+# MDBList keys media by imdb id under a type-specific path, e.g.
+# https://api.mdblist.com/imdb/movie/tt1375666?apikey=… -> {"ratings": [...]}
+_API = "https://api.mdblist.com/imdb"
 _TTL = 60 * 60 * 24  # ratings move slowly; 24h like META_TTL
 
 
@@ -62,7 +64,7 @@ class MdbListResolver:
         self._get_key = get_key
         self._cache: TtlCache[Ratings] = TtlCache()
 
-    async def ratings(self, imdb_id: str) -> Ratings:
+    async def ratings(self, imdb_id: str, media_type: MediaType) -> Ratings:
         key = self._get_key()
         if not key:
             raise MdbListUnavailable("add an MDBList API key in Settings for RT/Letterboxd")
@@ -71,8 +73,12 @@ class MdbListResolver:
         if cached is not None:
             return cached
 
+        # MDBList's path segment is "show" for series, "movie" for films.
+        kind = "show" if media_type == "series" else "movie"
         try:
-            resp = await self._client.get(_API, params={"apikey": key, "i": imdb_id}, timeout=15.0)
+            resp = await self._client.get(
+                f"{_API}/{kind}/{imdb_id}", params={"apikey": key}, timeout=15.0
+            )
             resp.raise_for_status()
             data = resp.json()
         except (httpx.HTTPError, ValueError) as exc:

@@ -99,7 +99,7 @@ class ExternalIdResolver(Protocol):
 
 @runtime_checkable
 class RatingsResolver(Protocol):
-    async def ratings(self, imdb_id: str) -> Ratings: ...
+    async def ratings(self, imdb_id: str, media_type: MediaType) -> Ratings: ...
 
 
 @runtime_checkable

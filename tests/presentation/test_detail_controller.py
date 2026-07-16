@@ -37,10 +37,10 @@ class FakeResolve:
 class FakeGetRatings:
     def __init__(self, result: Ratings) -> None:
         self._result = result
-        self.calls: list[str] = []
+        self.calls: list[tuple[str, str]] = []
 
-    async def __call__(self, imdb_id: str) -> Ratings:
-        self.calls.append(imdb_id)
+    async def __call__(self, imdb_id: str, media_type: str) -> Ratings:
+        self.calls.append((imdb_id, media_type))
         return self._result
 
 
@@ -127,7 +127,7 @@ async def test_loads_ratings_after_meta(qapp: object) -> None:
     await ctl.load("movie", "tt123")
     await _drain_pending_tasks()
 
-    assert get_ratings.calls == ["tt123"]
+    assert get_ratings.calls == [("tt123", "movie")]
     assert ctl.rottenTomatoes == "87"
     assert ctl.rottenTomatoesFresh is True
     assert ctl.letterboxd == "4.1"

@@ -311,7 +311,9 @@ class DetailController(QObject):
                 # and GetRatings already swallows failures into empty Ratings.
                 # Kept on self so the task isn't GC'd mid-flight (RUF006); it is
                 # never awaited here on purpose.
-                self._ratings_task = asyncio.ensure_future(self._load_ratings(token, meta.id))
+                self._ratings_task = asyncio.ensure_future(
+                    self._load_ratings(token, meta.id, media_type)
+                )
             if media_type == "series" and meta.videos and self._episode_model is not None:
                 # Episode-driven flow: no stream fetch until the user picks an
                 # episode (streams are per-episode video ids).
@@ -340,11 +342,11 @@ class DetailController(QObject):
                 self._streams_loading = False
                 self.sourcesChanged.emit()
 
-    async def _load_ratings(self, token: int, imdb_id: str) -> None:
+    async def _load_ratings(self, token: int, imdb_id: str, media_type: MediaType) -> None:
         get_ratings = self._get_ratings
         if get_ratings is None:
             return
-        ratings = await get_ratings(imdb_id)
+        ratings = await get_ratings(imdb_id, media_type)
         if token != self._seq:
             return  # a newer load started; drop this stale result
         self._ratings = ratings
