@@ -204,9 +204,11 @@ def test_set_tracks_changed_callback_registers_observer_and_invokes_callback() -
     calls: list[None] = []
     player.set_tracks_changed_callback(lambda: calls.append(None))
 
-    assert len(fake.observers) == 1
-    name, handler = fake.observers[0]
-    assert name == "track-list"
+    # The always-on hwdec-current decode-path diagnostic also registers at
+    # construction; this test only cares about the track-list observer.
+    track_observers = [(n, h) for n, h in fake.observers if n == "track-list"]
+    assert len(track_observers) == 1
+    _, handler = track_observers[0]
 
     handler("track-list", [])
     assert calls == [None]
@@ -217,7 +219,7 @@ def test_set_tracks_changed_callback_registers_observer_only_once() -> None:
     player.set_tracks_changed_callback(lambda: None)
     player.set_tracks_changed_callback(lambda: None)
 
-    assert len(fake.observers) == 1
+    assert [n for n, _ in fake.observers].count("track-list") == 1
 
 
 def test_state_callback_observes_pause_duration_mute_once() -> None:
@@ -226,10 +228,12 @@ def test_state_callback_observes_pause_duration_mute_once() -> None:
     player.set_state_changed_callback(lambda: calls.append(None))
     player.set_state_changed_callback(lambda: calls.append(None))
 
-    names = [n for n, _ in fake.observers]
+    # Ignore the construction-time hwdec-current diagnostic observer.
+    names = [n for n, _ in fake.observers if n != "hwdec-current"]
     assert names == ["pause", "duration", "mute"]
 
-    fake.observers[0][1]("pause", True)
+    pause_handler = next(h for n, h in fake.observers if n == "pause")
+    pause_handler("pause", True)
     assert len(calls) == 1
 
 

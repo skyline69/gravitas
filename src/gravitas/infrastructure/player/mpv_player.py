@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import locale
+import logging
 import os
 import sys
 from collections import Counter
@@ -17,6 +18,8 @@ from typing import Any
 
 from gravitas.domain.errors import PlaybackFailed
 from gravitas.domain.models import SubtitleStyle
+
+_log = logging.getLogger(__name__)
 
 MpvFactory = Callable[[], Any]
 
@@ -55,9 +58,18 @@ def _default_factory() -> Any:
 
     import mpv  # type: ignore[import-untyped]
 
+    # `auto-safe` is the right default: it only enables a hwdec known not to
+    # glitch. But it is conservative -- on an NVIDIA card whose CUDA/NVDEC path
+    # is unavailable (no `nvidia-uvm`, driver-only-GLX setups) it declines the
+    # GPU entirely and mpv decodes in software, pinning every core. GRAVITAS_HWDEC
+    # lets such a box force a working backend that auto-safe skips -- e.g.
+    # `vdpau` (NVIDIA's decode API, works from GLX with no CUDA) or `vaapi` --
+    # without a rebuild. Any mpv hwdec value is accepted; empty falls back.
+    hwdec = os.environ.get("GRAVITAS_HWDEC", "").strip() or "auto-safe"
+
     return mpv.MPV(
         vo="libmpv",
-        hwdec="auto-safe",
+        hwdec=hwdec,
         osc=False,
         input_default_bindings=False,
         keep_open="yes",  # hold the last frame instead of tearing the surface down
@@ -218,6 +230,36 @@ class MpvPlayer:
             self._mpv = factory()
         except Exception as exc:  # surface any libmpv init failure uniformly
             raise PlaybackFailed(f"failed to initialise libmpv: {exc}") from exc
+        self._log_decode_path()
+
+    def _log_decode_path(self) -> None:
+        """Report which decoder mpv actually settled on, once per stream.
+
+        `hwdec=auto-safe` requesting hardware decoding does not mean it engaged:
+        if the ffmpeg behind libmpv lacks the codec's hwaccel (e.g. no nvdec
+        build, or the GPU driver's decode libs are missing) mpv silently falls
+        back to the software `vd-lavc` path, which pins every core on 1080p/4K.
+        `hwdec-current` is the ground truth -- "no" means software decode.
+        This is the single fastest way to tell a config problem from a missing
+        system dependency, so it is logged at INFO on every file, not hidden
+        behind a debug flag.
+        """
+
+        def _on_hwdec(_name: str, value: object) -> None:
+            if not value:  # None before load, "" / "no" once mpv gives up on hw
+                return
+            codec = self._prop("video-codec") or "?"
+            if value == "no":
+                _log.warning(
+                    "video decoding in SOFTWARE (%s); hwdec did not engage -- "
+                    "check that libmpv's ffmpeg has this codec's hwaccel",
+                    codec,
+                )
+            else:
+                _log.info("video decoding via hwdec=%s (%s)", value, codec)
+
+        with contextlib.suppress(Exception):
+            self._mpv.observe_property("hwdec-current", _on_hwdec)
 
     # --- playback ---
 

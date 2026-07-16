@@ -162,6 +162,12 @@ class MpvVideoItem(QQuickFramebufferObject):
         super().__init__(parent)
         self._handle: Any = None
         self._bridge = _UpdateBridge(self)
+        # Leave textureFollowsItemSize at its default (True): the FBO tracks the
+        # item size, so mpv renders at the live resolution and letterboxes to
+        # preserve aspect. Turning it off pins the FBO at its first size and
+        # lets Qt stretch that texture to the item -- which distorts the video
+        # the moment the window's aspect changes. Any resize-time jank is better
+        # cured at the source (freeing the CPU that software decoding pins).
         # GL FBO origin (bottom-left) already matches mpv's output here —
         # adding mirrorVertically or flip_y on top shows the video upside
         # down. If a platform ever disagrees, toggle exactly ONE of the two.
