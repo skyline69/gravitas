@@ -32,6 +32,7 @@ Item {
             type: model.type
             catalogId: model.catalogId
             posters: model.posters
+            continueWatching: model.continueWatching
             onOpenDetail: (t, id) => home.openDetail(t, id)
             onSeeAll: (aid, t, cid) => home.seeAll(aid, t, cid)
         }

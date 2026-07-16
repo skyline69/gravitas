@@ -7,6 +7,7 @@ from qasync import asyncSlot  # type: ignore[import-untyped]
 
 from gravitas.application.get_detail import GetDetail
 from gravitas.application.resolve_stream import ResolveStream
+from gravitas.application.watch_progress import WatchProgressRepository
 from gravitas.domain.errors import GravitasError, NoStreams
 from gravitas.domain.models import MediaType, MetaDetail, Video
 from gravitas.presentation.models.episode_list_model import EpisodeListModel
@@ -29,12 +30,14 @@ class DetailController(QObject):
         resolve_stream: ResolveStream,
         stream_model: StreamListModel,
         episode_model: EpisodeListModel | None = None,
+        progress: WatchProgressRepository | None = None,
     ) -> None:
         super().__init__()
         self._get_detail = get_detail
         self._resolve_stream = resolve_stream
         self._stream_model = stream_model
         self._episode_model = episode_model
+        self._progress = progress
         self._meta: MetaDetail | None = None
         # Season 0 ("Specials") sorts last; regular seasons ascending.
         self._seasons: list[int] = []
@@ -167,10 +170,29 @@ class DetailController(QObject):
         if 0 in distinct:
             self._seasons.append(0)
         self._season_idx = 0
+        resume = self._resume_video()
+        if resume is not None:
+            # Arriving from Continue Watching, open on the season holding the
+            # episode you were on — otherwise the episode we select below is
+            # not even in the visible list.
+            self._season_idx = self._seasons.index(resume.season or 0)
         if self._episode_model is not None:
-            episodes = self._season_videos(self._seasons[0]) if self._seasons else []
+            episodes = self._season_videos(self._seasons[self._season_idx]) if self._seasons else []
             self._episode_model.set_videos(episodes)
         self.episodesChanged.emit()
+        if resume is not None:
+            self._select_episode(resume.id, resume.season or 0, resume.episode or 0, resume.title)
+
+    def _resume_video(self) -> Video | None:
+        """The episode this series would resume into, if the saved one is still
+        listed by the current meta. Stale progress (an episode the addon no
+        longer serves) selects nothing rather than a phantom."""
+        if self._progress is None or self._meta is None:
+            return None
+        entry = self._progress.latest_unwatched_for(self._media_id)
+        if entry is None or not entry.video_id:
+            return None
+        return next((v for v in self._meta.videos if v.id == entry.video_id), None)
 
     @Slot(int)
     def selectSeason(self, index: int) -> None:
@@ -180,15 +202,23 @@ class DetailController(QObject):
         self._episode_model.set_videos(self._season_videos(self._seasons[index]))
         self.episodesChanged.emit()
 
+    def _select_episode(self, video_id: str, season: int, episode: int, title: str) -> None:
+        """Mark an episode as the current selection. Synchronous and network-
+        free: preselecting a resumed episode must highlight the row and set the
+        media context without fetching streams the user may never ask for —
+        they are fetched when the episode is actually clicked."""
+        self._selected_episode = video_id
+        self._episode_label = f"S{season}E{episode} · {title}" if title else f"S{season}E{episode}"
+        label = f"Sources — S{season}E{episode}"
+        self._sources_label = f"{label} · {title}" if title else label
+        self.sourcesChanged.emit()
+
     @asyncSlot(str, int, int, str)  # type: ignore[untyped-decorator]
     async def selectEpisode(self, video_id: str, season: int, episode: int, title: str) -> None:
         load_token = self._seq
         self._ep_seq += 1
         ep_token = self._ep_seq
-        self._selected_episode = video_id
-        self._episode_label = f"S{season}E{episode} · {title}" if title else f"S{season}E{episode}"
-        label = f"Sources — S{season}E{episode}"
-        self._sources_label = f"{label} · {title}" if title else label
+        self._select_episode(video_id, season, episode, title)
         self._streams_loading = True
         self.sourcesChanged.emit()
         self._stream_model.set_streams([])

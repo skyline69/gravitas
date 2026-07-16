@@ -212,3 +212,39 @@ def test_build_app_wires_watch_progress(
         if pending:
             loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
         loop.close()
+
+
+def test_build_app_rebuilds_continue_watching_on_progress_change(
+    qapp: object, tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    """The row's membership changes when a title is finished or forgotten, so
+    it must be rebuilt on progressChanged -- not only its bars refreshed. This
+    is one connect line in build_app(); without a test, reverting it leaves the
+    whole suite green and the row silently stale."""
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        _app, engine = build_app(
+            argv=[], default_addon_url="https://v3-cinemeta.strem.io/manifest.json"
+        )
+        ctx = engine.rootContext()
+        rows_model = ctx.contextProperty("catalogRowsModel")
+        progress_controller = ctx.contextProperty("progressController")
+
+        calls: list[int] = []
+        original = rows_model.set_continue_watching
+        rows_model.set_continue_watching = lambda entries: (  # type: ignore[method-assign]
+            calls.append(len(entries)),
+            original(entries),
+        )[1]
+
+        progress_controller.progressChanged.emit()
+        assert calls, "progressChanged did not rebuild the Continue Watching row"
+    finally:
+        pending = asyncio.all_tasks(loop)
+        for task in pending:
+            task.cancel()
+        if pending:
+            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        loop.close()

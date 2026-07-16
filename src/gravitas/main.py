@@ -17,6 +17,7 @@ from PySide6.QtQuickControls2 import QQuickStyle
 from gravitas.application.addon_repository import AddonRepository
 from gravitas.application.browse_board import BrowseBoard
 from gravitas.application.browse_catalog import BrowseCatalog
+from gravitas.application.continue_watching import ContinueWatching
 from gravitas.application.get_detail import GetDetail
 from gravitas.application.install_addon import InstallAddon
 from gravitas.application.resolve_media_link import ResolveMediaLink
@@ -109,7 +110,7 @@ def build_app(
     catalog_controller = CatalogController(BrowseCatalog(repo), rows_model)
     episode_model = EpisodeListModel(progress_repo)
     detail_controller = DetailController(
-        GetDetail(repo), ResolveStream(repo), stream_model, episode_model
+        GetDetail(repo), ResolveStream(repo), stream_model, episode_model, progress_repo
     )
     install_addon = InstallAddon(repo)
     addon_controller = AddonController(install_addon, catalog_controller)
@@ -159,6 +160,8 @@ def build_app(
     # Live-apply subtitle style edits to an active player.
     settings_controller.subtitleStyleChanged.connect(player_controller.applySubtitleStyle)
 
+    continue_watching = ContinueWatching(progress_repo)
+
     # Bars are model roles, so every surface showing progress must re-read them
     # when the underlying index moves -- whether the player advanced it or the
     # user forgot something.
@@ -168,6 +171,10 @@ def build_app(
         episode_model.refresh_progress()
         search_results_model.refresh_progress()
         search_page_model.refresh_progress()
+        # Not just the bars: this row's membership changes too -- finishing or
+        # forgetting a title removes it. Rebuilding is a dict read, never a
+        # catalog re-fetch, which is why it is safe on the 5s playback tick.
+        rows_model.set_continue_watching(continue_watching())
 
     progress_controller.progressChanged.connect(_refresh_progress_bars)
     # Route through ProgressController rather than wiring straight to
@@ -214,6 +221,9 @@ def build_app(
                 addon_controller.errorOccurred.emit(f"Could not restore addon: {exc}")
         await catalog_controller.load_catalog()
         settings_controller.refreshAddons()
+        # After load_catalog: set_rows() rebuilds the visible rows, so priming
+        # this first would be discarded. It is a dict read, not a fetch.
+        rows_model.set_continue_watching(continue_watching())
 
     engine.load(str(_QML_DIR / "Main.qml"))
 

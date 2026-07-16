@@ -9,6 +9,10 @@ Item {
     property string mediaType: "" // "movie" | "series" — picks the filler icon
     property real progressFraction: 0
     property bool watched: false
+    // One line under the title ("S1E3 · Pilot"). `showSubtitle` reserves the
+    // line for the whole row — see the note on subtitleLabel below.
+    property string subtitle: ""
+    property bool showSubtitle: false
     // { mediaId, videoId, type, name, poster, label } — null disables the menu.
     property var forgetContext: null
     signal clicked()
@@ -226,6 +230,27 @@ Item {
             Behavior on color { ColorAnimation { duration: Theme.durMed } }
 
             FontMetrics { id: fontMetrics; font: label.font }
+        }
+
+        // Reserved by the row, not by the card: within one row some cards
+        // carry a subtitle (a series names its episode) and some do not (a
+        // movie has nothing to add). Sizing this per-card would leave the
+        // subtitled posters sitting higher than their neighbours, because the
+        // Column is centred in the card. So the whole row reserves the line or
+        // none of it does.
+        Text {
+            id: subtitleLabel
+            visible: root.showSubtitle
+            width: 160
+            height: visible ? subtitleMetrics.height : 0
+            text: root.subtitle
+            color: Theme.textDim
+            font.pixelSize: Theme.fontSmall
+            elide: Text.ElideRight
+            maximumLineCount: 1
+            horizontalAlignment: Text.AlignHCenter
+
+            FontMetrics { id: subtitleMetrics; font: subtitleLabel.font }
         }
     }
 }

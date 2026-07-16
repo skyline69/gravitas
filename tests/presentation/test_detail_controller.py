@@ -291,3 +291,105 @@ async def test_episode_model_is_bound_to_the_series(qapp: object) -> None:
     # Episode progress is keyed by (media_id, video_id). Without this the model
     # looks every episode up under an empty media id and every bar reads zero.
     assert episode_model.media_id == "tt1"
+
+
+class _CwStore:
+    def __init__(self, entries: list[object]) -> None:
+        self.entries = entries
+
+    def load_all(self) -> list[object]:
+        return list(self.entries)
+
+    def save(self, entry: object) -> None: ...
+    def delete(self, media_id: str, video_id: str | None = None) -> None: ...
+    def clear(self) -> None: ...
+
+
+def _progress_entry(video_id: str, **kw: object):  # type: ignore[no-untyped-def]
+    from gravitas.domain.models import PlaybackProgress
+
+    base: dict[str, object] = {
+        "media_id": "tt1",
+        "video_id": video_id,
+        "type": "series",
+        "name": "Show",
+        "poster": None,
+        "label": "S1E2 · Two",
+        "position": 300.0,
+        "duration": 600.0,
+        "watched": False,
+        "updated_at": 100,
+    }
+    base.update(kw)
+    return PlaybackProgress(**base)  # type: ignore[arg-type]
+
+
+def _series_ctl_with_progress(entries: list[object]) -> DetailController:
+    from gravitas.application.watch_progress import WatchProgressRepository
+
+    repo = WatchProgressRepository(_CwStore(entries))  # type: ignore[arg-type]
+    return DetailController(
+        SeriesGetDetail(),  # type: ignore[arg-type]
+        FakeResolve(),  # type: ignore[arg-type]
+        StreamListModel(),
+        EpisodeListModel(repo),
+        repo,
+    )
+
+
+async def test_series_load_preselects_the_in_progress_episode(qapp: object) -> None:
+    ctl = _series_ctl_with_progress([_progress_entry("tt1:1:2")])
+    await ctl.load("series", "tt1")
+    # Arriving from Continue Watching, the episode you were on is already
+    # selected and its sources are loading.
+    assert ctl.selectedEpisodeId == "tt1:1:2"
+    assert ctl.mediaContext()["videoId"] == "tt1:1:2"
+
+
+async def test_series_load_selects_the_season_of_the_in_progress_episode(
+    qapp: object,
+) -> None:
+    # tt1:2:1 is in season 2; the season box must follow, or the selected
+    # episode is not even in the visible list.
+    ctl = _series_ctl_with_progress([_progress_entry("tt1:2:1", label="S2E1")])
+    await ctl.load("series", "tt1")
+    assert ctl.selectedEpisodeId == "tt1:2:1"
+    assert list(ctl.seasonOptions)[ctl.seasonIndex] == "Season 2"
+
+
+async def test_series_load_without_progress_selects_nothing(qapp: object) -> None:
+    ctl = _series_ctl_with_progress([])
+    await ctl.load("series", "tt1")
+    assert ctl.selectedEpisodeId == ""
+    assert ctl.seasonIndex == 0
+
+
+async def test_series_load_ignores_a_watched_episode(qapp: object) -> None:
+    # A finished episode is not something to resume into.
+    ctl = _series_ctl_with_progress([_progress_entry("tt1:1:2", watched=True, position=0.0)])
+    await ctl.load("series", "tt1")
+    assert ctl.selectedEpisodeId == ""
+
+
+async def test_series_load_ignores_an_unknown_episode_id(qapp: object) -> None:
+    # Stale progress for an episode this meta no longer lists must not select
+    # a phantom, nor leave the season box pointing nowhere.
+    ctl = _series_ctl_with_progress([_progress_entry("tt1:9:9")])
+    await ctl.load("series", "tt1")
+    assert ctl.selectedEpisodeId == ""
+    assert ctl.seasonIndex == 0
+
+
+async def test_movie_load_is_unaffected_by_progress(qapp: object) -> None:
+    from gravitas.application.watch_progress import WatchProgressRepository
+
+    repo = WatchProgressRepository(_CwStore([_progress_entry("", media_id="tt2", type="movie")]))  # type: ignore[arg-type]
+    ctl = DetailController(
+        FakeGetDetail(),  # type: ignore[arg-type]
+        FakeResolve(),
+        StreamListModel(),
+        EpisodeListModel(repo),
+        repo,
+    )
+    await ctl.load("movie", "tt2")
+    assert ctl.selectedEpisodeId == ""

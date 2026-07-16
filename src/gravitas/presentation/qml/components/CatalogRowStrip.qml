@@ -8,6 +8,9 @@ Item {
     property string type
     property string catalogId
     property var posters
+    // The synthetic Continue Watching row: no addon or catalog stands behind
+    // it, and its cards name the episode they would resume into.
+    property bool continueWatching: false
     signal openDetail(string type, string id)
     signal seeAll(string addonId, string type, string catalogId)
 
@@ -31,6 +34,8 @@ Item {
 
         Text {
             id: seeAllLabel
+            // Continue Watching has no catalog to see all of.
+            visible: !root.continueWatching
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             text: "See All"
@@ -69,6 +74,8 @@ Item {
             mediaType: model.type
             progressFraction: model.progressFraction
             watched: model.watched
+            subtitle: model.progressLabel
+            showSubtitle: root.continueWatching
             forgetContext: ({
                 mediaId: model.id,
                 videoId: "",
