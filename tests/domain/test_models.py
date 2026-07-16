@@ -323,3 +323,23 @@ def test_catalog_requiring_an_unsatisfiable_extra_is_not_browsable() -> None:
     )
     assert ref.required_extras == ("lastVideosIds",)
     assert not ref.is_browsable
+
+
+def test_ratings_defaults_to_all_none() -> None:
+    from gravitas.domain.models import Ratings
+
+    r = Ratings()
+    assert r.rotten_tomatoes is None
+    assert r.rotten_tomatoes_fresh is None
+    assert r.letterboxd is None
+
+
+def test_ratings_is_frozen() -> None:
+    import pytest
+
+    from gravitas.domain.models import Ratings
+
+    r = Ratings(rotten_tomatoes="87", rotten_tomatoes_fresh=True, letterboxd="4.1")
+    assert (r.rotten_tomatoes, r.rotten_tomatoes_fresh, r.letterboxd) == ("87", True, "4.1")
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        r.letterboxd = "3.0"  # type: ignore[misc]

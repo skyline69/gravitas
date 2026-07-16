@@ -35,3 +35,7 @@ class TmdbUnavailable(GravitasError):
 
 class UnsupportedLink(GravitasError):
     """A stremio:// link Gravitas does not handle (only addon installs are)."""
+
+
+class MdbListUnavailable(GravitasError):
+    """MDBList could not be reached or returned an unusable response."""

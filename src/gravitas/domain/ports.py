@@ -13,6 +13,7 @@ from gravitas.domain.models import (
     MetaDetail,
     PersistedSettings,
     PlaybackProgress,
+    Ratings,
     ResolvedMedia,
     Stream,
     SubtitleStyle,
@@ -94,6 +95,11 @@ class DebridResolver(Protocol):
 @runtime_checkable
 class ExternalIdResolver(Protocol):
     async def resolve(self, source: str, external_id: str) -> ResolvedMedia: ...
+
+
+@runtime_checkable
+class RatingsResolver(Protocol):
+    async def ratings(self, imdb_id: str, media_type: MediaType) -> Ratings: ...
 
 
 @runtime_checkable

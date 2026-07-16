@@ -123,6 +123,79 @@ Item {
                         }
                     }
                 }
+                Row {
+                    id: rtRow
+                    spacing: 8
+                    // Ratings arrive after the page (and may be cached, so nearly
+                    // instant); fade + slide the pill in so it never just pops.
+                    property bool shown: detailController && detailController.rottenTomatoes.length > 0
+                    opacity: shown ? 1 : 0
+                    visible: shown || opacity > 0
+                    Behavior on opacity { NumberAnimation { duration: 550; easing.type: Easing.OutCubic } }
+                    transform: Translate {
+                        y: rtRow.shown ? 0 : 10
+                        Behavior on y { NumberAnimation { duration: 550; easing.type: Easing.OutCubic } }
+                    }
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: detailController ? detailController.rottenTomatoes + "%" : ""
+                        color: Theme.text; font.pixelSize: Theme.fontTitle; font.bold: true
+                    }
+                    Rectangle {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: rtBadge.implicitWidth + 12
+                        height: 22
+                        radius: 4
+                        color: detailController && detailController.rottenTomatoesFresh ? "#fa320a" : "#00a000"
+                        Text {
+                            id: rtBadge
+                            anchors.centerIn: parent
+                            text: "RT"
+                            color: "#ffffff"
+                            font.pixelSize: Theme.fontSmall
+                            font.bold: true
+                        }
+                    }
+                }
+                Row {
+                    id: lbRow
+                    spacing: 8
+                    property bool shown: detailController && detailController.letterboxd.length > 0
+                    opacity: shown ? 1 : 0
+                    visible: shown || opacity > 0
+                    Behavior on opacity { NumberAnimation { duration: 550; easing.type: Easing.OutCubic } }
+                    transform: Translate {
+                        y: lbRow.shown ? 0 : 10
+                        Behavior on y { NumberAnimation { duration: 550; easing.type: Easing.OutCubic } }
+                    }
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: detailController ? detailController.letterboxd : ""
+                        color: Theme.text; font.pixelSize: Theme.fontTitle; font.bold: true
+                    }
+                    Rectangle {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: lbBadge.implicitWidth + 12
+                        height: 22
+                        radius: 4
+                        color: "#14181c"
+                        Row {
+                            id: lbBadge
+                            anchors.centerIn: parent
+                            spacing: 4
+                            Rectangle { width: 8; height: 8; radius: 4; color: "#ff8000"; anchors.verticalCenter: parent.verticalCenter }
+                            Rectangle { width: 8; height: 8; radius: 4; color: "#00e054"; anchors.verticalCenter: parent.verticalCenter }
+                            Rectangle { width: 8; height: 8; radius: 4; color: "#40bcf4"; anchors.verticalCenter: parent.verticalCenter }
+                            Text {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "Letterboxd"
+                                color: "#ffffff"
+                                font.pixelSize: Theme.fontSmall
+                                font.bold: true
+                            }
+                        }
+                    }
+                }
             }
 
             AppButton {

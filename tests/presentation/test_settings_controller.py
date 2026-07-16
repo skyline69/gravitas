@@ -122,6 +122,33 @@ class _StyleHolder:
         self.style = SubtitleStyle()
 
 
+async def test_set_mdblist_key_updates_and_persists(qapp: object) -> None:
+    repo = AddonRepository(FakeSource())
+    tmdb_holder = _KeyHolder()
+    mdb_holder = _KeyHolder()
+    store = _FakeStore()
+    styles = _StyleHolder()
+    c = SettingsController(
+        UninstallAddon(repo),
+        repo,
+        AddonListModel(),
+        FakeCatalogController(),
+        tmdb_holder,
+        store,
+        styles,
+        mdb_holder,
+    )
+
+    assert c.mdblistKey == ""
+    c.setMdblistKey("  key-xyz  ")
+    assert mdb_holder.key == "key-xyz"
+    assert c.mdblistKey == "key-xyz"
+    assert store.saved[-1].mdblist_key == "key-xyz"  # type: ignore[attr-defined]
+
+    c.setMdblistKey("")
+    assert mdb_holder.key is None
+
+
 async def test_subtitle_style_updates_persist_and_notify(qapp: object) -> None:
     from gravitas.domain.models import SubtitleStyle
 
