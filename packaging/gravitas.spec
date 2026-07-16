@@ -106,6 +106,7 @@ if sys.platform == "darwin":
     app = BUNDLE(
         coll,
         name="Gravitas.app",
+        icon=str(ROOT / "packaging" / "icon" / "gravitas.icns"),
         bundle_identifier="dev.skyline.gravitas",
         info_plist={
             "NSHighResolutionCapable": True,

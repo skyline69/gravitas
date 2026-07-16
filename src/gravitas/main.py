@@ -12,7 +12,7 @@ from pathlib import Path
 import httpx
 import qasync  # type: ignore[import-untyped]
 from PySide6.QtCore import QMessageLogContext, QtMsgType, qInstallMessageHandler
-from PySide6.QtGui import QFont, QFontDatabase, QGuiApplication
+from PySide6.QtGui import QFont, QFontDatabase, QGuiApplication, QIcon
 from PySide6.QtQml import QQmlApplicationEngine, qmlRegisterType
 from PySide6.QtQuick import QQuickWindow, QSGRendererInterface
 from PySide6.QtQuickControls2 import QQuickStyle
@@ -78,9 +78,15 @@ _LINK_SCHEME = "stremio://"
 # `OpenType support missing for "Inter", script N` before it transparently
 # falls back to a system font that covers the script. The glyphs still render;
 # the warning is noise with no action attached.
+# We set a Wayland app_id (setDesktopFileName) so installed builds group under
+# their .desktop icon. In an uninstalled dev run no such .desktop exists, so the
+# xdg-desktop-portal logs `Could not register app ID ... App info not found`.
+# KWin still uses the window icon we set, and installed builds ship the desktop
+# file, so this line is noise only in the dev checkout.
 _MUTED_QT_WARNINGS = (
     "QQuickImage: Error transferring",
     "OpenType support missing",
+    "Could not register app ID",
 )
 
 
@@ -123,6 +129,18 @@ def build_app(
 ) -> tuple[QGuiApplication, QQmlApplicationEngine]:
     instance = QGuiApplication.instance()
     app = instance if isinstance(instance, QGuiApplication) else QGuiApplication(argv)
+
+    # App identity + taskbar/window icon. setDesktopFileName sets the Wayland
+    # xdg app_id, which is how a compositor maps the window to the installed
+    # .desktop entry for its icon; setWindowIcon covers X11 and compositors that
+    # honour the xdg-toplevel icon directly, so a raw `uv run gravitas` shows
+    # the real icon instead of the generic Wayland fallback.
+    app.setApplicationName("Gravitas")
+    app.setApplicationDisplayName("Gravitas")
+    app.setDesktopFileName("dev.skyline.Gravitas")
+    _icon = _QML_DIR / "assets" / "gravitas.png"
+    if _icon.exists():
+        app.setWindowIcon(QIcon(str(_icon)))
 
     # The native (macOS/Windows) Quick Controls style silently ignores
     # background/contentItem/indicator customization, so our themed App*
