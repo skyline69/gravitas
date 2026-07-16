@@ -34,6 +34,7 @@ modules:
     buildsystem: simple
     build-commands:
       # Ship the whole one-dir bundle under /app/lib, expose the launcher on PATH.
+      - mkdir -p /app/lib
       - cp -a Gravitas /app/lib/gravitas
       - mkdir -p /app/bin
       - ln -s /app/lib/gravitas/gravitas /app/bin/gravitas
