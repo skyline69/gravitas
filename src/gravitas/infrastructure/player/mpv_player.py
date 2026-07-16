@@ -48,6 +48,51 @@ def _ensure_libmpv_discoverable(
     environ["DYLD_FALLBACK_LIBRARY_PATH"] = ":".join(existing)
 
 
+def _ensure_bundled_libmpv_findable() -> None:
+    """In a PyInstaller bundle, the fat build ships libmpv next to the app so
+    playback works on hosts with no system libmpv. But python-mpv resolves the
+    Linux library via ctypes.util.find_library('mpv'), which only consults the
+    system loader cache and never sys._MEIPASS — so on such a host the bundled
+    copy is invisible and `import mpv` raises. Redirect find_library('mpv') to
+    the absolute bundled soname; python-mpv then CDLL()s it directly. Its ffmpeg
+    dependency closure resolves through the LD_LIBRARY_PATH PyInstaller's
+    bootloader already points at _MEIPASS. No-op when not frozen (find_library
+    keeps its stock behaviour, so a dev checkout uses system libmpv)."""
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass is None:
+        return
+    import ctypes.util
+    import glob
+
+    # PyInstaller drops the dylib next to the app on macOS, the .so on Linux.
+    pattern = "libmpv*.dylib" if sys.platform == "darwin" else "libmpv.so*"
+    matches = sorted(glob.glob(os.path.join(meipass, pattern)))
+    if not matches:
+        return
+    bundled = matches[0]
+    _stock_find_library = ctypes.util.find_library
+
+    def _find_library(name: str) -> str | None:
+        if name == "mpv":
+            return bundled
+        return _stock_find_library(name)
+
+    ctypes.util.find_library = _find_library
+
+
+def _ensure_bundled_ytdlp_on_path(environ: MutableMapping[str, str] = os.environ) -> None:
+    """mpv's ytdl_hook resolves YouTube/trailer streams by spawning a `yt-dlp`
+    executable found on PATH. The fat bundle ships one next to the app; libmpv
+    inherits this process's environment when it forks, so prepending the bundle
+    dir to PATH here (before mpv loads) is enough for the hook to find it. No-op
+    when not frozen or when no yt-dlp was bundled — a system yt-dlp still works."""
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass is None:
+        return
+    if os.path.exists(os.path.join(meipass, "yt-dlp")):
+        environ["PATH"] = meipass + os.pathsep + environ.get("PATH", "")
+
+
 def _default_factory() -> Any:
     # libmpv needs the C numeric locale; Qt may have changed it. Must run
     # right before mpv.MPV() construction (after QGuiApplication init),
@@ -55,6 +100,8 @@ def _default_factory() -> Any:
     locale.setlocale(locale.LC_NUMERIC, "C")
 
     _ensure_libmpv_discoverable()
+    _ensure_bundled_libmpv_findable()
+    _ensure_bundled_ytdlp_on_path()
 
     import mpv  # type: ignore[import-untyped]
 

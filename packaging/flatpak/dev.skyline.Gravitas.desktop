@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Gravitas
+Comment=Minimal, no-nonsense alternative to Stremio
+Exec=gravitas %u
+Icon=dev.skyline.Gravitas
+Type=Application
+Categories=AudioVideo;Video;Player;
+MimeType=x-scheme-handler/stremio;

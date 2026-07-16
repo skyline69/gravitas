@@ -1,6 +1,6 @@
 # Gravitas
 
-A memory-efficient, Linux-first desktop media center — an alternative to Stremio that consumes Stremio addons. Built with Python, PySide6 (Qt6/QML), and libmpv.
+A minimal, no-nonsense alternative to Stremio that consumes Stremio addons. Built with Python, PySide6 (Qt6/QML), and libmpv.
 
 > **Status:** MVP. Add a Stremio addon by URL, browse its Movies/Series catalogs as a poster grid, open a detail page, pick a direct-URL source, and play it with an embedded libmpv player and subtitle-track selector.
 

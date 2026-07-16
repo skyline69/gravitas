@@ -7,3 +7,4 @@ __pycache__/
 dist/
 uv.lock
 build/
+packaging/.cache/

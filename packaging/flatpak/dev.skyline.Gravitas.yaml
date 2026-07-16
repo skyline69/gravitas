@@ -1,0 +1,55 @@
+# Flatpak manifest — sideload/self-hosted build.
+#
+# Reuses the SAME self-contained PyInstaller bundle the AppImage ships
+# (dist/Gravitas), so libmpv + ffmpeg + yt-dlp + Qt all come from the bundle.
+# The org.freedesktop.Platform runtime only supplies the base system the bundle
+# links against at runtime: glibc, Mesa GL (dri), Wayland/X11, PulseAudio.
+#
+# Build the bundle first, then this manifest:
+#   uv run --with pyinstaller pyinstaller packaging/gravitas.spec --noconfirm
+#   flatpak-builder --user --install --force-clean \
+#     build/flatpak packaging/flatpak/dev.skyline.Gravitas.yaml
+#   flatpak run dev.skyline.Gravitas
+#
+# NOTE: this bundles prebuilt binaries, which Flathub forbids. It is for a
+# personal/sideload repo. A Flathub-compliant manifest must build ffmpeg and
+# libmpv from source — a separate, much larger module set.
+app-id: dev.skyline.Gravitas
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: gravitas
+
+finish-args:
+  - --share=network            # addon HTTP + stream fetch
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc                # required with fallback-x11
+  - --device=dri               # GPU: hwdec (vaapi/vdpau) + GL render path
+  - --socket=pulseaudio
+  - --filesystem=xdg-download   # let users point at local media if wanted
+
+modules:
+  - name: gravitas
+    buildsystem: simple
+    build-commands:
+      # Ship the whole one-dir bundle under /app/lib, expose the launcher on PATH.
+      - cp -a Gravitas /app/lib/gravitas
+      - mkdir -p /app/bin
+      - ln -s /app/lib/gravitas/gravitas /app/bin/gravitas
+      - install -Dm644 dev.skyline.Gravitas.desktop
+          /app/share/applications/dev.skyline.Gravitas.desktop
+      - install -Dm644 gravitas.png
+          /app/share/icons/hicolor/256x256/apps/dev.skyline.Gravitas.png
+      - install -Dm644 dev.skyline.Gravitas.metainfo.xml
+          /app/share/metainfo/dev.skyline.Gravitas.metainfo.xml
+    sources:
+      # dist/ holds the PyInstaller output (Gravitas/); build the bundle first.
+      - type: dir
+        path: ../../dist
+      - type: file
+        path: dev.skyline.Gravitas.desktop
+      - type: file
+        path: dev.skyline.Gravitas.metainfo.xml
+      - type: file
+        path: ../gravitas.png

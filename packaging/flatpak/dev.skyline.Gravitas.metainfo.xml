@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>dev.skyline.Gravitas</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Gravitas</name>
+  <summary>Minimal, no-nonsense alternative to Stremio</summary>
+  <developer id="dev.skyline">
+    <name>skyline</name>
+  </developer>
+  <url type="homepage">https://github.com/skyline69/gravitas</url>
+  <description>
+    <p>
+      A minimal, no-nonsense alternative to Stremio that consumes Stremio addons.
+      Browse catalogs, open details, and play direct HTTP/HLS streams via libmpv.
+    </p>
+  </description>
+  <launchable type="desktop-id">dev.skyline.Gravitas.desktop</launchable>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Video</category>
+    <category>Player</category>
+  </categories>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.1.0" date="2026-07-16" />
+  </releases>
+</component>
