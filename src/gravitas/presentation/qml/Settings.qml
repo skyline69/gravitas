@@ -169,10 +169,14 @@ Item {
                 Row {
                     width: parent.width
                     spacing: 8
+                    // Bindings here guard the controller OBJECT, not just its
+                    // property: context properties go null at engine teardown and
+                    // every live binding re-evaluates on the way down, so a bare
+                    // settingsController.tmdbKey throws a TypeError on each exit.
                     AppTextField {
                         width: parent.width - savedTick.width - parent.spacing
                         placeholderText: "TMDB API key (optional — needed to open TVDB links)"
-                        text: settingsController.tmdbKey
+                        text: settingsController ? settingsController.tmdbKey : ""
                         onEditingFinished: {
                             settingsController.setTmdbKey(text)
                             savedFade.restart()
@@ -220,18 +224,21 @@ Item {
                         height: previewText.implicitHeight + 10
                         radius: 4
                         color: Qt.rgba(0, 0, 0,
-                            (settingsController.subBackOpacity !== undefined
+                            (settingsController && settingsController.subBackOpacity !== undefined
                                 ? settingsController.subBackOpacity : 0) / 100)
                         Text {
                             id: previewText
                             anchors.centerIn: parent
                             text: "This is what subtitles will look like."
-                            color: settingsController.subColor ? settingsController.subColor : "#FFFFFF"
+                            color: settingsController && settingsController.subColor
+                                ? settingsController.subColor : "#FFFFFF"
                             // Preview at ~45% of mpv's rendering scale so the
                             // strip stays proportionate.
-                            font.pixelSize: Math.round((settingsController.subFontSize || 55) * 0.45)
-                            font.bold: settingsController.subBold ? true : false
-                            style: settingsController.subBorderSize > 0 ? Text.Outline : Text.Normal
+                            font.pixelSize: Math.round(
+                                ((settingsController && settingsController.subFontSize) || 55) * 0.45)
+                            font.bold: settingsController && settingsController.subBold ? true : false
+                            style: settingsController && settingsController.subBorderSize > 0
+                                ? Text.Outline : Text.Normal
                             styleColor: "black"
                         }
                     }
@@ -262,7 +269,8 @@ Item {
                         id: sizeSlider
                         width: parent.width - 96 - 12
                         from: 20; to: 100; stepSize: 1
-                        value: settingsController.subFontSize !== undefined ? settingsController.subFontSize : 55
+                        value: settingsController && settingsController.subFontSize !== undefined
+                            ? settingsController.subFontSize : 55
                         onMoved: settingsController.setSubFontSize(value)
                     }
                 }
@@ -280,7 +288,8 @@ Item {
                         id: outlineSlider
                         width: parent.width - 96 - 12
                         from: 0; to: 8; stepSize: 1
-                        value: settingsController.subBorderSize !== undefined ? settingsController.subBorderSize : 3
+                        value: settingsController && settingsController.subBorderSize !== undefined
+                            ? settingsController.subBorderSize : 3
                         onMoved: settingsController.setSubBorderSize(value)
                     }
                 }
@@ -298,7 +307,8 @@ Item {
                         id: backSlider
                         width: parent.width - 96 - 12
                         from: 0; to: 100; stepSize: 5
-                        value: settingsController.subBackOpacity !== undefined ? settingsController.subBackOpacity : 0
+                        value: settingsController && settingsController.subBackOpacity !== undefined
+                            ? settingsController.subBackOpacity : 0
                         onMoved: settingsController.setSubBackOpacity(value)
                     }
                 }
@@ -321,8 +331,8 @@ Item {
                                 required property string modelData
                                 width: 26; height: 26; radius: 13
                                 color: modelData
-                                border.width: settingsController.subColor === modelData ? 3 : 1
-                                border.color: settingsController.subColor === modelData
+                                border.width: settingsController && settingsController.subColor === modelData ? 3 : 1
+                                border.color: settingsController && settingsController.subColor === modelData
                                     ? Theme.accent : Theme.borderStrong
                                 HoverHandler { cursorShape: Qt.PointingHandCursor }
                                 TapHandler { onTapped: settingsController.setSubColor(modelData) }
@@ -334,7 +344,7 @@ Item {
                         anchors.verticalCenter: parent.verticalCenter
                         text: "Bold"
                         ghost: true
-                        selected: settingsController.subBold ? true : false
+                        selected: settingsController && settingsController.subBold ? true : false
                         onClicked: settingsController.setSubBold(!settingsController.subBold)
                     }
                     AppButton {

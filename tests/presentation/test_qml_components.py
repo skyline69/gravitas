@@ -10,12 +10,14 @@ branch quietly took its fallback).
 from __future__ import annotations
 
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QtMsgType, qInstallMessageHandler
-from PySide6.QtQml import QQmlComponent, QQmlEngine
+from PySide6.QtQml import QQmlApplicationEngine, QQmlComponent, QQmlEngine
+from pytest import MonkeyPatch
 
-from gravitas.main import _QML_DIR
+from gravitas.main import _QML_DIR, build_app
 
 _COMPONENTS_DIR = _QML_DIR / "components"
 
@@ -91,4 +93,32 @@ def test_context_menu_instantiates_and_opens_without_warnings(
         }
         """
     )
+    assert qml_warnings == []
+
+
+def test_settings_page_survives_its_controllers_going_away(
+    qml_warnings: list[str], tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    """A QML binding that dereferences a context property without checking the
+    object itself throws once that object goes away.
+
+    Context properties go null at engine teardown, and every live binding
+    re-evaluates on the way down — so `settingsController.subColor` (rather
+    than `settingsController && settingsController.subColor`) fills the console
+    with TypeErrors every time the app exits. Nothing is broken by then, but
+    the noise buries real errors, which is exactly how the Window.window bug
+    hid.
+    """
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    engine: QQmlApplicationEngine | None = None
+    try:
+        _app, engine = build_app(
+            argv=[], default_addon_url="https://v3-cinemeta.strem.io/manifest.json"
+        )
+        component = QQmlComponent(engine, str(_QML_DIR / "Settings.qml"))
+        page = component.create(engine.rootContext())
+        assert page is not None, component.errorString()
+        qml_warnings.clear()  # ignore anything from bringing the app up
+    finally:
+        del engine
     assert qml_warnings == []
