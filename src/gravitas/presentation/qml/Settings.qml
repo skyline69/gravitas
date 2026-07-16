@@ -191,6 +191,34 @@ Item {
                         }
                     }
                 }
+
+                Row {
+                    width: parent.width
+                    spacing: 8
+                    AppTextField {
+                        width: parent.width - mdbSavedTick.width - parent.spacing
+                        placeholderText: "MDBList API key (optional — enables Rotten Tomatoes + Letterboxd)"
+                        text: settingsController ? settingsController.mdblistKey : ""
+                        onEditingFinished: {
+                            settingsController.setMdblistKey(text)
+                            mdbSavedFade.restart()
+                        }
+                    }
+                    Text {
+                        id: mdbSavedTick
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "Saved ✓"
+                        color: Theme.positive
+                        font.pixelSize: Theme.fontSmall
+                        opacity: 0
+                        SequentialAnimation {
+                            id: mdbSavedFade
+                            NumberAnimation { target: mdbSavedTick; property: "opacity"; to: 1; duration: Theme.durFast }
+                            PauseAnimation { duration: 1400 }
+                            NumberAnimation { target: mdbSavedTick; property: "opacity"; to: 0; duration: Theme.durMed }
+                        }
+                    }
+                }
             }
 
             SettingsCard {

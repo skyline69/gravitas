@@ -123,6 +123,61 @@ Item {
                         }
                     }
                 }
+                Row {
+                    spacing: 8
+                    visible: detailController && detailController.rottenTomatoes.length > 0
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: detailController ? detailController.rottenTomatoes + "%" : ""
+                        color: Theme.text; font.pixelSize: Theme.fontTitle; font.bold: true
+                    }
+                    Rectangle {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: rtBadge.implicitWidth + 12
+                        height: 22
+                        radius: 4
+                        color: detailController && detailController.rottenTomatoesFresh ? "#fa320a" : "#00a000"
+                        Text {
+                            id: rtBadge
+                            anchors.centerIn: parent
+                            text: "RT"
+                            color: "#ffffff"
+                            font.pixelSize: Theme.fontSmall
+                            font.bold: true
+                        }
+                    }
+                }
+                Row {
+                    spacing: 8
+                    visible: detailController && detailController.letterboxd.length > 0
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: detailController ? detailController.letterboxd : ""
+                        color: Theme.text; font.pixelSize: Theme.fontTitle; font.bold: true
+                    }
+                    Rectangle {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: lbBadge.implicitWidth + 12
+                        height: 22
+                        radius: 4
+                        color: "#14181c"
+                        Row {
+                            id: lbBadge
+                            anchors.centerIn: parent
+                            spacing: 4
+                            Rectangle { width: 8; height: 8; radius: 4; color: "#ff8000"; anchors.verticalCenter: parent.verticalCenter }
+                            Rectangle { width: 8; height: 8; radius: 4; color: "#00e054"; anchors.verticalCenter: parent.verticalCenter }
+                            Rectangle { width: 8; height: 8; radius: 4; color: "#40bcf4"; anchors.verticalCenter: parent.verticalCenter }
+                            Text {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: "Letterboxd"
+                                color: "#ffffff"
+                                font.pixelSize: Theme.fontSmall
+                                font.bold: true
+                            }
+                        }
+                    }
+                }
             }
 
             AppButton {
