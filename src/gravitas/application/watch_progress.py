@@ -59,6 +59,23 @@ class WatchProgressRepository:
     def latest_for(self, media_id: str) -> PlaybackProgress | None:
         return self._latest.get(media_id)
 
+    def latest_unwatched_for(self, media_id: str) -> PlaybackProgress | None:
+        """Like `latest_for`, but skips watched rows. `_latest` holds a single
+        newest-touched entry per media regardless of watched state, so
+        finishing episode 1 of a series makes `latest_for` return a
+        watched=True/fraction=1.0 row and the whole show reads as finished at
+        a full bar — while `in_progress()` (which excludes watched rows)
+        simultaneously says the show is NOT in progress. This is what a
+        series poster/row bar should read instead, so the two surfaces agree:
+        a just-finished episode shows no bar until the next one is started.
+        `_latest` isn't enough for this (it discards watched-state
+        information across ties), so this scans `_by_key` — cheap, since one
+        media has at most a handful of episodes."""
+        candidates = [e for key, e in self._by_key.items() if key[0] == media_id and not e.watched]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda e: e.updated_at)
+
     def fraction_for(self, media_id: str, video_id: str = "") -> float:
         entry = self._by_key.get((media_id, video_id))
         return entry.fraction if entry is not None else 0.0
@@ -72,6 +89,14 @@ class WatchProgressRepository:
         rows = [e for e in self._latest.values() if not e.watched]
         rows.sort(key=lambda e: e.updated_at, reverse=True)
         return rows
+
+    def total_count(self) -> int:
+        """Every saved row, watched included — what `reset_all` actually
+        deletes. `in_progress()` undercounts here on purpose (it drives the
+        unwatched-only list), so anything gating "is there something to
+        reset" or reporting how many rows a reset will remove must read this
+        instead."""
+        return len(self._by_key)
 
     def resume_position(self, media_id: str, video_id: str = "") -> float:
         entry = self._by_key.get((media_id, video_id))

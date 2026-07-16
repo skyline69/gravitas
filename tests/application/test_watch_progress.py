@@ -155,6 +155,38 @@ def test_latest_for_picks_highest_updated_at() -> None:
     assert latest.label == "S1E3"
 
 
+def test_latest_unwatched_for_skips_a_just_finished_episode() -> None:
+    """latest_for would return the watched episode (fraction 1.0), making the
+    whole series read as finished until a later episode is touched.
+    latest_unwatched_for is what a series bar reads instead, so it must skip
+    watched rows even when they are the most recently touched."""
+    store = FakeStore(
+        [
+            entry("tt9", "tt9:1:1", type="series", updated_at=100, watched=True, position=0.0),
+        ]
+    )
+    r = repo(store)
+    assert r.latest_unwatched_for("tt9") is None
+    assert r.latest_for("tt9") is not None  # unchanged: still reads the watched row
+
+
+def test_latest_unwatched_for_returns_the_in_progress_episode() -> None:
+    store = FakeStore(
+        [
+            entry("tt9", "tt9:1:1", type="series", updated_at=300, watched=True, position=0.0),
+            entry("tt9", "tt9:1:2", type="series", updated_at=200, position=120.0),
+        ]
+    )
+    r = repo(store)
+    latest = r.latest_unwatched_for("tt9")
+    assert latest is not None
+    assert latest.video_id == "tt9:1:2"  # newest touched among the unwatched ones
+
+
+def test_latest_unwatched_for_unknown_media_is_none() -> None:
+    assert repo(FakeStore()).latest_unwatched_for("nope") is None
+
+
 def test_forget_one_episode_rebuilds_latest() -> None:
     store = FakeStore(
         [
@@ -217,6 +249,29 @@ def test_mark_watched_without_prior_entry() -> None:
     )
     assert r.is_watched("tt9", "tt9:1:1") is True
     assert store.saved[0].position == 0.0
+
+
+def test_total_count_includes_watched_rows_unlike_in_progress() -> None:
+    store = FakeStore(
+        [
+            entry("tt1", "", updated_at=100),
+            entry("tt2", "", updated_at=200, watched=True),
+            entry("tt3", "", updated_at=300, watched=True),
+        ]
+    )
+    r = repo(store)
+    assert r.total_count() == 3
+    assert len(r.in_progress()) == 1  # watched rows excluded here on purpose
+
+
+def test_total_count_reflects_forget_and_reset() -> None:
+    store = FakeStore([entry("tt1"), entry("tt2", watched=True)])
+    r = repo(store)
+    assert r.total_count() == 2
+    r.forget("tt1")
+    assert r.total_count() == 1
+    r.reset_all()
+    assert r.total_count() == 0
 
 
 def test_reset_all_empties_index_and_store() -> None:

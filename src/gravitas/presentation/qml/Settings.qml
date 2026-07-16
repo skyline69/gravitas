@@ -462,9 +462,18 @@ Item {
                 AppButton {
                     text: "Reset all progress"
                     tone: "negative"
-                    visible: watchedList.count > 0
+                    // Gated on the total row count (watched included), not
+                    // inProgressCount(): a user who finished every title they
+                    // started has 0 in-progress rows but everything to reset.
+                    // revision is read for the same reason as the Detail
+                    // Forget button — totalCount() is a Slot, not a binding
+                    // dependency, so without reading revision this would
+                    // never re-evaluate when progress changes.
+                    visible: progressController
+                        && progressController.revision >= 0
+                        && progressController.totalCount() > 0
                     onClicked: {
-                        resetDialog.count = progressController.inProgressCount()
+                        resetDialog.count = progressController.totalCount()
                         resetDialog.ask()
                     }
                 }
