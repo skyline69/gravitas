@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import Gravitas 1.0
 import "components"
 
@@ -186,11 +185,15 @@ Item {
 
     Rectangle { anchors.fill: parent; color: "black" }
 
+    // MpvVideo is registered at runtime in main.py (qmlRegisterType), so the
+    // linter has no type info for it and the import/type errors are false.
+    // qmllint disable import unresolved-type
     MpvVideo {
         id: video
         anchors.fill: parent
         Component.onCompleted: playerController.attachVideo(video)
     }
+    // qmllint enable import unresolved-type
 
     // Idle auto-hide: any pointer motion revives the controls; they fade out
     // 2.5s later unless a menu is open or the timeline is being dragged.
@@ -255,7 +258,10 @@ Item {
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.margins: 16
+        // video is MpvVideo (runtime-registered); the linter sees it as unknown.
+        // qmllint disable incompatible-type
         blurTarget: video
+        // qmllint enable incompatible-type
         opacity: player.controlsVisible ? 1 : 0
         visible: opacity > 0
         Behavior on opacity { NumberAnimation { duration: Theme.durMed } }

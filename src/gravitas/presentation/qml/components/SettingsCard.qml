@@ -17,8 +17,8 @@ Rectangle {
     border.color: Theme.border
     implicitHeight: layout.implicitHeight + 40
 
-    opacity: 0
     SequentialAnimation on opacity {
+        PropertyAction { value: 0 }
         PauseAnimation { duration: card.enterDelay }
         NumberAnimation { to: 1; duration: Theme.durMed * 2; easing.type: Easing.OutCubic }
     }

@@ -11,10 +11,9 @@ Rectangle {
     height: 56
     radius: Theme.radiusSmall
     color: Theme.surface
-    opacity: 0.55
-
     SequentialAnimation on opacity {
         loops: Animation.Infinite
+        PropertyAction { value: 0.55 }
         PauseAnimation { duration: root.pulseDelay }
         NumberAnimation { from: 0.55; to: 1.0; duration: 700; easing.type: Easing.InOutQuad }
         NumberAnimation { from: 1.0; to: 0.55; duration: 700; easing.type: Easing.InOutQuad }

@@ -93,8 +93,8 @@ Item {
 
     states: State {
         name: "shown"
-        PropertyChanges { target: card; opacity: 1 }
-        PropertyChanges { target: slide; y: 0 }
+        PropertyChanges { card.opacity: 1 }
+        PropertyChanges { slide.y: 0 }
     }
 
     transitions: Transition {

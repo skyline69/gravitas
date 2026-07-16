@@ -74,8 +74,12 @@ Rectangle {
 
     function showMenu(items, position) {
         menuLoader.active = true
+        // Loader.item is typed QObject, so the loaded ContextMenu's members
+        // are invisible to the linter and the missing-property reports are false.
+        // qmllint disable missing-property
         menuLoader.item.entries = items
         menuLoader.item.popupAt(root, position)
+        // qmllint enable missing-property
     }
 
     Row {

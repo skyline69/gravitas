@@ -68,7 +68,14 @@ Item {
     HoverHandler {
         id: hover
         cursorShape: Qt.PointingHandCursor
-        onHoveredChanged: hovered ? tipTimer.restart() : (tipTimer.stop(), tip.close())
+        onHoveredChanged: {
+            if (hover.hovered) {
+                tipTimer.restart()
+            } else {
+                tipTimer.stop()
+                tip.close()
+            }
+        }
     }
     TapHandler { id: tap; onTapped: root.clicked() }
     Timer { id: tipTimer; interval: 500; onTriggered: tip.open() }
