@@ -5,9 +5,11 @@ from gravitas.domain.errors import AddonRemovalError, AddonUnreachable
 from gravitas.domain.models import (
     AddonManifest,
     CatalogRef,
+    ExtraSpec,
     MediaItem,
     MediaType,
     MetaDetail,
+    ResourceSpec,
     Stream,
 )
 
@@ -21,7 +23,7 @@ class FakeSource:
             id=url,
             name="Fake",
             version="1",
-            resources=("catalog",),
+            resources=(ResourceSpec(name="catalog"),),
             types=("movie",),
             catalogs=(CatalogRef(type="movie", id="top", name="Top"),),
             base_url=url,
@@ -78,9 +80,12 @@ class CapabilitySource:
 
     def _manifest(self, url: str) -> AddonManifest:
         if "meta" in url:
-            resources: tuple[str, ...] = ("catalog", "meta")
+            resources: tuple[ResourceSpec, ...] = (
+                ResourceSpec(name="catalog"),
+                ResourceSpec(name="meta"),
+            )
         else:
-            resources = ("stream",)
+            resources = (ResourceSpec(name="stream"),)
         return AddonManifest(
             id=url,
             name=url,
@@ -113,7 +118,7 @@ class CapabilitySource:
     async def fetch_streams(
         self, manifest: AddonManifest, type: MediaType, id: str
     ) -> list[Stream]:
-        if "stream" not in manifest.resources:
+        if "stream" not in manifest.resource_names:
             raise AddonUnreachable("no streams here")
         return [
             Stream(
@@ -145,7 +150,7 @@ async def test_streams_aggregate_and_dedupe_across_addons() -> None:
                 id=url,
                 name=url,
                 version="1",
-                resources=("stream",),
+                resources=(ResourceSpec(name="stream"),),
                 types=("movie",),
                 catalogs=(),
                 base_url=url,
@@ -191,7 +196,7 @@ async def test_meta_raises_when_no_meta_addon() -> None:
                 id=url,
                 name=url,
                 version="1",
-                resources=("stream",),
+                resources=(ResourceSpec(name="stream"),),
                 types=("movie",),
                 catalogs=(),
                 base_url=url,
@@ -276,9 +281,11 @@ async def test_search_aggregates_searchable_catalogs_dedup() -> None:
         id="s",
         name="S",
         version="1",
-        resources=("catalog",),
+        resources=(ResourceSpec(name="catalog"),),
         types=("movie",),
-        catalogs=(CatalogRef(type="movie", id="top", name="Top", supports_search=True),),
+        catalogs=(
+            CatalogRef(type="movie", id="top", name="Top", extra=(ExtraSpec(name="search"),)),
+        ),
         base_url="https://a/",
     )
     repo._manifests = [manifest]  # test-only: inject a searchable manifest
@@ -298,10 +305,146 @@ async def test_search_skips_non_searchable_and_faults() -> None:
             id="s",
             name="S",
             version="1",
-            resources=("catalog",),
+            resources=(ResourceSpec(name="catalog"),),
             types=("movie",),
-            catalogs=(CatalogRef(type="movie", id="top", name="Top", supports_search=True),),
+            catalogs=(
+                CatalogRef(type="movie", id="top", name="Top", extra=(ExtraSpec(name="search"),)),
+            ),
             base_url="https://a/",
         )
     ]
     assert await repo.search("x") == []  # fault-isolated -> empty, no raise
+
+
+class RecordingSource:
+    """Records which addons were actually asked, so we can prove non-calls."""
+
+    def __init__(self, manifests: dict[str, AddonManifest]) -> None:
+        self._manifests = manifests
+        self.meta_calls: list[str] = []
+        self.stream_calls: list[str] = []
+
+    async def fetch_manifest(self, url: str) -> AddonManifest:
+        return self._manifests[url]
+
+    async def fetch_catalog(self, manifest, ref, **kw):  # type: ignore[no-untyped-def]
+        raise NotImplementedError
+
+    async def fetch_meta(self, manifest: AddonManifest, type: MediaType, id: str) -> MetaDetail:
+        self.meta_calls.append(manifest.id)
+        return MetaDetail(
+            id=id,
+            type=type,
+            name="M",
+            description=None,
+            poster=None,
+            background=None,
+            videos=(),
+        )
+
+    async def fetch_streams(
+        self, manifest: AddonManifest, type: MediaType, id: str
+    ) -> list[Stream]:
+        self.stream_calls.append(manifest.id)
+        return [
+            Stream(
+                name="s", title="t", url=f"http://{manifest.id}/v", info_hash=None, file_idx=None
+            )
+        ]
+
+
+def _addon(url: str, **kw: object) -> AddonManifest:
+    base: dict[str, object] = {
+        "id": url,
+        "name": url,
+        "version": "1",
+        "resources": (),
+        "types": ("movie", "series"),
+        "catalogs": (),
+        "base_url": url,
+    }
+    base.update(kw)
+    return AddonManifest(**base)  # type: ignore[arg-type]
+
+
+async def test_meta_skips_addons_whose_id_prefix_does_not_match() -> None:
+    # Cinemeta declares idPrefixes ["tt"]; asking it for a kitsu: id is a
+    # guaranteed 404 and would mask the real error from the addon that can.
+    manifests = {
+        "imdb": _addon("imdb", resources=(ResourceSpec(name="meta"),), id_prefixes=("tt",)),
+        "kitsu": _addon("kitsu", resources=(ResourceSpec(name="meta"),), id_prefixes=("kitsu:",)),
+    }
+    source = RecordingSource(manifests)
+    repo = AddonRepository(source)
+    await repo.install("imdb")
+    await repo.install("kitsu")
+
+    await repo.meta("movie", "kitsu:123")
+
+    assert source.meta_calls == ["kitsu"]
+
+
+async def test_streams_skip_addons_that_do_not_serve_the_type() -> None:
+    manifests = {
+        "movies": _addon("movies", resources=(ResourceSpec(name="stream"),), types=("movie",)),
+        "both": _addon("both", resources=(ResourceSpec(name="stream"),)),
+    }
+    source = RecordingSource(manifests)
+    repo = AddonRepository(source)
+    await repo.install("movies")
+    await repo.install("both")
+
+    await repo.streams("series", "tt1")
+
+    assert source.stream_calls == ["both"]
+
+
+async def test_streams_respect_per_resource_narrowing() -> None:
+    # {"name": "stream", "types": ["movie"]} on an addon whose manifest serves both.
+    manifests = {
+        "narrow": _addon(
+            "narrow",
+            resources=(ResourceSpec(name="stream", types=("movie",)),),
+            types=("movie", "series"),
+        ),
+    }
+    source = RecordingSource(manifests)
+    repo = AddonRepository(source)
+    await repo.install("narrow")
+
+    await repo.streams("series", "tt1")
+    assert source.stream_calls == []
+
+    await repo.streams("movie", "tt1")
+    assert source.stream_calls == ["narrow"]
+
+
+async def test_catalog_refs_exclude_catalogs_needing_extras_we_cannot_supply() -> None:
+    # Cinemeta's last-videos/calendar-videos want ids from a user library.
+    # Requested bare they return 100 arbitrary items, which Home showed as junk.
+    manifest = _addon(
+        "cinemeta",
+        resources=(ResourceSpec(name="catalog"),),
+        catalogs=(
+            CatalogRef(type="movie", id="top", name="Top"),
+            CatalogRef(
+                type="series",
+                id="last-videos",
+                name="Last videos",
+                extra=(ExtraSpec(name="lastVideosIds", is_required=True),),
+            ),
+            CatalogRef(
+                type="movie",
+                id="year",
+                name="By year",
+                extra=(ExtraSpec(name="genre", is_required=True, options=("2024",)),),
+            ),
+        ),
+    )
+    source = RecordingSource({"cinemeta": manifest})
+    repo = AddonRepository(source)
+    await repo.install("cinemeta")
+
+    # year survives: a required genre is satisfiable from the addon's options.
+    assert [ref.id for _, ref in repo.catalog_refs()] == ["top", "year"]
+    assert [o.catalog_id for o in repo.catalog_options()] == ["top", "year"]

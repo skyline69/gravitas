@@ -393,3 +393,59 @@ async def test_movie_load_is_unaffected_by_progress(qapp: object) -> None:
     )
     await ctl.load("movie", "tt2")
     assert ctl.selectedEpisodeId == ""
+
+
+async def test_movie_streams_use_default_video_id_when_it_differs() -> None:
+    # behaviorHints.defaultVideoId names the video whose streams represent the
+    # title; an addon whose stream id differs from the meta id would otherwise
+    # be asked for the wrong one.
+    asked: list[str] = []
+
+    class Meta:
+        async def __call__(self, type: str, id: str) -> MetaDetail:
+            return MetaDetail(
+                id=id,
+                type="movie",
+                name="M",
+                description=None,
+                poster=None,
+                background=None,
+                videos=(),
+                default_video_id="yt:xyz",
+            )
+
+    class Streams:
+        async def __call__(self, type: str, id: str) -> list[Stream]:
+            asked.append(id)
+            return [Stream(name="s", title="t", url="http://v", info_hash=None, file_idx=None)]
+
+    controller = DetailController(Meta(), Streams(), StreamListModel(), EpisodeListModel(), None)
+    await controller.load("movie", "tt1")
+
+    assert asked == ["yt:xyz"]
+
+
+async def test_movie_streams_fall_back_to_media_id_without_default_video_id() -> None:
+    asked: list[str] = []
+
+    class Meta:
+        async def __call__(self, type: str, id: str) -> MetaDetail:
+            return MetaDetail(
+                id=id,
+                type="movie",
+                name="M",
+                description=None,
+                poster=None,
+                background=None,
+                videos=(),
+            )
+
+    class Streams:
+        async def __call__(self, type: str, id: str) -> list[Stream]:
+            asked.append(id)
+            return []
+
+    controller = DetailController(Meta(), Streams(), StreamListModel(), EpisodeListModel(), None)
+    await controller.load("movie", "tt1")
+
+    assert asked == ["tt1"]

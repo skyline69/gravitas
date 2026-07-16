@@ -3,7 +3,7 @@ import pytest
 import respx
 
 from gravitas.domain.errors import AddonUnreachable, InvalidResponse
-from gravitas.domain.models import AddonManifest, CatalogRef
+from gravitas.domain.models import AddonManifest, CatalogRef, ExtraSpec, ResourceSpec
 from gravitas.infrastructure.addons.client import AddonClient
 
 
@@ -86,7 +86,7 @@ async def test_fetch_catalog_builds_extra_path() -> None:
         id="a",
         name="A",
         version="1",
-        resources=("catalog",),
+        resources=(ResourceSpec(name="catalog"),),
         types=("movie",),
         catalogs=(CatalogRef(type="movie", id="top", name="T"),),
         base_url="https://a/",
@@ -99,12 +99,12 @@ async def test_fetch_catalog_builds_extra_path() -> None:
 
 @respx.mock
 async def test_fetch_catalog_search_path() -> None:
-    ref = CatalogRef(type="movie", id="top", name="Top", supports_search=True)
+    ref = CatalogRef(type="movie", id="top", name="Top", extra=(ExtraSpec(name="search"),))
     manifest = AddonManifest(
         id="c",
         name="C",
         version="1",
-        resources=("catalog",),
+        resources=(ResourceSpec(name="catalog"),),
         types=("movie",),
         catalogs=(ref,),
         base_url="https://cin.strem.io/",
@@ -134,7 +134,11 @@ _MANIFEST = AddonManifest(
     version="3.0",
     base_url="https://cin.strem.io/",
     types=("movie",),
-    resources=("catalog", "meta", "stream"),
+    resources=(
+        ResourceSpec(name="catalog"),
+        ResourceSpec(name="meta"),
+        ResourceSpec(name="stream"),
+    ),
     catalogs=(CatalogRef(type="movie", id="top", name="Popular"),),
 )
 

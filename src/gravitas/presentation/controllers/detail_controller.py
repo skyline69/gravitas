@@ -101,6 +101,9 @@ class DetailController(QObject):
     def _directors(self) -> list[str]:
         return list(self._meta.directors) if self._meta else []
 
+    def _writers(self) -> list[str]:
+        return list(self._meta.writers) if self._meta else []
+
     @Property("QVariantList", notify=metaChanged)  # type: ignore[arg-type]
     def genres(self) -> list[str]:
         return self._genres()
@@ -112,6 +115,21 @@ class DetailController(QObject):
     @Property("QVariantList", notify=metaChanged)  # type: ignore[arg-type]
     def directors(self) -> list[str]:
         return self._directors()
+
+    @Property("QVariantList", notify=metaChanged)  # type: ignore[arg-type]
+    def writers(self) -> list[str]:
+        return self._writers()
+
+    @Property(str, notify=metaChanged)
+    def trailerUrl(self) -> str:
+        """A playable YouTube URL for the title's trailer, or "" if it has none.
+
+        Empty is the signal QML uses to hide the action -- addons are not
+        obliged to carry trailers.
+        """
+        if self._meta is None or not self._meta.trailer_yt_id:
+            return ""
+        return f"https://www.youtube.com/watch?v={self._meta.trailer_yt_id}"
 
     @Property(str, notify=metaChanged)
     def mediaId(self) -> str:
@@ -273,7 +291,12 @@ class DetailController(QObject):
                 return
             self._streams_loading = True
             self.sourcesChanged.emit()
-            streams = await self._resolve_stream(media_type, item_id)
+            # behaviorHints.defaultVideoId names the video whose streams stand
+            # for the title itself. Cinemeta echoes the meta id, but an addon
+            # whose stream id differs would otherwise be asked for the wrong
+            # one and answer with nothing.
+            stream_id = meta.default_video_id or item_id
+            streams = await self._resolve_stream(media_type, stream_id)
             if token != self._seq:
                 return
             self._stream_model.set_streams(streams)

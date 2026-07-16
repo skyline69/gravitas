@@ -29,6 +29,9 @@ class CatalogOption:
     catalog_id: str
     label: str
     genres: tuple[str, ...]
+    # A genre-required catalog has no "all genres" reading: the addon will not
+    # answer without one, so the picker must not offer that choice.
+    requires_genre: bool = False
 
 
 class AddonRepository:
@@ -73,7 +76,11 @@ class AddonRepository:
         return addon_id in self._protected
 
     def catalog_refs(self) -> list[tuple[AddonManifest, CatalogRef]]:
-        return [(m, ref) for m in self._manifests for ref in m.catalogs]
+        # Non-browsable catalogs are excluded, not merely left unfetched: they
+        # demand extras only a Stremio client with a user library can supply
+        # (Cinemeta's last-videos/calendar-videos). Asked bare, a lenient addon
+        # answers with arbitrary items, which is how they reached Home as junk.
+        return [(m, ref) for m in self._manifests for ref in m.catalogs if ref.is_browsable]
 
     async def aggregate_catalog(self, ref_owner: AddonManifest, ref: CatalogRef) -> list[MediaItem]:
         try:
@@ -162,7 +169,10 @@ class AddonRepository:
         # for a movie and we fall through to the next).
         last_error: GravitasError | None = None
         for manifest in self._manifests:
-            if "meta" not in manifest.resources:
+            # serves() also honours the addon's declared types and idPrefixes:
+            # asking Cinemeta (idPrefixes ["tt"]) for a kitsu: id is a
+            # guaranteed 404, and its failure would mask the real last_error.
+            if not manifest.serves("meta", type, id):
                 continue
             try:
                 return await self._source.fetch_meta(manifest, type, id)
@@ -179,7 +189,7 @@ class AddonRepository:
         collected: list[Stream] = []
         seen: set[str] = set()
         for manifest in self._manifests:
-            if "stream" not in manifest.resources:
+            if not manifest.serves("stream", type, id):
                 continue
             try:
                 fetched = await self._source.fetch_streams(manifest, type, id)
@@ -187,7 +197,7 @@ class AddonRepository:
                 _log.warning("stream fetch failed for %s: %s", manifest.id, exc)
                 continue
             for stream in fetched:
-                key = stream.url or stream.info_hash
+                key = stream.playable_url or stream.external_url or stream.info_hash
                 if key is not None:
                     if key in seen:
                         continue
@@ -207,18 +217,21 @@ class AddonRepository:
         return None
 
     def catalog_options(self) -> list[CatalogOption]:
-        name_counts = Counter(ref.name for m in self._manifests for ref in m.catalogs)
+        # Same browsable filter as catalog_refs: Discover must not offer a
+        # board the addon will not serve without extras we cannot supply.
+        browsable = [(m, ref) for m in self._manifests for ref in m.catalogs if ref.is_browsable]
+        name_counts = Counter(ref.name for _, ref in browsable)
         options: list[CatalogOption] = []
-        for manifest in self._manifests:
-            for ref in manifest.catalogs:
-                label = ref.name if name_counts[ref.name] == 1 else f"{ref.name} ({manifest.name})"
-                options.append(
-                    CatalogOption(
-                        addon_id=manifest.id,
-                        type=ref.type,
-                        catalog_id=ref.id,
-                        label=label,
-                        genres=ref.genres,
-                    )
+        for manifest, ref in browsable:
+            label = ref.name if name_counts[ref.name] == 1 else f"{ref.name} ({manifest.name})"
+            options.append(
+                CatalogOption(
+                    addon_id=manifest.id,
+                    type=ref.type,
+                    catalog_id=ref.id,
+                    label=label,
+                    genres=ref.genres,
+                    requires_genre=ref.requires_genre,
                 )
+            )
         return options

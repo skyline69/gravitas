@@ -84,11 +84,10 @@ class AddonClient:
         skip: int = 0,
         search: str | None = None,
     ) -> list[MediaItem]:
-        path = (
-            parsing.catalog_path_extra(ref, genre, skip, search)
-            if (genre or skip or search)
-            else parsing.catalog_path(ref)
-        )
+        # Always through catalog_path_extra: it falls back to the bare path when
+        # there is nothing to encode, and it is what supplies the default genre
+        # a genre-required catalog must be asked with.
+        path = parsing.catalog_path_extra(ref, genre, skip, search)
         data = await self._get_json(manifest.base_url + path, cache_for=AddonClient.CATALOG_TTL)
         return parsing.parse_catalog(data)
 

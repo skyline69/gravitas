@@ -130,7 +130,7 @@ ApplicationWindow {
     Component {
         id: detailPage
         Detail {
-            onPlayUrl: (url) => stack.push(playerPage, {url: url})
+            onPlayUrl: (url, headers) => stack.push(playerPage, {url: url, headers: headers})
             onBack: () => stack.pop()
             onOpenSources: stack.push(sourcesPage)
         }
@@ -138,7 +138,7 @@ ApplicationWindow {
     Component {
         id: sourcesPage
         Sources {
-            onPlayUrl: (url) => stack.push(playerPage, {url: url})
+            onPlayUrl: (url, headers) => stack.push(playerPage, {url: url, headers: headers})
             onBack: () => stack.pop()
         }
     }

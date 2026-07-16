@@ -6,7 +6,7 @@ import "components"
 Item {
     id: sources
     objectName: "sourcesPage"
-    signal playUrl(string url)
+    signal playUrl(string url, var headers)
     signal back()
 
     Rectangle { anchors.fill: parent; color: Theme.bg }
@@ -96,12 +96,16 @@ Item {
             stars: model.stars
             detailText: model.extra
             onClicked: {
+                if (model.external) {
+                    playerController.openExternal(model.external)
+                    return
+                }
                 if (!model.url)
                     return
                 // Identity must land before play(); the controller
                 // reads it to resume and to record.
                 playerController.setMediaContext(detailController.mediaContext())
-                sources.playUrl(model.url)
+                sources.playUrl(model.url, model.headers)
             }
         }
     }

@@ -18,6 +18,7 @@ class FakeMpv:
         self.aid: Any = "auto"
         self.played: list[str] = []
         self.start = 0.0
+        self.http_header_fields: list[str] = []
         self.commands: list[tuple[Any, ...]] = []
         self.seeks: list[tuple[float, str]] = []
         self.terminated = False
@@ -283,3 +284,20 @@ def test_play_from_zero_clears_start_option() -> None:
     player.play("http://s/other.mkv")
     # A stale `start` would silently seek the NEXT file to the old position.
     assert fake.start == 0
+
+
+def test_play_sets_proxy_headers_for_mpv() -> None:
+    mpv = FakeMpv()
+    player = MpvPlayer(factory=lambda: mpv)
+    player.play("https://cdn/v.mp4", headers=(("Referer", "https://origin/"),))
+    assert mpv.http_header_fields == ["Referer: https://origin/"]
+
+
+def test_play_clears_headers_from_a_previous_stream() -> None:
+    # mpv keeps http-header-fields across loads: a stale Referer would leak
+    # onto the next stream and can itself cause a 403.
+    mpv = FakeMpv()
+    player = MpvPlayer(factory=lambda: mpv)
+    player.play("https://cdn/a.mp4", headers=(("Referer", "https://origin/"),))
+    player.play("https://cdn/b.mp4")
+    assert mpv.http_header_fields == []

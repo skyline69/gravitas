@@ -7,6 +7,7 @@ from gravitas.domain.models import (
     MediaItem,
     MediaType,
     MetaDetail,
+    ResourceSpec,
     Stream,
 )
 from gravitas.presentation.controllers.addon_controller import AddonController
@@ -18,7 +19,11 @@ class FakeSource:
             id="fake",
             name="Fake Addon",
             version="1",
-            resources=("catalog", "meta", "stream"),
+            resources=(
+                ResourceSpec(name="catalog"),
+                ResourceSpec(name="meta"),
+                ResourceSpec(name="stream"),
+            ),
             types=("movie",),
             catalogs=(CatalogRef(type="movie", id="top", name="Top"),),
             base_url=url,

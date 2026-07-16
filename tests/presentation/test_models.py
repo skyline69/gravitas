@@ -1,5 +1,12 @@
 from gravitas.application.watch_progress import WatchProgressRepository
-from gravitas.domain.models import AddonManifest, MediaItem, PlaybackProgress, Stream, Video
+from gravitas.domain.models import (
+    AddonManifest,
+    MediaItem,
+    PlaybackProgress,
+    ResourceSpec,
+    Stream,
+    Video,
+)
 from gravitas.presentation.models.addon_list_model import AddonListModel
 from gravitas.presentation.models.episode_list_model import EpisodeListModel
 from gravitas.presentation.models.poster_grid_model import PosterGridModel
@@ -95,7 +102,7 @@ def _manifest(id_: str, name: str) -> AddonManifest:
         id=id_,
         name=name,
         version="1",
-        resources=("catalog",),
+        resources=(ResourceSpec(name="catalog"),),
         types=("movie",),
         catalogs=(),
         base_url="https://x/",

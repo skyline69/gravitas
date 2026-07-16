@@ -3,9 +3,11 @@ from gravitas.application.browse_board import BoardPage, BrowseBoard
 from gravitas.domain.models import (
     AddonManifest,
     CatalogRef,
+    ExtraSpec,
     MediaItem,
     MediaType,
     MetaDetail,
+    ResourceSpec,
     Stream,
 )
 
@@ -24,9 +26,16 @@ class FakeSource:
             id="a",
             name="Addon A",
             version="1",
-            resources=("catalog",),
+            resources=(ResourceSpec(name="catalog"),),
             types=("movie",),
-            catalogs=(CatalogRef(type="movie", id="top", name="Top", genres=("Action",)),),
+            catalogs=(
+                CatalogRef(
+                    type="movie",
+                    id="top",
+                    name="Top",
+                    extra=(ExtraSpec(name="genre", options=("Action",)),),
+                ),
+            ),
             base_url=url,
         )
 

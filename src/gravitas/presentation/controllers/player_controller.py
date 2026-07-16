@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
+from PySide6.QtCore import Property, QObject, QTimer, QUrl, Signal, Slot
+from PySide6.QtGui import QDesktopServices
 
 from gravitas.application.watch_progress import WatchProgressRepository
 from gravitas.domain.errors import PlaybackFailed
@@ -101,13 +102,20 @@ class PlayerController(QObject):
     # --- controls ---
 
     @Slot(str)
-    def play(self, url: str) -> None:
+    @Slot(str, "QVariantMap")
+    def play(self, url: str, headers: dict[str, str] | None = None) -> None:
         player = self._ensure()
         if player is None:
             return
         start = self._resume_position()
         try:
-            player.play(url, start=start)
+            # behaviorHints.proxyHeaders.request from the chosen stream: some
+            # addons 403 without their Referer/User-Agent.
+            player.play(
+                url,
+                start=start,
+                headers=tuple((str(k), str(v)) for k, v in (headers or {}).items()),
+            )
         except PlaybackFailed as exc:
             self.errorOccurred.emit(str(exc))
             return
@@ -121,6 +129,16 @@ class PlayerController(QObject):
             QTimer.singleShot(0, lambda: self.resumed.emit(start))
         self._save_timer.start()
         self.stateChanged.emit()
+
+    @Slot(str)
+    def openExternal(self, url: str) -> None:
+        """Hand an externalUrl stream to the system browser.
+
+        The protocol's externalUrl points at a web page (a service's own
+        player), not a media file -- mpv cannot do anything with it.
+        """
+        if url:
+            QDesktopServices.openUrl(QUrl(url))
 
     @Slot()
     def stop(self) -> None:

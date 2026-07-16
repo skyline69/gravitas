@@ -60,6 +60,7 @@ Item {
             height: 300
             title: model.name
             posterUrl: model.poster ? model.poster : ""
+            posterShape: model.posterShape
             mediaType: model.type
             progressFraction: model.progressFraction
             watched: model.watched

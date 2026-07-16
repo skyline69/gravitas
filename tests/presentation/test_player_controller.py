@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 from gravitas.presentation.controllers.player_controller import PlayerController
 
@@ -15,18 +15,22 @@ class FakePlayer:
         self._volume = 100.0
         self._position = 0.0
         self.start = 0.0
+        self.headers: tuple[tuple[str, str], ...] = ()
         self._duration = 100.0
         self._tracks: list[tuple[int, str]] = [(2, "English")]
         self._audio: list[tuple[int, str]] = [(1, "eng · 5.1")]
         self._tracks_changed_callback: Callable[[], None] | None = None
         self._state_changed_callback: Callable[[], None] | None = None
 
-    def play(self, url: str, *, start: float = 0.0) -> None:
+    def play(
+        self, url: str, *, start: float = 0.0, headers: Sequence[tuple[str, str]] = ()
+    ) -> None:
         if self.fail:
             from gravitas.domain.errors import PlaybackFailed
 
             raise PlaybackFailed("boom")
         self.start = start
+        self.headers = tuple(headers)
         self._position = start
         # Recorded without `start` so the existing call-order assertions hold.
         self.calls.append(f"play:{url}")
@@ -457,3 +461,18 @@ def test_switching_titles_without_stopping_records_against_the_right_one(
         ("tt9", 300.0),
         ("tt2", 400.0),
     ]
+
+
+def test_play_forwards_proxy_headers_from_qml() -> None:
+    player = FakePlayer()
+    controller = PlayerController(lambda: player)
+    controller.play("https://cdn/v.mp4", {"Referer": "https://origin/"})
+    assert player.headers == (("Referer", "https://origin/"),)
+
+
+def test_play_without_headers_passes_none_through() -> None:
+    # QML's single-argument overload must keep working.
+    player = FakePlayer()
+    controller = PlayerController(lambda: player)
+    controller.play("https://cdn/v.mp4")
+    assert player.headers == ()

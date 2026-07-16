@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Protocol, runtime_checkable
 
 from gravitas.domain.models import (
@@ -39,8 +39,18 @@ class AddonSource(Protocol):
 
 @runtime_checkable
 class MediaPlayer(Protocol):
-    def play(self, url: str, *, start: float = 0.0) -> None:
-        """Begin playback, seeking to `start` seconds at load time."""
+    def play(
+        self,
+        url: str,
+        *,
+        start: float = 0.0,
+        headers: Sequence[tuple[str, str]] = (),
+    ) -> None:
+        """Begin playback, seeking to `start` seconds at load time.
+
+        `headers` are the stream's behaviorHints.proxyHeaders.request: some
+        addons serve their URL only with a specific Referer/User-Agent.
+        """
         ...
 
     def stop(self) -> None: ...

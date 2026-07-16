@@ -16,6 +16,7 @@ from gravitas.domain.models import (
     MediaType,
     MetaDetail,
     ResolvedMedia,
+    ResourceSpec,
     Stream,
 )
 
@@ -26,7 +27,11 @@ class FakeSource:
             id="fake",
             name="Fake",
             version="1",
-            resources=("catalog", "meta", "stream"),
+            resources=(
+                ResourceSpec(name="catalog"),
+                ResourceSpec(name="meta"),
+                ResourceSpec(name="stream"),
+            ),
             types=("movie",),
             catalogs=(CatalogRef(type="movie", id="top", name="Top"),),
             base_url=url,

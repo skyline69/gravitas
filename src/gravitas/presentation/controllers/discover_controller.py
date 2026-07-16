@@ -40,11 +40,33 @@ class DiscoverController(QObject):
     def _catalogs_for_type(self) -> list[CatalogOption]:
         return [opt for opt in self._options if opt.type == self._type]
 
-    def _genre_options(self) -> list[str]:
+    def _current_catalog(self) -> CatalogOption | None:
         cats = self._catalogs_for_type()
         if not cats or self._catalog_idx >= len(cats):
+            return None
+        return cats[self._catalog_idx]
+
+    def _genre_options(self) -> list[str]:
+        current = self._current_catalog()
+        if current is None:
             return ["All genres"]
-        return ["All genres", *cats[self._catalog_idx].genres]
+        if current.requires_genre:
+            # The addon demands a genre, so "All genres" is not on offer --
+            # showing it would label a genre-filtered board as unfiltered.
+            return list(current.genres)
+        return ["All genres", *current.genres]
+
+    def _default_genre(self) -> str | None:
+        """The genre a freshly-opened board starts on.
+
+        None means "All genres"; a genre-required catalog has no such state, so
+        it starts on the addon's own first option -- the same one the request
+        layer would fall back to anyway.
+        """
+        current = self._current_catalog()
+        if current is not None and current.requires_genre and current.genres:
+            return current.genres[0]
+        return None
 
     @Property("QVariantList", notify=optionsChanged)  # type: ignore[arg-type]
     def typeOptions(self) -> list[str]:
@@ -87,7 +109,7 @@ class DiscoverController(QObject):
             ),
             0,
         )
-        self._genre = None
+        self._genre = self._default_genre()
         self.optionsChanged.emit()
         await self._reload()
 
@@ -98,7 +120,7 @@ class DiscoverController(QObject):
             return
         self._type = "series" if types[index] == "series" else "movie"
         self._catalog_idx = 0
-        self._genre = None
+        self._genre = self._default_genre()
         self.optionsChanged.emit()
         await self._reload()
 
@@ -107,7 +129,7 @@ class DiscoverController(QObject):
         if not 0 <= index < len(self._catalogs_for_type()):
             return
         self._catalog_idx = index
-        self._genre = None
+        self._genre = self._default_genre()
         self.optionsChanged.emit()
         await self._reload()
 
@@ -116,7 +138,13 @@ class DiscoverController(QObject):
         genres = self._genre_options()
         if not 0 <= index < len(genres):
             return
-        self._genre = None if index == 0 else genres[index]
+        current = self._current_catalog()
+        # Index 0 is only the "All genres" sentinel when the list actually
+        # carries one; for a genre-required catalog it is a real genre.
+        if index == 0 and (current is None or not current.requires_genre):
+            self._genre = None
+        else:
+            self._genre = genres[index]
         await self._reload()
 
     @asyncSlot()  # type: ignore[untyped-decorator]

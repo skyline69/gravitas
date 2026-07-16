@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any, get_args
 from urllib.parse import quote
@@ -10,38 +11,69 @@ from gravitas.domain.errors import InvalidManifest, InvalidResponse
 from gravitas.domain.models import (
     AddonManifest,
     CatalogRef,
+    ExtraSpec,
     MediaItem,
     MediaType,
     MetaDetail,
+    PosterShape,
+    ResourceSpec,
     Stream,
     Video,
 )
 
+_log = logging.getLogger(__name__)
+
 _VALID_TYPES: frozenset[str] = frozenset(get_args(MediaType))
+_VALID_POSTER_SHAPES: frozenset[str] = frozenset(get_args(PosterShape))
 
 
-def _parse_catalog_extra(raw: dict[str, Any]) -> tuple[tuple[str, ...], bool, bool]:
+def _poster_shape(raw: Any) -> PosterShape:
+    """`posterShape` if the addon named a known one, else the protocol default."""
+    if isinstance(raw, str) and raw in _VALID_POSTER_SHAPES:
+        return raw  # type: ignore[return-value]
+    return "poster"
+
+
+def _parse_extras(raw: dict[str, Any]) -> tuple[ExtraSpec, ...]:
+    """Catalog `extra`, in either the modern or the legacy shape.
+
+    Modern: [{"name": "genre", "isRequired": true, "options": [...],
+    "optionsLimit": 1}]. Legacy: parallel extraSupported/extraRequired/genres
+    arrays. Addons in the wild still ship the legacy form.
+    """
     extra = raw.get("extra")
     if isinstance(extra, list):
-        genres: tuple[str, ...] = ()
-        supports_skip = False
-        supports_search = False
+        specs: list[ExtraSpec] = []
         for entry in extra:
             if not isinstance(entry, dict):
                 continue
             name = entry.get("name")
-            if name == "genre":
-                genres = tuple(str(o) for o in entry.get("options", []))
-            elif name == "skip":
-                supports_skip = True
-            elif name == "search":
-                supports_search = True
-        return genres, supports_skip, supports_search
+            if not isinstance(name, str):
+                continue
+            limit = entry.get("optionsLimit")
+            specs.append(
+                ExtraSpec(
+                    name=name,
+                    is_required=bool(entry.get("isRequired", False)),
+                    options=tuple(str(o) for o in entry.get("options", []) or ()),
+                    options_limit=limit if isinstance(limit, int) and limit > 0 else 1,
+                )
+            )
+        return tuple(specs)
     supported = raw.get("extraSupported")
     if isinstance(supported, list):
-        genres = tuple(str(g) for g in raw.get("genres", [])) if "genre" in supported else ()
-        return genres, "skip" in supported, "search" in supported
-    return (), False, False
+        required = raw.get("extraRequired")
+        required_names = {str(r) for r in required} if isinstance(required, list) else set()
+        genres = tuple(str(g) for g in raw.get("genres", []) or ())
+        return tuple(
+            ExtraSpec(
+                name=str(name),
+                is_required=str(name) in required_names,
+                options=genres if name == "genre" else (),
+            )
+            for name in supported
+        )
+    return ()
 
 
 def _require(data: dict[str, Any], key: str, ctx: str) -> Any:
@@ -50,17 +82,25 @@ def _require(data: dict[str, Any], key: str, ctx: str) -> Any:
     return data[key]
 
 
-def _resource_names(raw: Any) -> tuple[str, ...]:
+def _parse_resources(raw: Any) -> tuple[ResourceSpec, ...]:
     # Stremio resources are either short strings ("stream") or full objects
-    # ({"name": "stream", "types": [...], "idPrefixes": [...]}); collect names.
-    names: list[str] = []
+    # ({"name": "stream", "types": [...], "idPrefixes": [...]}). The object form
+    # narrows what the addon will answer for; dropping it means calling addons
+    # that can only 404.
+    specs: list[ResourceSpec] = []
     if isinstance(raw, list):
         for r in raw:
             if isinstance(r, str):
-                names.append(r)
+                specs.append(ResourceSpec(name=r))
             elif isinstance(r, dict) and isinstance(r.get("name"), str):
-                names.append(r["name"])
-    return tuple(names)
+                specs.append(
+                    ResourceSpec(
+                        name=r["name"],
+                        types=_str_tuple(r.get("types")),
+                        id_prefixes=_str_tuple(r.get("idPrefixes")),
+                    )
+                )
+    return tuple(specs)
 
 
 def _str_or_none(v: Any) -> str | None:
@@ -83,26 +123,34 @@ def parse_manifest(data: dict[str, Any], base_url: str) -> AddonManifest:
     for raw in data.get("catalogs", []):
         c_type = raw.get("type")
         if c_type not in _VALID_TYPES:
+            # "channel" and "tv" catalogs are dropped on purpose: supporting
+            # them would make MediaType four-way and Gravitas an IPTV client.
+            # A product decision (see MediaType), not an oversight -- an addon
+            # serving only those installs fine and shows nothing, so say so.
+            _log.info(
+                "addon %s: ignoring %r catalog %r (only movie/series are supported)",
+                manifest_id,
+                c_type,
+                raw.get("id", ""),
+            )
             continue
-        genres, supports_skip, supports_search = _parse_catalog_extra(raw)
         catalogs.append(
             CatalogRef(
                 type=c_type,
                 id=raw.get("id", ""),
                 name=raw.get("name", raw.get("id", "")),
-                genres=genres,
-                supports_skip=supports_skip,
-                supports_search=supports_search,
+                extra=_parse_extras(raw),
             )
         )
     return AddonManifest(
         id=str(manifest_id),
         name=str(name),
         version=str(data.get("version", "0.0.0")),
-        resources=_resource_names(data.get("resources", [])),
+        resources=_parse_resources(data.get("resources", [])),
         types=tuple(str(t) for t in data.get("types", [])),
         catalogs=tuple(catalogs),
         base_url=base_url if base_url.endswith("/") else base_url + "/",
+        id_prefixes=_str_tuple(data.get("idPrefixes")),
     )
 
 
@@ -126,6 +174,7 @@ def parse_catalog(data: dict[str, Any]) -> list[MediaItem]:
                 poster=raw.get("poster"),
                 year=year,
                 imdb_rating=str(rating) if rating is not None else None,
+                poster_shape=_poster_shape(raw.get("posterShape")),
             )
         )
     return items
@@ -146,6 +195,42 @@ def _parse_video(raw: dict[str, Any]) -> Video:
     )
 
 
+def _link_names(links: Any, category: str) -> tuple[str, ...]:
+    """Names of a `links` category, e.g. "Cast" -> ("Keanu Reeves", ...).
+
+    `links` is the modern replacement for the flat genres/cast/director arrays.
+    Cinemeta sends both, but addons emitting only links would otherwise show
+    empty fields.
+    """
+    if not isinstance(links, list):
+        return ()
+    return tuple(
+        str(link["name"])
+        for link in links
+        if isinstance(link, dict) and link.get("category") == category and "name" in link
+    )
+
+
+def _trailer_yt_id(meta: dict[str, Any]) -> str | None:
+    # trailerStreams is [{"title": ..., "ytId": ...}]; the legacy `trailers` is
+    # [{"source": <ytId>, "type": "Trailer"}].
+    streams = meta.get("trailerStreams")
+    if isinstance(streams, list):
+        for entry in streams:
+            if isinstance(entry, dict):
+                yt_id = _str_or_none(entry.get("ytId"))
+                if yt_id:
+                    return yt_id
+    trailers = meta.get("trailers")
+    if isinstance(trailers, list):
+        for entry in trailers:
+            if isinstance(entry, dict):
+                source = _str_or_none(entry.get("source"))
+                if source:
+                    return source
+    return None
+
+
 def parse_meta(data: dict[str, Any]) -> MetaDetail:
     meta = data.get("meta")
     if not isinstance(meta, dict):
@@ -154,6 +239,11 @@ def parse_meta(data: dict[str, Any]) -> MetaDetail:
     if m_type not in _VALID_TYPES:
         raise InvalidResponse(f"unsupported meta type: {m_type!r}")
     videos = tuple(_parse_video(v) for v in meta.get("videos", []) if isinstance(v, dict))
+    links = meta.get("links")
+    hints = meta.get("behaviorHints")
+    default_video_id = (
+        _str_or_none(hints.get("defaultVideoId")) if isinstance(hints, dict) else None
+    )
     return MetaDetail(
         id=str(meta.get("id", "")),
         type=m_type,
@@ -166,9 +256,15 @@ def parse_meta(data: dict[str, Any]) -> MetaDetail:
         year=_str_or_none(meta.get("releaseInfo")) or _str_or_none(meta.get("year")),
         runtime=_str_or_none(meta.get("runtime")),
         imdb_rating=_str_or_none(meta.get("imdbRating")),
-        genres=_str_tuple(meta.get("genres")),
-        cast=_str_tuple(meta.get("cast")),
-        directors=_str_tuple(meta.get("director")),
+        # Legacy arrays win when present -- they are what Cinemeta and most
+        # addons still send; links is the documented fallback, not an override.
+        genres=_str_tuple(meta.get("genres")) or _link_names(links, "Genres"),
+        cast=_str_tuple(meta.get("cast")) or _link_names(links, "Cast"),
+        directors=_str_tuple(meta.get("director")) or _link_names(links, "Directors"),
+        writers=_str_tuple(meta.get("writer")) or _link_names(links, "Writers"),
+        poster_shape=_poster_shape(meta.get("posterShape")),
+        trailer_yt_id=_trailer_yt_id(meta),
+        default_video_id=default_video_id,
     )
 
 
@@ -184,19 +280,49 @@ def _clean_stream_text(value: str) -> str:
     return " ".join(_UNRENDERABLE.sub("", value).split())
 
 
+def _proxy_headers(raw: dict[str, Any]) -> tuple[tuple[str, str], ...]:
+    """behaviorHints.proxyHeaders.request: headers the addon's URL needs.
+
+    Some addons only serve their stream with a specific Referer/User-Agent and
+    403 without it. Response headers are for a proxying client to forward; the
+    player only needs the request side.
+    """
+    hints = raw.get("behaviorHints")
+    if not isinstance(hints, dict):
+        return ()
+    proxy = hints.get("proxyHeaders")
+    if not isinstance(proxy, dict):
+        return ()
+    request = proxy.get("request")
+    if not isinstance(request, dict):
+        return ()
+    return tuple(
+        (str(key), str(value))
+        for key, value in request.items()
+        if isinstance(key, str) and isinstance(value, (str, int, float))
+    )
+
+
 def parse_streams(data: dict[str, Any]) -> list[Stream]:
     raw_streams = data.get("streams")
     if not isinstance(raw_streams, list):
         raise InvalidResponse("stream response missing 'streams' list")
     streams: list[Stream] = []
     for raw in raw_streams:
+        # The SDK deprecates `title` in favour of `description`; addons emitting
+        # only the latter would otherwise render as a bare name, losing the
+        # quality/size line.
+        detail = raw.get("description") or raw.get("title") or raw.get("name", "")
         streams.append(
             Stream(
                 name=_clean_stream_text(str(raw.get("name", ""))),
-                title=_clean_stream_text(str(raw.get("title", raw.get("name", "")))),
+                title=_clean_stream_text(str(detail)),
                 url=raw.get("url"),
                 info_hash=raw.get("infoHash"),
                 file_idx=raw.get("fileIdx"),
+                yt_id=_str_or_none(raw.get("ytId")),
+                external_url=_str_or_none(raw.get("externalUrl")),
+                proxy_headers=_proxy_headers(raw),
             )
         )
     return streams
@@ -209,6 +335,11 @@ def catalog_path(ref: CatalogRef) -> str:
 def catalog_path_extra(
     ref: CatalogRef, genre: str | None, skip: int, search: str | None = None
 ) -> str:
+    # A catalog declaring genre as isRequired must never be asked without one:
+    # lenient addons (Cinemeta) answer anyway, strict ones reject the request.
+    # The addon's own first option is the only default we can justify.
+    if genre is None and ref.requires_genre and ref.genres:
+        genre = ref.genres[0]
     parts: list[str] = []
     if genre:
         parts.append(f"genre={quote(genre, safe='')}")

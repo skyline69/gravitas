@@ -6,9 +6,15 @@ import "components"
 Item {
     id: player
     property string url
+    // behaviorHints.proxyHeaders.request of the chosen stream.
+    property var headers: ({})
     signal back()
 
-    onUrlChanged: if (url.length) playerController.play(url)
+    // Deliberately NOT onUrlChanged: StackView applies initial properties one
+    // at a time between beginCreate() and completeCreate(), so `url` arriving
+    // first would start playback while `headers` was still its default {} --
+    // silently dropping the Referer a proxyHeaders stream needs. By
+    // onCompleted every initial property is in place.
 
     // Track selection state for the check mark in the menus. -1 = default/off.
     property int currentAudio: -1
@@ -145,7 +151,11 @@ Item {
         }
     }
 
-    Component.onCompleted: player.forceActiveFocus()
+    Component.onCompleted: {
+        player.forceActiveFocus()
+        if (player.url.length)
+            playerController.play(player.url, player.headers)
+    }
     focus: true
     Keys.onPressed: (event) => {
         player.showControls()

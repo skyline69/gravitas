@@ -16,8 +16,18 @@ Item {
     // { mediaId, videoId, type, name, poster, label } — null disables the menu.
     property var forgetContext: null
     signal clicked()
+    // The addon's posterShape hint: "poster" (2:3, the protocol default),
+    // "landscape" (16:9) or "square". Cropping landscape art into a portrait
+    // box is what happens when this is ignored.
+    property string posterShape: "poster"
+    readonly property real coverWidth: 160
+    readonly property real coverHeight: root.posterShape === "landscape"
+        ? Math.round(root.coverWidth * 9 / 16)
+        : root.posterShape === "square"
+            ? root.coverWidth
+            : 220
     width: 160
-    height: 260
+    height: root.coverHeight + 40
 
     function openMenu(position) {
         if (!root.forgetContext)
@@ -81,7 +91,7 @@ Item {
 
         Item {
             id: cover
-            width: 160; height: 220
+            width: root.coverWidth; height: root.coverHeight
 
             // skeleton placeholder shown until the poster is ready: a surface
             // fill with an animated shimmer sweep while the image loads
@@ -139,8 +149,8 @@ Item {
                 id: img
                 anchors.fill: parent
                 // Request/decode a poster sized for this card, not full-res art.
-                source: Img.sized(root.posterUrl, 220)
-                sourceSize.width: 220
+                source: Img.sized(root.posterUrl, Math.round(root.coverHeight))
+                sourceSize.width: Math.round(root.coverHeight)
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
                 cache: true

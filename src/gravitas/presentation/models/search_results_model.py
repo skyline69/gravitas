@@ -28,6 +28,7 @@ class SearchResultsModel(QAbstractListModel):
     YearRole = Qt.ItemDataRole.UserRole + 5
     ProgressFractionRole = Qt.ItemDataRole.UserRole + 6
     WatchedRole = Qt.ItemDataRole.UserRole + 7
+    PosterShapeRole = Qt.ItemDataRole.UserRole + 8
 
     def __init__(self, progress: WatchProgressRepository | None = None) -> None:
         super().__init__()
@@ -68,6 +69,8 @@ class SearchResultsModel(QAbstractListModel):
                 return item.name
             case SearchResultsModel.PosterRole:
                 return item.poster or ""
+            case SearchResultsModel.PosterShapeRole:
+                return item.poster_shape
             case SearchResultsModel.YearRole:
                 return item.year or ""
             case SearchResultsModel.ProgressFractionRole:
@@ -85,4 +88,5 @@ class SearchResultsModel(QAbstractListModel):
             SearchResultsModel.YearRole: QByteArray(b"year"),
             SearchResultsModel.ProgressFractionRole: QByteArray(b"progressFraction"),
             SearchResultsModel.WatchedRole: QByteArray(b"watched"),
+            SearchResultsModel.PosterShapeRole: QByteArray(b"posterShape"),
         }

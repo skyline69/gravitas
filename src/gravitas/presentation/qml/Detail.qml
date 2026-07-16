@@ -7,7 +7,7 @@ Item {
     id: detail
     property string mediaType
     property string mediaId
-    signal playUrl(string url)
+    signal playUrl(string url, var headers)
     signal back()
     signal openSources()
 
@@ -204,6 +204,27 @@ Item {
                 font.pixelSize: Theme.fontSmall
             }
 
+            // writers
+            Text {
+                width: parent.width
+                visible: detailController && detailController.writers && detailController.writers.length > 0
+                text: (detailController && detailController.writers)
+                    ? "Written by " + detailController.writers.join(", ")
+                    : ""
+                color: Theme.textDim
+                font.pixelSize: Theme.fontSmall
+            }
+
+            // trailer — only when the addon carries one. Plays through mpv's
+            // ytdl_hook, so it needs yt-dlp present; failure surfaces as the
+            // usual playback error rather than a dead button.
+            AppButton {
+                visible: detailController && detailController.trailerUrl.length > 0
+                text: "Play trailer"
+                ghost: true
+                onClicked: detail.playUrl(detailController.trailerUrl, ({}))
+            }
+
             // episodes (series with videos only)
             Column {
                 width: parent.width
@@ -318,12 +339,18 @@ Item {
                         stars: model.stars
                         detailText: model.extra
                         onClicked: {
+                            // externalUrl streams are a web page, not a media
+                            // file: mpv can do nothing with them.
+                            if (model.external) {
+                                playerController.openExternal(model.external)
+                                return
+                            }
                             if (!model.url)
                                 return
                             // Identity must land before play(); the controller
                             // reads it to resume and to record.
                             playerController.setMediaContext(detailController.mediaContext())
-                            detail.playUrl(model.url)
+                            detail.playUrl(model.url, model.headers)
                         }
                     }
                 }

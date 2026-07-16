@@ -40,6 +40,10 @@ Data model follows the Stremio addon protocol: addons serve `/manifest.json`, `/
 
 **No torrent engine, ever.** The player only receives direct HTTP/HLS URLs. `ResolveStream` filters to `stream.is_direct` and raises `NoStreams` otherwise. Torrent→URL resolution belongs to a future client-side debrid milestone (a `DebridResolver` port stub exists but is unused).
 
+**yt-dlp is an optional system dependency, like libmpv.** `Stream.playable_url` maps a protocol `ytId` (YouTube-backed streams and every `trailerStreams` entry) to a watch URL, which mpv resolves through its `ytdl_hook` — that hook shells out to `yt-dlp`. Without it on PATH, those streams raise `PlaybackFailed` like any other unplayable URL; everything else works untouched.
+
+**Only `movie` and `series` exist here.** The protocol also defines `channel` and `tv`; supporting them would make `MediaType` four-way and turn Gravitas into an IPTV client. `parse_manifest` drops catalogs of those types and logs each one — an addon serving only them installs fine and shows nothing, so the log is the only clue. Deliberate; see the roadmap before "fixing" it.
+
 ## Critical gotchas (each cost a review cycle)
 
 - **Async controller slots must use `@qasync.asyncSlot`, not `@Slot`.** PySide6 silently drops the coroutine from a plain `@Slot` async method — it's constructed and never awaited. `CatalogController.refresh` / `DetailController.load` rely on `asyncSlot` so they actually run on the qasync loop. The app runs asyncio on Qt's loop via `qasync`; all HTTP is async httpx.

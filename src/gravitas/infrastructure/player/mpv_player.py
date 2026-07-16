@@ -12,7 +12,7 @@ import locale
 import os
 import sys
 from collections import Counter
-from collections.abc import Callable, MutableMapping
+from collections.abc import Callable, MutableMapping, Sequence
 from typing import Any
 
 from gravitas.domain.errors import PlaybackFailed
@@ -221,12 +221,22 @@ class MpvPlayer:
 
     # --- playback ---
 
-    def play(self, url: str, *, start: float = 0.0) -> None:
+    def play(
+        self,
+        url: str,
+        *,
+        start: float = 0.0,
+        headers: Sequence[tuple[str, str]] = (),
+    ) -> None:
         try:
             # `start` is applied by mpv when the file loads, so resuming needs
             # no seek-after-file-loaded race. Always assign it: mpv keeps the
             # option across loads, and a stale value would seek the next file.
             self._mpv.start = start if start > 0 else 0
+            # Same reasoning: http-header-fields persists across loads, so it
+            # must be assigned every time or the previous stream's Referer
+            # leaks onto the next one. mpv wants "Key: value" strings.
+            self._mpv.http_header_fields = [f"{key}: {value}" for key, value in headers]
             self._mpv.play(url)
             self._mpv.pause = False
         except Exception as exc:

@@ -29,6 +29,7 @@ class PosterGridModel(QAbstractListModel):
     ProgressFractionRole = Qt.ItemDataRole.UserRole + 7
     WatchedRole = Qt.ItemDataRole.UserRole + 8
     ProgressLabelRole = Qt.ItemDataRole.UserRole + 9
+    PosterShapeRole = Qt.ItemDataRole.UserRole + 10
 
     def __init__(self, progress: WatchProgressRepository | None = None) -> None:
         super().__init__()
@@ -96,6 +97,8 @@ class PosterGridModel(QAbstractListModel):
                 return item.name
             case PosterGridModel.PosterRole:
                 return item.poster
+            case PosterGridModel.PosterShapeRole:
+                return item.poster_shape
             case PosterGridModel.YearRole:
                 return item.year
             case PosterGridModel.RatingRole:
@@ -114,6 +117,7 @@ class PosterGridModel(QAbstractListModel):
             PosterGridModel.TypeRole: QByteArray(b"type"),
             PosterGridModel.NameRole: QByteArray(b"name"),
             PosterGridModel.PosterRole: QByteArray(b"poster"),
+            PosterGridModel.PosterShapeRole: QByteArray(b"posterShape"),
             PosterGridModel.YearRole: QByteArray(b"year"),
             PosterGridModel.RatingRole: QByteArray(b"rating"),
             PosterGridModel.ProgressFractionRole: QByteArray(b"progressFraction"),

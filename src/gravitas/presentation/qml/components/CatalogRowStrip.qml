@@ -71,6 +71,7 @@ Item {
             height: strip.height
             title: model.name
             posterUrl: model.poster ? model.poster : ""
+            posterShape: model.posterShape
             mediaType: model.type
             progressFraction: model.progressFraction
             watched: model.watched

@@ -72,6 +72,8 @@ class StreamListModel(QAbstractListModel):
     StarsRole = Qt.ItemDataRole.UserRole + 7
     DetailRole = Qt.ItemDataRole.UserRole + 8
     SubtitleRole = Qt.ItemDataRole.UserRole + 9
+    HeadersRole = Qt.ItemDataRole.UserRole + 10
+    ExternalRole = Qt.ItemDataRole.UserRole + 11
 
     def __init__(self) -> None:
         super().__init__()
@@ -105,7 +107,15 @@ class StreamListModel(QAbstractListModel):
             case StreamListModel.TitleRole:
                 return stream.title
             case StreamListModel.UrlRole:
-                return stream.url
+                # playable_url, not url: a ytId stream has no url but plays
+                # fine through mpv's ytdl_hook.
+                return stream.playable_url
+            case StreamListModel.HeadersRole:
+                return dict(stream.proxy_headers)
+            case StreamListModel.ExternalRole:
+                # Only for streams with nothing playable in-app; a stream
+                # offering both is played, not handed to a browser.
+                return stream.external_url if stream.is_external else ""
             case StreamListModel.ResolutionRole:
                 return display.resolution
             case StreamListModel.InstantRole:
@@ -133,4 +143,6 @@ class StreamListModel(QAbstractListModel):
             # bare context properties, and "detail" shadows the Detail page id.
             StreamListModel.DetailRole: QByteArray(b"extra"),
             StreamListModel.SubtitleRole: QByteArray(b"subtitle"),
+            StreamListModel.HeadersRole: QByteArray(b"headers"),
+            StreamListModel.ExternalRole: QByteArray(b"external"),
         }
