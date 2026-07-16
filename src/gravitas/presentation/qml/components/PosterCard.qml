@@ -20,11 +20,12 @@ Item {
             return
         var items = []
         // Movies only. A series poster can never show a watched badge (the
-        // model reports watched=false for series), and marking one watched
-        // here would write a videoId-less, zero-duration entry that becomes
-        // the series' latest_for() — silently hiding real episode progress
-        // with no badge, no feedback, and no undo. Episodes are marked
-        // watched from the Detail page, where the episodes actually are.
+        // model reports watched=false for series), so offering "Mark as
+        // watched" here would be a UI lie -- there's nothing for it to
+        // visibly flip. Marking a whole series watched from the grid would
+        // also need per-episode knowledge the grid doesn't have (which
+        // episodes exist, which are already watched). Episodes are marked
+        // watched from the Detail page, where that knowledge lives.
         if (!root.watched && root.forgetContext.type !== "series") {
             items.push({
                 label: "Mark as watched",
