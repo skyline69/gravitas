@@ -107,15 +107,6 @@ Item {
         return h > 0 ? h + ":" + pad(m) + ":" + pad(sec) : m + ":" + pad(sec)
     }
 
-    function formatClock(seconds) {
-        var total = Math.max(0, Math.floor(seconds))
-        var h = Math.floor(total / 3600)
-        var m = Math.floor((total % 3600) / 60)
-        var s = total % 60
-        var mm = (h > 0 && m < 10 ? "0" : "") + m
-        return (h > 0 ? h + ":" : "") + mm + ":" + (s < 10 ? "0" : "") + s
-    }
-
     // Self-contained pill: the shared Toast lives in Main.qml and the player
     // page has no handle on it.
     Rectangle {
@@ -149,7 +140,7 @@ Item {
     Connections {
         target: playerController
         function onResumed(position) {
-            resumeLabel.text = "Resumed from " + player.formatClock(position)
+            resumeLabel.text = "Resumed from " + player.fmt(position)
             resumeFade.restart()
         }
     }
