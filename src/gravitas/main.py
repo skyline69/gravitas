@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -51,6 +52,8 @@ from gravitas.presentation.models.search_results_model import SearchResultsModel
 from gravitas.presentation.models.stream_list_model import StreamListModel
 from gravitas.presentation.models.watched_list_model import WatchedListModel
 
+_log = logging.getLogger(__name__)
+
 _QML_DIR = Path(__file__).parent / "presentation" / "qml"
 DEFAULT_ADDON = "https://v3-cinemeta.strem.io/manifest.json"
 
@@ -90,6 +93,13 @@ def build_app(
     persisted = settings_store.load()
 
     progress_repo = WatchProgressRepository(SqliteProgressStore())
+    # Once per launch, right after the table is indexed and before anything
+    # reads it. Startup is the only cost that scales with the table, so this is
+    # exactly where bounding it pays -- and doing it here rather than on every
+    # write keeps the 5s playback tick a single UPSERT.
+    pruned = progress_repo.prune()
+    if pruned:
+        _log.info("pruned %d old watched progress rows", pruned)
 
     tmdb_key = _TmdbKeyHolder()
     tmdb_key.key = persisted.tmdb_key

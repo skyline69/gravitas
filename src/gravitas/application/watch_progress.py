@@ -6,9 +6,13 @@ store arrives through the ProgressStore port.
 
 The whole table is held in three dicts. Progress is read per grid cell on
 every flick, so a read must always be a dict hit -- never a scan, never disk.
-Rows are never pruned, so `_by_key` grows monotonically; each dict is
-maintained incrementally on write so every read stays O(1) regardless of
-table size.
+Each dict is maintained incrementally on write so every read stays O(1)
+regardless of table size.
+
+Startup is the one cost that does scale: every row is read and indexed at
+construction. `prune()` bounds that by dropping the oldest *watched* rows;
+unwatched ones are never dropped, since they carry the resume positions this
+exists for.
 """
 
 from __future__ import annotations
@@ -24,6 +28,11 @@ from gravitas.domain.ports import ProgressStore
 MIN_POSITION = 30.0
 # At or past this fraction of the runtime, the title counts as finished.
 WATCHED_AT = 0.9
+# How many finished rows to keep. Startup indexes every row, so an unbounded
+# table slowly lengthens every launch; 2000 keeps that under ~15ms even for a
+# lifetime of use, while holding far more checkmarks than anyone will notice
+# losing. Only watched rows are subject to it — see prune().
+MAX_WATCHED_ROWS = 2000
 
 
 class WatchProgressRepository:
@@ -228,6 +237,45 @@ class WatchProgressRepository:
             self._rebuild_latest(media_id)
             self._rebuild_latest_unwatched(media_id)
         self._store.delete(media_id, video_id)
+
+    def prune(self, max_watched: int = MAX_WATCHED_ROWS) -> int:
+        """Drop the oldest watched rows beyond `max_watched`. Returns how many.
+
+        Only startup cost motivates this: `load_all()` reads and indexes every
+        row, so a table left to grow forever slowly lengthens every launch
+        (reads stay O(1) regardless). Disk is irrelevant at any plausible size.
+
+        Unwatched rows are never dropped, however old. They carry resume
+        positions and fill Continue Watching — the entire point of the feature
+        — and a human only starts so many things, so they do not grow without
+        bound. Watched rows do: you finish things and rarely restart them. All
+        they drive is a checkmark, which is the only thing this can cost you.
+        """
+        watched = [e for e in self._by_key.values() if e.watched]
+        if len(watched) <= max_watched:
+            return 0
+        watched.sort(key=lambda e: e.updated_at)
+        doomed = watched[: len(watched) - max_watched]
+        keys = [(e.media_id, e.video_id) for e in doomed]
+        for key in keys:
+            del self._by_key[key]
+        # Deliberately not forget() per row: that commits one DELETE per row and
+        # rescans the table to rebuild pointers each time, which is O(n^2) and
+        # measured at 33 SECONDS to drop 28k rows — on startup. One bulk delete
+        # and one reindex pass instead.
+        self._reindex_latest()
+        # `_latest_unwatched` needs no repair: every pruned row is watched, so
+        # none of them can be in it.
+        self._store.delete_many(keys)
+        return len(doomed)
+
+    def _reindex_latest(self) -> None:
+        """Rebuild `_latest` in one pass. A pruned row may have been a pointer."""
+        self._latest.clear()
+        for entry in self._by_key.values():
+            current = self._latest.get(entry.media_id)
+            if current is None or entry.updated_at >= current.updated_at:
+                self._latest[entry.media_id] = entry
 
     def reset_all(self) -> None:
         self._by_key.clear()

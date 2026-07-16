@@ -152,6 +152,18 @@ class SqliteProgressStore:
         except sqlite3.Error as exc:
             _log.warning("failed to delete progress for %s: %s", media_id, exc)
 
+    def delete_many(self, keys: list[tuple[str, str]]) -> None:
+        conn = self._connect()
+        if conn is None or not keys:
+            return
+        try:
+            # One executemany in one transaction: a commit per row costs a
+            # write barrier per row, which is what makes bulk deletes glacial.
+            conn.executemany("DELETE FROM progress WHERE media_id = ? AND video_id = ?", keys)
+            conn.commit()
+        except sqlite3.Error as exc:
+            _log.warning("failed to prune %d progress rows: %s", len(keys), exc)
+
     def clear(self) -> None:
         conn = self._connect()
         if conn is None:

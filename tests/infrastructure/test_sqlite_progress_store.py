@@ -125,3 +125,28 @@ def test_schema_version_recorded(tmp_path: Path) -> None:
 def test_default_path_follows_xdg_data_home(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     assert default_progress_path() == tmp_path / "gravitas" / "progress.db"
+
+
+def test_delete_many_removes_exactly_those_rows(tmp_path: Path) -> None:
+    store = SqliteProgressStore(tmp_path / "progress.db")
+    store.save(entry("tt1", ""))
+    store.save(entry("tt9", "tt9:1:1", type="series"))
+    store.save(entry("tt9", "tt9:1:2", type="series"))
+    store.delete_many([("tt1", ""), ("tt9", "tt9:1:2")])
+    left = [(e.media_id, e.video_id) for e in store.load_all()]
+    assert left == [("tt9", "tt9:1:1")]
+
+
+def test_delete_many_with_no_keys_is_a_noop(tmp_path: Path) -> None:
+    store = SqliteProgressStore(tmp_path / "progress.db")
+    store.save(entry())
+    store.delete_many([])
+    assert len(store.load_all()) == 1
+
+
+def test_delete_many_on_a_broken_database_degrades_quietly(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    path = tmp_path / "progress.db"
+    path.write_text("this is not a database", encoding="utf-8")
+    SqliteProgressStore(path).delete_many([("tt1", "")])

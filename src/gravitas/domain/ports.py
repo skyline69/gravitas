@@ -106,4 +106,10 @@ class ProgressStore(Protocol):
         """video_id None removes every entry for the media (a whole series)."""
         ...
 
+    def delete_many(self, keys: list[tuple[str, str]]) -> None:
+        """Remove exactly these (media_id, video_id) rows, in one transaction.
+        Pruning deletes thousands at once; one round-trip each would stall
+        startup for tens of seconds."""
+        ...
+
     def clear(self) -> None: ...

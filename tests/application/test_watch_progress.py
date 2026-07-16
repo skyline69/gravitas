@@ -8,6 +8,7 @@ class FakeStore:
         self.saved: list[PlaybackProgress] = []
         self.deleted: list[tuple[str, str | None]] = []
         self.cleared = False
+        self.delete_many_calls = 0
 
     def load_all(self) -> list[PlaybackProgress]:
         return list(self.entries)
@@ -17,6 +18,10 @@ class FakeStore:
 
     def delete(self, media_id: str, video_id: str | None = None) -> None:
         self.deleted.append((media_id, video_id))
+
+    def delete_many(self, keys: list[tuple[str, str]]) -> None:
+        self.delete_many_calls += 1
+        self.deleted.extend(keys)
 
     def clear(self) -> None:
         self.cleared = True
@@ -502,3 +507,117 @@ def test_resuming_a_series_after_marking_it_watched_reopens_it() -> None:
     assert [e.video_id for e in r.in_progress()] == ["tt9:2:1"]
     resumable = r.latest_unwatched_for("tt9")
     assert resumable is not None and resumable.video_id == "tt9:2:1"
+
+
+# --- pruning -----------------------------------------------------------------
+#
+# Only startup cost motivates this: load_all() reads and indexes every row, so
+# 50k rows cost ~230ms at launch (reads stay O(1) either way). Watched rows are
+# the ones that accumulate forever -- you finish things and rarely restart them
+# -- and they only drive a checkmark, so they are the only ones droppable.
+
+
+def _watched(media_id: str, updated_at: int) -> PlaybackProgress:
+    return entry(media_id, "", watched=True, position=0.0, updated_at=updated_at)
+
+
+def test_prune_keeps_every_unwatched_row_however_old() -> None:
+    store = FakeStore([entry(f"tt{i}", "", position=100.0, updated_at=i) for i in range(50)])
+    r = repo(store)
+    dropped = r.prune(max_watched=5)
+    # Resume positions and Continue Watching are the entire point of the
+    # feature; they must never be prunable.
+    assert dropped == 0
+    assert len(r.in_progress()) == 50
+
+
+def test_prune_drops_the_oldest_watched_beyond_the_cap() -> None:
+    store = FakeStore([_watched(f"tt{i}", updated_at=i) for i in range(10)])
+    r = repo(store)
+    dropped = r.prune(max_watched=3)
+    assert dropped == 7
+    kept = sorted(e.media_id for e in [r.get(f"tt{i}") for i in range(10)] if e is not None)
+    assert kept == ["tt7", "tt8", "tt9"]  # the three most recently finished
+
+
+def test_prune_deletes_from_the_store_not_just_memory() -> None:
+    store = FakeStore([_watched(f"tt{i}", updated_at=i) for i in range(5)])
+    r = repo(store)
+    r.prune(max_watched=2)
+    # A prune that lives only in memory prunes nothing: the rows return on the
+    # next launch and startup never improves.
+    assert sorted(store.deleted) == [("tt0", ""), ("tt1", ""), ("tt2", "")]
+
+
+def test_prune_under_the_cap_does_nothing() -> None:
+    store = FakeStore([_watched("tt1", updated_at=1)])
+    r = repo(store)
+    assert r.prune(max_watched=10) == 0
+    assert store.deleted == []
+
+
+def test_prune_counts_watched_rows_not_media() -> None:
+    # A 200-episode show marked watched is 200 rows, which is what the cap is
+    # protecting startup from.
+    store = FakeStore(
+        [
+            entry("tt9", f"tt9:1:{i}", type="series", watched=True, position=0.0, updated_at=i)
+            for i in range(10)
+        ]
+    )
+    r = repo(store)
+    assert r.prune(max_watched=4) == 6
+    assert len([1 for i in range(10) if r.get("tt9", f"tt9:1:{i}") is not None]) == 4
+
+
+def test_prune_does_not_strand_the_latest_pointers() -> None:
+    store = FakeStore(
+        [
+            entry("tt9", "tt9:1:1", type="series", watched=True, position=0.0, updated_at=100),
+            entry("tt9", "tt9:1:2", type="series", position=300.0, updated_at=200),
+        ]
+    )
+    r = repo(store)
+    r.prune(max_watched=0)
+    # The pruned row must leave the indexes consistent, not a pointer at a row
+    # that no longer exists.
+    assert r.get("tt9", "tt9:1:1") is None
+    assert r.latest_unwatched_for("tt9") is not None
+    assert r.latest_for("tt9") is not None
+    assert [e.video_id for e in r.in_progress()] == ["tt9:1:2"]
+
+
+def test_prune_of_a_series_marker_leaves_the_show_unbadged() -> None:
+    store = FakeStore([_watched("tt9", updated_at=1)])
+    r = repo(store)
+    r.prune(max_watched=0)
+    # Losing the marker means the show simply stops claiming to be finished --
+    # honest degradation, not a wrong badge.
+    assert r.is_watched("tt9") is False
+
+
+def test_prune_deletes_in_one_bulk_call_not_row_by_row() -> None:
+    """The obvious implementation -- forget() per doomed row -- commits one
+    DELETE per row and rescans the table to rebuild pointers each time. Dropping
+    28k rows that way measured at 33 SECONDS, on startup. This pins the bulk
+    path so nobody reintroduces the simple version."""
+    store = FakeStore([_watched(f"tt{i}", updated_at=i) for i in range(500)])
+    r = repo(store)
+    r.prune(max_watched=10)
+    assert store.delete_many_calls == 1
+    assert len(store.deleted) == 490
+
+
+def test_prune_scales_linearly_not_quadratically() -> None:
+    import time
+
+    def elapsed(n: int) -> float:
+        r = repo(FakeStore([_watched(f"tt{i}", updated_at=i) for i in range(n)]))
+        start = time.perf_counter()
+        r.prune(max_watched=0)
+        return time.perf_counter() - start
+
+    small, large = elapsed(500), elapsed(5000)
+    # 10x the rows must not cost ~100x the time. Generous bound: this guards
+    # against an O(n^2) regression, not against ordinary noise.
+    assert large < small * 30, f"pruning looks quadratic: {small:.4f}s -> {large:.4f}s"
