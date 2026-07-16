@@ -76,12 +76,31 @@ class CatalogRowsModel(QAbstractListModel):
         self.endResetModel()
 
     def set_continue_watching(self, entries: list[PlaybackProgress]) -> None:
-        """Replace the Continue Watching row. Cheap and network-free: every
-        field a card needs is already denormalized onto the progress entry."""
-        self.beginResetModel()
+        """Replace the Continue Watching row. Network-free: every field a card
+        needs is already denormalized onto the progress entry.
+
+        This runs on the 5s playback tick, so it must NOT reset the model. A
+        reset tears down and rebuilds every catalog row's delegates -- aborting
+        their in-flight poster fetches (`QSslSocket: device not open`) and
+        half-incubated cards (`object destroyed during incubation`) -- just to
+        touch the single synthetic row that lives at index 0. Mutate only that
+        row instead; the catalog delegates never see it.
+        """
         self._cw_entries = list(entries)
-        self._rebuild()
-        self.endResetModel()
+        old_row, new_row = self._cw_row, self._build_continue_watching()
+        self._cw_row = new_row
+        if old_row is not None and new_row is not None:
+            self._rows[0] = new_row
+            top = self.index(0)
+            self.dataChanged.emit(top, top)
+        elif new_row is not None:
+            self.beginInsertRows(_ROOT_INDEX, 0, 0)
+            self._rows.insert(0, new_row)
+            self.endInsertRows()
+        elif old_row is not None:
+            self.beginRemoveRows(_ROOT_INDEX, 0, 0)
+            del self._rows[0]
+            self.endRemoveRows()
 
     def set_filter(self, mode: str) -> None:
         self.beginResetModel()

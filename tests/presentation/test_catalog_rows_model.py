@@ -274,3 +274,30 @@ def test_cw_update_replaces_rather_than_appends(qapp: object) -> None:
     assert _titles(model).count("Continue Watching") == 1
     posters = model.data(model.index(0, 0), CatalogRowsModel.PostersRole)
     assert posters.rowCount() == 2
+
+
+def test_cw_update_never_resets_the_model(qapp: object) -> None:
+    # The reset that this replaces fired on the 5s playback tick and tore down
+    # every catalog delegate mid-incubation -- the source of the QSslSocket
+    # "device not open" and "destroyed during incubation" warnings. Each CW
+    # transition must instead be a granular insert / change / remove of row 0.
+    model = CatalogRowsModel()
+    model.set_rows(_CATALOGS)
+
+    resets = []
+    inserted: list[tuple[int, int]] = []
+    removed: list[tuple[int, int]] = []
+    changed: list[int] = []
+    model.modelAboutToBeReset.connect(lambda: resets.append(1))
+    model.rowsInserted.connect(lambda _p, first, last: inserted.append((first, last)))
+    model.rowsRemoved.connect(lambda _p, first, last: removed.append((first, last)))
+    model.dataChanged.connect(lambda tl, _br, _r=None: changed.append(tl.row()))
+
+    model.set_continue_watching([_progress("tt1")])  # absent -> present
+    model.set_continue_watching([_progress("tt9", "series")])  # present -> present
+    model.set_continue_watching([])  # present -> absent
+
+    assert resets == []
+    assert inserted == [(0, 0)]
+    assert removed == [(0, 0)]
+    assert changed == [0]
