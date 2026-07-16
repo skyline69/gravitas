@@ -11,15 +11,24 @@ Popup {
     property var entries: []
 
     // Opens with its top-left at the cursor, clamped inside the window.
+    // Set `entries` before calling: the clamp reads menu.width, which is sized
+    // from them.
+    //
+    // A Popup is not an Item, so it has no Window attached property — reaching
+    // for Window.window here warns and evaluates to null. Overlay is the
+    // supported way for a popup to see its window, and it spans the window, so
+    // it doubles as the coordinate space to map into and the bounds to clamp
+    // against.
     function popupAt(item, position) {
-        var point = item.mapToItem(null, position.x, position.y)
-        var w = menu.width
-        var h = menu.implicitHeight
-        var maxX = (Window.window ? Window.window.width : point.x + w) - w - 8
-        var maxY = (Window.window ? Window.window.height : point.y + h) - h - 8
-        menu.parent = Window.window ? Window.window.contentItem : item
-        menu.x = Math.max(8, Math.min(point.x, maxX))
-        menu.y = Math.max(8, Math.min(point.y, maxY))
+        var overlay = menu.Overlay.overlay
+        if (!overlay) {
+            menu.open()
+            return
+        }
+        menu.parent = overlay
+        var point = item.mapToItem(overlay, position.x, position.y)
+        menu.x = Math.max(8, Math.min(point.x, overlay.width - menu.width - 8))
+        menu.y = Math.max(8, Math.min(point.y, overlay.height - menu.implicitHeight - 8))
         menu.open()
     }
 

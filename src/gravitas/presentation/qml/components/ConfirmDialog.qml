@@ -12,15 +12,24 @@ Popup {
     signal confirmed()
 
     function ask() {
-        dialog.parent = Window.window ? Window.window.contentItem : dialog.parent
         dialog.open()
     }
 
+    // A Popup is not an Item, so it has no Window attached property — reaching
+    // for Window.window here warns and evaluates to null. Overlay is the
+    // supported way for a popup to see its window, and centreing on it also
+    // reparents the dialog to the window overlay. The overlay is 0x0 until the
+    // window is shown, hence the width guard.
     anchors.centerIn: Overlay.overlay
     modal: true
     dim: true
     padding: 24
-    width: Math.min(420, Window.window ? Window.window.width - 48 : 420)
+    // Not `availableWidth` — Popup already declares that FINAL (width minus
+    // padding), and shadowing it makes the whole component unloadable.
+    readonly property real widthBudget: Overlay.overlay && Overlay.overlay.width > 0
+        ? Overlay.overlay.width - 48
+        : 420
+    width: Math.min(420, widthBudget)
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
     background: Rectangle {
