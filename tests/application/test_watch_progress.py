@@ -621,3 +621,51 @@ def test_prune_scales_linearly_not_quadratically() -> None:
     # 10x the rows must not cost ~100x the time. Generous bound: this guards
     # against an O(n^2) regression, not against ordinary noise.
     assert large < small * 30, f"pruning looks quadratic: {small:.4f}s -> {large:.4f}s"
+
+
+def test_record_just_under_the_threshold_stays_unwatched() -> None:
+    # The boundary is tested from above (540/600 == 0.9 exactly); this pins the
+    # other side, so a `>` slipping to `>=` (or the constant drifting) cannot
+    # pass unnoticed.
+    store = FakeStore()
+    r = repo(store)
+    r.record(
+        media_id="tt1",
+        video_id="",
+        type="movie",
+        name="M",
+        poster=None,
+        label="",
+        position=539.9,
+        duration=600.0,
+    )
+    saved = store.saved[0]
+    assert saved.watched is False
+    assert saved.position == 539.9  # not zeroed: it is still resumable
+
+
+def test_record_without_a_media_id_is_ignored() -> None:
+    store = FakeStore()
+    r = repo(store)
+    r.record(
+        media_id="",
+        video_id="",
+        type="movie",
+        name="M",
+        poster=None,
+        label="",
+        position=100.0,
+        duration=600.0,
+    )
+    # A row keyed by nothing is unreachable by every read and would only ever
+    # be noise in the table.
+    assert store.saved == []
+    assert r.total_count() == 0
+
+
+def test_mark_watched_without_a_media_id_is_ignored() -> None:
+    store = FakeStore()
+    r = repo(store)
+    r.mark_watched(media_id="", video_id="", type="movie", name="M", poster=None, label="")
+    assert store.saved == []
+    assert r.total_count() == 0

@@ -39,6 +39,13 @@ class WatchProgressRepository:
     def __init__(
         self,
         store: ProgressStore,
+        # Wall clock, not monotonic, and it has to be: updated_at is persisted
+        # and compared across restarts, where a monotonic reading means
+        # nothing. The cost is that the indexes assume time moves forward -- a
+        # backwards jump (NTP correction, a user fixing their clock) can leave
+        # _latest pointing at an entry that is no longer the newest, until the
+        # next write to that media repairs it. Ordering a handful of rows is
+        # not worth defending against that.
         clock: Callable[[], int] = lambda: int(time.time()),
     ) -> None:
         self._store = store

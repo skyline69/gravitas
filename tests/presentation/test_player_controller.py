@@ -430,3 +430,30 @@ def test_works_without_a_progress_repo(qapp: object) -> None:
     controller.play("http://s/v.mkv")
     controller.flushProgress()
     assert player.start == 0.0
+
+
+def test_switching_titles_without_stopping_records_against_the_right_one(
+    qapp: object,
+) -> None:
+    """Playing again without an intervening stop() -- picking another title from
+    Continue Watching, say. The autosave timer simply restarts, but the context
+    must follow, or the new title's position is filed under the old one."""
+    player = FakePlayer()
+    progress = FakeProgress()
+    controller = PlayerController(lambda: player, None, progress)
+
+    controller.setMediaContext(CONTEXT)
+    controller.play("http://s/first.mkv")
+    player.seek(300.0)
+    controller.flushProgress()
+
+    controller.setMediaContext({**CONTEXT, "mediaId": "tt2", "videoId": "", "name": "Other"})
+    controller.play("http://s/second.mkv")
+    player.seek(400.0)
+    controller.flushProgress()
+
+    assert controller.is_recording() is True
+    assert [(r["media_id"], r["position"]) for r in progress.records] == [
+        ("tt9", 300.0),
+        ("tt2", 400.0),
+    ]

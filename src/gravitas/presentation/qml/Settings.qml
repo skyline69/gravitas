@@ -72,12 +72,6 @@ Item {
                     clip: true
                     spacing: 6
                     ScrollBar.vertical: AppScrollBar {}
-                    add: Transition {
-                        NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durMed }
-                    }
-                    displaced: Transition {
-                        NumberAnimation { property: "y"; duration: Theme.durMed; easing.type: Easing.OutCubic }
-                    }
                     delegate: Rectangle {
                         id: addonRow
                         width: ListView.view.width
@@ -385,12 +379,6 @@ Item {
                     clip: true
                     spacing: 6
                     ScrollBar.vertical: AppScrollBar {}
-                    remove: Transition {
-                        NumberAnimation { property: "opacity"; to: 0; duration: Theme.durFast }
-                    }
-                    displaced: Transition {
-                        NumberAnimation { property: "y"; duration: Theme.durMed; easing.type: Easing.OutCubic }
-                    }
                     delegate: Rectangle {
                         id: watchedRow
                         width: ListView.view.width
@@ -414,6 +402,7 @@ Item {
                             spacing: 12
 
                             Item {
+                                id: rowThumb
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: 28; height: 40
                                 Rectangle {
@@ -434,7 +423,11 @@ Item {
                             Column {
                                 anchors.verticalCenter: parent.verticalCenter
                                 spacing: 2
-                                width: parent.width - 40
+                                // Derived, not 40: that was the thumbnail's width
+                                // plus the Row's spacing restated as a magic
+                                // number, so resizing the thumbnail silently
+                                // broke the text's eliding.
+                                width: parent.width - rowThumb.width - parent.spacing
                                 Text {
                                     width: parent.width
                                     text: watchedRow.name

@@ -76,16 +76,21 @@ class SqliteProgressStore:
             return None
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            # check_same_thread=False: the connection is only ever touched from
-            # the GUI thread today, but the render/mpv threads share the
-            # process and Qt gives no hard guarantee about which one runs a
-            # queued slot.
+            # check_same_thread=False so sqlite does not reject a call that
+            # arrives on another thread. It is belt-and-braces, not a design:
+            # every caller is on the GUI thread, and this lazy open is NOT
+            # thread-safe (two threads racing here would each build a
+            # connection). If a real second writer ever appears, this needs a
+            # lock -- do not read this flag as one.
             conn = sqlite3.connect(self._path, check_same_thread=False)
             # WAL: a writer never blocks a reader, and an unclean exit rolls
             # back instead of corrupting.
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=NORMAL")
             conn.execute(_CREATE)
+            # Set unconditionally, which is fine while there is one version.
+            # A real migration must read user_version FIRST and branch on it,
+            # or this line stamps "current" onto a database it never upgraded.
             conn.execute(f"PRAGMA user_version={_SCHEMA_VERSION}")
             conn.commit()
         except (sqlite3.Error, OSError) as exc:
@@ -101,7 +106,7 @@ class SqliteProgressStore:
             return []
         try:
             rows = conn.execute(f"SELECT {_COLUMNS} FROM progress").fetchall()
-        except sqlite3.Error as exc:
+        except (sqlite3.Error, OSError) as exc:
             _log.warning("failed to read progress: %s", exc)
             return []
         return [_to_entry(row) for row in rows]
@@ -133,7 +138,7 @@ class SqliteProgressStore:
                 ),
             )
             conn.commit()
-        except sqlite3.Error as exc:
+        except (sqlite3.Error, OSError) as exc:
             _log.warning("failed to save progress for %s: %s", entry.media_id, exc)
 
     def delete(self, media_id: str, video_id: str | None = None) -> None:
@@ -149,7 +154,7 @@ class SqliteProgressStore:
                     (media_id, video_id),
                 )
             conn.commit()
-        except sqlite3.Error as exc:
+        except (sqlite3.Error, OSError) as exc:
             _log.warning("failed to delete progress for %s: %s", media_id, exc)
 
     def delete_many(self, keys: list[tuple[str, str]]) -> None:
@@ -161,7 +166,7 @@ class SqliteProgressStore:
             # write barrier per row, which is what makes bulk deletes glacial.
             conn.executemany("DELETE FROM progress WHERE media_id = ? AND video_id = ?", keys)
             conn.commit()
-        except sqlite3.Error as exc:
+        except (sqlite3.Error, OSError) as exc:
             _log.warning("failed to prune %d progress rows: %s", len(keys), exc)
 
     def clear(self) -> None:
@@ -171,5 +176,5 @@ class SqliteProgressStore:
         try:
             conn.execute("DELETE FROM progress")
             conn.commit()
-        except sqlite3.Error as exc:
+        except (sqlite3.Error, OSError) as exc:
             _log.warning("failed to clear progress: %s", exc)

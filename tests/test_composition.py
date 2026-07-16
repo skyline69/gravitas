@@ -177,8 +177,6 @@ def test_search_results_qml_loads(qapp: object) -> None:
 def test_build_app_wires_watch_progress(
     qapp: object, tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> None:
-    # Never touch the developer's real progress database from a test.
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
@@ -221,7 +219,6 @@ def test_build_app_rebuilds_continue_watching_on_progress_change(
     it must be rebuilt on progressChanged -- not only its bars refreshed. This
     is one connect line in build_app(); without a test, reverting it leaves the
     whole suite green and the row silently stale."""
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:

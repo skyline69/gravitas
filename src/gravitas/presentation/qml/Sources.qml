@@ -104,9 +104,5 @@ Item {
                 sources.playUrl(model.url)
             }
         }
-        // Rows pop in as the resolve finishes.
-        add: Transition {
-            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durMed }
-        }
     }
 }
