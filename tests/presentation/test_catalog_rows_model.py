@@ -109,3 +109,27 @@ def test_filter_persists_across_set_rows(qapp: object) -> None:
     model.set_filter("series")
     model.set_rows(_ROWS)
     assert _titles(model) == ["New Series", "Documentaries"]
+
+
+def test_refresh_progress_reaches_rows_hidden_by_the_active_filter(qapp: object) -> None:
+    """refresh_progress must fan out over _all_rows, not the filtered _rows —
+    otherwise switching filters back to a row that was hidden during a
+    playback session would show a stale bar until something else forced a
+    reset. Movies is the active filter here, so the Series row's poster model
+    must still receive dataChanged even though it is currently filtered out."""
+    model = CatalogRowsModel()
+    model.set_rows(_ROWS)
+    model.set_filter("movie")
+    assert _titles(model) == ["Popular Movies", "Trending Now"]
+
+    poster_models = [row[4] for row in model._all_rows]
+    assert len(poster_models) == 4
+    seen: list[list[tuple[int, list[int]]]] = [[] for _ in poster_models]
+    for i, pm in enumerate(poster_models):
+        pm.dataChanged.connect(lambda _tl, _br, roles, i=i: seen[i].append((0, list(roles))))
+
+    model.refresh_progress()
+
+    assert all(fired for fired in seen), "every row's poster model must fire dataChanged"
+    # "New Series" (index 1) is filtered out under "movie" but must still refresh.
+    assert seen[1], "a filtered-out row's poster model was not refreshed"
