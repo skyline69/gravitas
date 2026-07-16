@@ -72,7 +72,16 @@ _LINK_SCHEME = "stremio://"
 # already degrades gracefully -- it holds the skeleton and never fades the
 # poster in -- so the per-poster `QQuickImage: Error transferring ...` warning
 # is pure noise with no action attached.
-_MUTED_QT_WARNINGS = ("QQuickImage: Error transferring",)
+#
+# The bundled Inter.ttf carries only Latin/Cyrillic/Greek OpenType tables, so
+# any addon title in Devanagari, Arabic, CJK, etc. makes Qt log
+# `OpenType support missing for "Inter", script N` before it transparently
+# falls back to a system font that covers the script. The glyphs still render;
+# the warning is noise with no action attached.
+_MUTED_QT_WARNINGS = (
+    "QQuickImage: Error transferring",
+    "OpenType support missing",
+)
 
 
 def _install_qt_log_filter() -> None:
