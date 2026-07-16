@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 import httpx
 import qasync  # type: ignore[import-untyped]
+from PySide6.QtCore import QMessageLogContext, QtMsgType, qInstallMessageHandler
 from PySide6.QtGui import QFont, QFontDatabase, QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine, qmlRegisterType
 from PySide6.QtQuick import QQuickWindow, QSGRendererInterface
@@ -63,6 +65,35 @@ _log = logging.getLogger(__name__)
 _QML_DIR = Path(__file__).parent / "presentation" / "qml"
 DEFAULT_ADDON = "https://v3-cinemeta.strem.io/manifest.json"
 _LINK_SCHEME = "stremio://"
+
+
+# Qt runtime warnings we deliberately swallow. An addon's `/meta` routinely
+# points at CDN artwork that has since 404'd (or times out); Qt's `Image`
+# already degrades gracefully -- it holds the skeleton and never fades the
+# poster in -- so the per-poster `QQuickImage: Error transferring ...` warning
+# is pure noise with no action attached.
+_MUTED_QT_WARNINGS = ("QQuickImage: Error transferring",)
+
+
+def _install_qt_log_filter() -> None:
+    """Drop known-benign Qt warnings, forward everything else to stderr.
+
+    Qt routes *all* its output -- including QML runtime warnings like the image
+    loader's -- through one message handler, so this is the only place that can
+    filter them. Non-muted lines are re-emitted in Qt's own `category: message`
+    shape so the console looks unchanged apart from the muted ones.
+    """
+
+    def handler(mode: QtMsgType, context: QMessageLogContext, message: str) -> None:
+        if mode == QtMsgType.QtWarningMsg and any(
+            needle in message for needle in _MUTED_QT_WARNINGS
+        ):
+            return
+        category = context.category or "default"
+        line = message if category == "default" else f"{category}: {message}"
+        print(line, file=sys.stderr)
+
+    qInstallMessageHandler(handler)
 
 
 def pending_link(argv: list[str]) -> str | None:
@@ -319,6 +350,15 @@ def build_app(
 
 
 def main() -> int:
+    # We force the OpenGL scene-graph backend (the in-scene mpv renderer needs
+    # it), so Qt inits EGL. Where the NVIDIA blob and mesa coexist under
+    # Wayland, mesa's libEGL gets handed the NVIDIA DRM node, can't drive it,
+    # and prints `failed to create dri2 screen` warnings before Qt falls back
+    # to the working NVIDIA path anyway. Raise libEGL's log threshold to hush
+    # that dead-end probe; rendering is unaffected. A user-set value wins.
+    os.environ.setdefault("EGL_LOG_LEVEL", "fatal")
+
+    _install_qt_log_filter()
     app = QGuiApplication(sys.argv)
 
     # Before anything is built: a browser launching `gravitas stremio://...`
