@@ -31,4 +31,5 @@ QtObject {
     readonly property string fullscreenExit: String.fromCharCode(0xe5d1) // fullscreen_exit
     readonly property string replay10: String.fromCharCode(0xe059) // replay_10
     readonly property string forward10: String.fromCharCode(0xe056) // forward_10
+    readonly property string check: String.fromCharCode(0xe5ca) // check
 }

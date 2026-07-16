@@ -1,0 +1,90 @@
+import QtQuick
+import QtQuick.Controls
+import "."
+
+// Right-click / long-press menu. The project builds its own controls rather
+// than using stock QtQuick.Controls Menu (which ignores our styling on some
+// platform styles), so this follows TrackMenu's themed-Popup pattern.
+// `entries` is a list of { label, action } — action is a JS function.
+Popup {
+    id: menu
+    property var entries: []
+
+    // Opens with its top-left at the cursor, clamped inside the window.
+    function popupAt(item, position) {
+        var point = item.mapToItem(null, position.x, position.y)
+        var w = menu.width
+        var h = menu.implicitHeight
+        var maxX = (Window.window ? Window.window.width : point.x + w) - w - 8
+        var maxY = (Window.window ? Window.window.height : point.y + h) - h - 8
+        menu.parent = Window.window ? Window.window.contentItem : item
+        menu.x = Math.max(8, Math.min(point.x, maxX))
+        menu.y = Math.max(8, Math.min(point.y, maxY))
+        menu.open()
+    }
+
+    modal: true
+    dim: false
+    padding: 4
+    width: Math.min(320, Math.max(180, contentNeed))
+
+    // Imperative measure — a binding that writes TextMetrics.text and reads
+    // its width would retrigger itself (same reasoning as TrackMenu).
+    property real contentNeed: 180
+    TextMetrics { id: entryMetrics; font.pixelSize: Theme.fontBody }
+    onEntriesChanged: {
+        var longest = 0
+        for (var i = 0; i < entries.length; i++) {
+            entryMetrics.text = entries[i].label
+            longest = Math.max(longest, entryMetrics.advanceWidth)
+        }
+        contentNeed = longest + Theme.spacing * 3
+    }
+
+    background: Rectangle {
+        radius: Theme.radiusSmall
+        color: Theme.surface
+        border.width: 1
+        border.color: Theme.borderStrong
+    }
+
+    enter: Transition {
+        NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; duration: Theme.durMed; easing.type: Easing.OutCubic }
+        NumberAnimation { property: "scale"; from: 0.96; to: 1.0; duration: Theme.durMed; easing.type: Easing.OutCubic }
+    }
+    exit: Transition {
+        NumberAnimation { property: "opacity"; from: 1.0; to: 0.0; duration: Theme.durFast }
+    }
+
+    contentItem: Column {
+        spacing: 2
+        Repeater {
+            model: menu.entries
+            Rectangle {
+                required property var modelData
+                width: menu.width - 8
+                height: Theme.controlHeight
+                radius: Theme.radiusSmall
+                color: rowHover.hovered ? Theme.surfaceHover : "transparent"
+                HoverHandler { id: rowHover; cursorShape: Qt.PointingHandCursor }
+                TapHandler {
+                    onTapped: {
+                        menu.close()
+                        modelData.action()
+                    }
+                }
+                Text {
+                    anchors.left: parent.left
+                    anchors.leftMargin: Theme.spacing
+                    anchors.right: parent.right
+                    anchors.rightMargin: Theme.spacing
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: modelData.label
+                    color: Theme.text
+                    font.pixelSize: Theme.fontBody
+                    elide: Text.ElideRight
+                }
+            }
+        }
+    }
+}
