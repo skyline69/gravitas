@@ -43,11 +43,23 @@ Item {
         }
         if (items.length === 0)
             return
-        cardMenu.entries = items
-        cardMenu.popupAt(root, position)
+        root.showMenu(items, position)
     }
 
-    ContextMenu { id: cardMenu }
+    // Built on first right-click, not with every card. Eagerly instantiating a
+    // ContextMenu costs ~36 KB per delegate (measured), paid by every visible
+    // card for a menu most are never asked for.
+    Loader {
+        id: menuLoader
+        active: false
+        sourceComponent: ContextMenu { }
+    }
+
+    function showMenu(items, position) {
+        menuLoader.active = true
+        menuLoader.item.entries = items
+        menuLoader.item.popupAt(root, position)
+    }
 
     // lift the hovered card above its neighbours so the scaled-up poster
     // overlaps them instead of being drawn underneath

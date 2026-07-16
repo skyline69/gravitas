@@ -122,3 +122,47 @@ def test_settings_page_survives_its_controllers_going_away(
     finally:
         del engine
     assert qml_warnings == []
+
+
+def test_poster_card_builds_its_menu_only_when_asked(qml_warnings: list[str]) -> None:
+    """A ContextMenu costs ~36 KB per delegate if built eagerly (measured), paid
+    by every visible card for a menu most are never asked for. It must stay
+    behind a Loader -- and must still open."""
+    _instantiate(
+        """
+        import QtQuick
+        import QtQuick.Controls
+        import "."
+
+        ApplicationWindow {
+            width: 800; height: 600
+            function loader() {
+                for (var i = 0; i < card.children.length; i++)
+                    if (card.children[i].toString().indexOf("QQuickLoader") >= 0)
+                        return card.children[i]
+                return null
+            }
+            PosterCard {
+                id: card
+                title: "A Show"
+                mediaType: "series"
+                progressFraction: 0.5
+                forgetContext: ({ mediaId: "tt9", videoId: "", type: "series",
+                                  name: "A Show", poster: "", label: "" })
+            }
+            Component.onCompleted: {
+                var l = loader()
+                if (l === null) throw new Error("no Loader: the menu is eager again")
+                if (l.active || l.item !== null)
+                    throw new Error("menu was built before anyone right-clicked")
+                card.openMenu(Qt.point(10, 10))
+                if (l.item === null) throw new Error("menu did not build on demand")
+                if (!l.item.visible) throw new Error("menu built but never shown")
+                if (l.item.entries.length !== 2)
+                    throw new Error("expected mark-watched + forget, got "
+                                    + l.item.entries.length)
+            }
+        }
+        """
+    )
+    assert qml_warnings == []

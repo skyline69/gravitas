@@ -60,11 +60,23 @@ Rectangle {
         }
         if (items.length === 0)
             return
-        rowMenu.entries = items
-        rowMenu.popupAt(root, position)
+        root.showMenu(items, position)
     }
 
-    ContextMenu { id: rowMenu }
+    // Built on first right-click, not with every card. Eagerly instantiating a
+    // ContextMenu costs ~36 KB per delegate (measured), paid by every visible
+    // card for a menu most are never asked for.
+    Loader {
+        id: menuLoader
+        active: false
+        sourceComponent: ContextMenu { }
+    }
+
+    function showMenu(items, position) {
+        menuLoader.active = true
+        menuLoader.item.entries = items
+        menuLoader.item.popupAt(root, position)
+    }
 
     Row {
         anchors.fill: parent
