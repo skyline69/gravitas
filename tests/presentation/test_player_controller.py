@@ -294,6 +294,22 @@ def test_play_resumes_from_saved_position(qapp: object) -> None:
     assert player.start == 1820.5
 
 
+def test_play_defers_resumed_past_the_current_event_loop_turn(qapp: object) -> None:
+    """StackView applies `url` (which triggers play()) between beginCreate()
+    and completeCreate(); Player.qml's Connections only goes live in
+    completeCreate(). A synchronous emit fires into the void, so `resumed`
+    must not be observable until the event loop turns at least once."""
+    player = FakePlayer()
+    controller = PlayerController(lambda: player, None, FakeProgress(resume=90.0))
+    seen: list[float] = []
+    controller.resumed.connect(seen.append)
+    controller.setMediaContext(CONTEXT)
+    controller.play("http://s/v.mkv")
+    assert seen == []  # not yet — still the same turn a QQC Connections would miss
+    qapp.processEvents()
+    assert seen == [90.0]
+
+
 def test_play_emits_resumed_only_when_resuming(qapp: object) -> None:
     player = FakePlayer()
     controller = PlayerController(lambda: player, None, FakeProgress(resume=90.0))
@@ -301,6 +317,7 @@ def test_play_emits_resumed_only_when_resuming(qapp: object) -> None:
     controller.resumed.connect(seen.append)
     controller.setMediaContext(CONTEXT)
     controller.play("http://s/v.mkv")
+    qapp.processEvents()
     assert seen == [90.0]
 
 

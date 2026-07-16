@@ -112,7 +112,13 @@ class PlayerController(QObject):
             self.errorOccurred.emit(str(exc))
             return
         if start > 0:
-            self.resumed.emit(start)
+            # StackView applies the `url` property (which triggers this play())
+            # between beginCreate() and completeCreate(); Player.qml's
+            # Connections { target: playerController } only becomes live in
+            # completeCreate(). Emitting synchronously here fires into the
+            # void. Defer to the next event-loop turn so the page is fully
+            # constructed — and its Connections live — before resumed fires.
+            QTimer.singleShot(0, lambda: self.resumed.emit(start))
         self._save_timer.start()
         self.stateChanged.emit()
 
