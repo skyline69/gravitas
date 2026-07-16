@@ -20,6 +20,11 @@ runtime-version: '24.08'
 sdk: org.freedesktop.Sdk
 command: gravitas
 
+# The Sdk 24.08 ships AppStream 1.0 (appstreamcli compose), not the legacy
+# `appstream-compose` binary flatpak-builder tries to run. We install the
+# metainfo manually below, so skip the compose step rather than fail on it.
+appstream-compose: false
+
 finish-args:
   - --share=network            # addon HTTP + stream fetch
   - --socket=wayland
