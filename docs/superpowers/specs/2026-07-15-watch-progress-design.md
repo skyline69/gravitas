@@ -148,16 +148,24 @@ State, built once from `load_all()` at construction:
 
 - `_by_key: dict[tuple[str, str], PlaybackProgress]`
 - `_latest: dict[str, PlaybackProgress]` — highest `updated_at` per `media_id`,
-  which is what a series poster bar reads.
+  watched or not. Backs `hasProgress()`.
+- `_latest_unwatched: dict[str, PlaybackProgress]` — highest `updated_at` per
+  `media_id` among unwatched rows only. What a series poster/row bar reads.
 
-Reads (pure dict hits, no I/O):
+Reads (pure dict hits, no I/O — all three are read per grid cell on every
+flick, so none may scan `_by_key`; each is maintained incrementally on
+write instead):
 
 - `get(media_id, video_id="") -> PlaybackProgress | None`
 - `latest_for(media_id) -> PlaybackProgress | None`
 - `latest_unwatched_for(media_id) -> PlaybackProgress | None` — like
-  `latest_for`, but skips watched rows (scans `_by_key`, since `_latest`
-  discards watched-state across ties). What a series poster/row bar reads,
-  so a just-finished episode doesn't read as the whole show being done.
+  `latest_for`, but skips watched rows. `_latest` discards watched-state
+  across ties, so it can't answer this; `_latest_unwatched` is kept in sync
+  separately for exactly this read, including evicting its own pointer (and
+  falling back to the next most recent unwatched episode of the same media,
+  if any) the moment a write flips that pointer's row to watched. What a
+  series poster/row bar reads, so a just-finished episode doesn't read as the
+  whole show being done.
 - `fraction_for(media_id, video_id="") -> float` — 0.0 when absent.
 - `in_progress() -> list[PlaybackProgress]` — one entry per media (the latest),
   unwatched only, sorted by `updated_at` descending. Feeds the Settings list.
@@ -172,13 +180,13 @@ Writes:
   - `duration > 0 and position / duration >= 0.9` → store `watched=True`,
     `position=0.0`. The bar becomes a checkmark and a replay starts clean.
   - Otherwise store the position with `watched=False`.
-  - Update both dicts, then `store.save(entry)`.
+  - Update all three dicts, then `store.save(entry)`.
 - `mark_watched(media_id, video_id, …)` — the ≥90% outcome, forced from the
   context menu.
-- `forget(media_id, video_id=None)` — drop from both dicts (rebuilding
-  `_latest` for that media when a single episode is removed), then
-  `store.delete(...)`.
-- `reset_all()` — clear both dicts, then `store.clear()`.
+- `forget(media_id, video_id=None)` — drop from all three dicts (rebuilding
+  `_latest` and `_latest_unwatched` for that media when a single episode is
+  removed), then `store.delete(...)`.
+- `reset_all()` — clear all three dicts, then `store.clear()`.
 
 `resume_position(media_id, video_id="") -> float` returns the entry's position
 when it exists and is unwatched, else 0.0. `PlayerController` passes this

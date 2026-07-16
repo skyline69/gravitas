@@ -4,9 +4,11 @@ Lives in `application` (not `infrastructure`) for the same reason
 AddonRepository does: `application` must not import `infrastructure`, so the
 store arrives through the ProgressStore port.
 
-The whole table is held in two dicts. Progress is read per grid cell on every
-flick, so a read must never touch disk; the table is small enough (one row per
-started title) that holding all of it is cheaper than any cache policy.
+The whole table is held in three dicts. Progress is read per grid cell on
+every flick, so a read must always be a dict hit -- never a scan, never disk.
+Rows are never pruned, so `_by_key` grows monotonically; each dict is
+maintained incrementally on write so every read stays O(1) regardless of
+table size.
 """
 
 from __future__ import annotations
@@ -32,9 +34,12 @@ class WatchProgressRepository:
         self._store = store
         self._clock = clock
         self._by_key: dict[tuple[str, str], PlaybackProgress] = {}
-        # media_id -> most recently touched entry. What a series poster's bar
-        # reads, so it must stay O(1).
+        # media_id -> most recently touched entry, watched or not. Used by
+        # hasProgress() and nothing that needs watched-state to be accurate.
         self._latest: dict[str, PlaybackProgress] = {}
+        # media_id -> most recently touched *unwatched* entry. What a series
+        # poster/row bar reads, so it must stay O(1) like `_latest`.
+        self._latest_unwatched: dict[str, PlaybackProgress] = {}
         for entry in store.load_all():
             self._index(entry)
 
@@ -43,6 +48,21 @@ class WatchProgressRepository:
         current = self._latest.get(entry.media_id)
         if current is None or entry.updated_at >= current.updated_at:
             self._latest[entry.media_id] = entry
+        self._index_latest_unwatched(entry)
+
+    def _index_latest_unwatched(self, entry: PlaybackProgress) -> None:
+        if entry.watched:
+            # If this entry just flipped to watched (or was re-saved watched)
+            # and it was the pointer, that pointer is now stale. Rebuild from
+            # scratch rather than just dropping it: another episode of the
+            # same media may still be unwatched and become the new pointer.
+            current = self._latest_unwatched.get(entry.media_id)
+            if current is not None and current.video_id == entry.video_id:
+                self._rebuild_latest_unwatched(entry.media_id)
+            return
+        current = self._latest_unwatched.get(entry.media_id)
+        if current is None or entry.updated_at >= current.updated_at:
+            self._latest_unwatched[entry.media_id] = entry
 
     def _rebuild_latest(self, media_id: str) -> None:
         remaining = [e for key, e in self._by_key.items() if key[0] == media_id]
@@ -50,6 +70,13 @@ class WatchProgressRepository:
             self._latest[media_id] = max(remaining, key=lambda e: e.updated_at)
         else:
             self._latest.pop(media_id, None)
+
+    def _rebuild_latest_unwatched(self, media_id: str) -> None:
+        remaining = [e for key, e in self._by_key.items() if key[0] == media_id and not e.watched]
+        if remaining:
+            self._latest_unwatched[media_id] = max(remaining, key=lambda e: e.updated_at)
+        else:
+            self._latest_unwatched.pop(media_id, None)
 
     # --- reads (dict hits; no I/O) ---
 
@@ -69,12 +96,11 @@ class WatchProgressRepository:
         series poster/row bar should read instead, so the two surfaces agree:
         a just-finished episode shows no bar until the next one is started.
         `_latest` isn't enough for this (it discards watched-state
-        information across ties), so this scans `_by_key` — cheap, since one
-        media has at most a handful of episodes."""
-        candidates = [e for key, e in self._by_key.items() if key[0] == media_id and not e.watched]
-        if not candidates:
-            return None
-        return max(candidates, key=lambda e: e.updated_at)
+        information across ties), so `_latest_unwatched` is maintained
+        alongside it, incrementally, on every write. This is a dict hit like
+        every other read here — read per grid cell on every flick, so it must
+        stay O(1) regardless of how large `_by_key` grows."""
+        return self._latest_unwatched.get(media_id)
 
     def fraction_for(self, media_id: str, video_id: str = "") -> float:
         entry = self._by_key.get((media_id, video_id))
@@ -174,13 +200,17 @@ class WatchProgressRepository:
             for key in [k for k in self._by_key if k[0] == media_id]:
                 del self._by_key[key]
             self._latest.pop(media_id, None)
+            self._latest_unwatched.pop(media_id, None)
         else:
             self._by_key.pop((media_id, video_id), None)
-            # _latest may have pointed at the row just removed.
+            # _latest / _latest_unwatched may have pointed at the row just
+            # removed.
             self._rebuild_latest(media_id)
+            self._rebuild_latest_unwatched(media_id)
         self._store.delete(media_id, video_id)
 
     def reset_all(self) -> None:
         self._by_key.clear()
         self._latest.clear()
+        self._latest_unwatched.clear()
         self._store.clear()

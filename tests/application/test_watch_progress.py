@@ -187,6 +187,97 @@ def test_latest_unwatched_for_unknown_media_is_none() -> None:
     assert repo(FakeStore()).latest_unwatched_for("nope") is None
 
 
+def test_record_past_watched_evicts_stale_latest_unwatched_pointer() -> None:
+    """record() flipping an episode from unwatched to watched must evict its
+    own entry from the _latest_unwatched index, not just leave a stale
+    pointer at a row that is now watched."""
+    store = FakeStore()
+    r = repo(store)
+    r.record(
+        media_id="tt9",
+        video_id="tt9:1:1",
+        type="series",
+        name="Show",
+        poster=None,
+        label="S1E1",
+        position=60.0,
+        duration=600.0,
+    )
+    assert r.latest_unwatched_for("tt9") is not None
+    r.record(
+        media_id="tt9",
+        video_id="tt9:1:1",
+        type="series",
+        name="Show",
+        poster=None,
+        label="S1E1",
+        position=540.0,
+        duration=600.0,
+    )
+    assert r.latest_unwatched_for("tt9") is None
+    assert r.latest_for("tt9") is not None  # unchanged: still reads the watched row
+
+
+def test_record_past_watched_falls_back_to_other_unwatched_episode() -> None:
+    store = FakeStore()
+    r = repo(store)
+    r.record(
+        media_id="tt9",
+        video_id="tt9:1:1",
+        type="series",
+        name="Show",
+        poster=None,
+        label="S1E1",
+        position=60.0,
+        duration=600.0,
+    )
+    r.record(
+        media_id="tt9",
+        video_id="tt9:1:2",
+        type="series",
+        name="Show",
+        poster=None,
+        label="S1E2",
+        position=60.0,
+        duration=600.0,
+    )
+    # tt9:1:2 is now the latest-touched unwatched episode.
+    r.record(
+        media_id="tt9",
+        video_id="tt9:1:2",
+        type="series",
+        name="Show",
+        poster=None,
+        label="S1E2",
+        position=540.0,
+        duration=600.0,
+    )
+    latest = r.latest_unwatched_for("tt9")
+    assert latest is not None
+    assert latest.video_id == "tt9:1:1"
+
+
+def test_forget_one_episode_rebuilds_latest_unwatched() -> None:
+    store = FakeStore(
+        [
+            entry("tt9", "tt9:1:1", type="series", updated_at=100, label="S1E1"),
+            entry("tt9", "tt9:1:3", type="series", updated_at=300, label="S1E3"),
+        ]
+    )
+    r = repo(store)
+    r.forget("tt9", "tt9:1:3")
+    latest = r.latest_unwatched_for("tt9")
+    assert latest is not None
+    assert latest.label == "S1E1"  # not a stale pointer at the deleted row
+
+
+def test_reset_all_clears_latest_unwatched() -> None:
+    store = FakeStore([entry("tt9", "tt9:1:1", type="series")])
+    r = repo(store)
+    r.reset_all()
+    assert r.latest_unwatched_for("tt9") is None
+
+
 def test_forget_one_episode_rebuilds_latest() -> None:
     store = FakeStore(
         [
