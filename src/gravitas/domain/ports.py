@@ -38,11 +38,6 @@ class AddonSource(Protocol):
 
 
 @runtime_checkable
-class Cache(Protocol):
-    async def get_or_fetch(self, url: str) -> bytes: ...
-
-
-@runtime_checkable
 class MediaPlayer(Protocol):
     def play(self, url: str, *, start: float = 0.0) -> None:
         """Begin playback, seeking to `start` seconds at load time."""

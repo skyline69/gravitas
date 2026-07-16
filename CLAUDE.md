@@ -30,9 +30,9 @@ Strict Clean Architecture. The dependency rule is enforced and must be preserved
 presentation  →  application  →  domain  ←  infrastructure
 ```
 
-- **`domain/`** — pure. `models.py` (frozen dataclasses: `MediaItem`, `MetaDetail`, `Stream`, `AddonManifest`, …), `errors.py` (every error subclasses `GravitasError`), `ports.py` (`Protocol` interfaces: `AddonSource`, `MediaPlayer`, `Cache`, `DebridResolver`). Imports nothing from other layers, Qt, or httpx.
+- **`domain/`** — pure. `models.py` (frozen dataclasses: `MediaItem`, `MetaDetail`, `Stream`, `AddonManifest`, …), `errors.py` (every error subclasses `GravitasError`), `ports.py` (`Protocol` interfaces: `AddonSource`, `MediaPlayer`, `ProgressStore`, `SettingsStore`, `ExternalIdResolver`, `DebridResolver`). Imports nothing from other layers, Qt, or httpx.
 - **`application/`** — use cases (`InstallAddon`, `BrowseCatalog`, `GetDetail`, `ResolveStream`) plus `addon_repository.py` (installed-addon store + cross-addon catalog aggregation with per-addon fault isolation). Depends only on `domain`. **Do not import `infrastructure` here** — `AddonRepository` lives in `application` precisely to keep this rule.
-- **`infrastructure/`** — adapters implementing domain ports: `addons/client.py` (httpx `AddonSource`), `addons/parsing.py` (pure Stremio-JSON→model functions, no I/O), `cache/disk_cache.py`, `player/mpv_player.py`. May import `domain` + third-party, never `application`/`presentation`.
+- **`infrastructure/`** — adapters implementing domain ports: `addons/client.py` (httpx `AddonSource`), `addons/parsing.py` (pure Stremio-JSON→model functions, no I/O), `cache/ttl_cache.py` + `cache/network_cache.py`, `progress/sqlite_store.py`, `player/mpv_player.py`. May import `domain` + third-party, never `application`/`presentation`.
 - **`presentation/`** — Qt/QML only. `controllers/` (QObject bridges exposing Slots/Signals), `models/` (`QAbstractListModel` subclasses feeding QML), `qml/`. Imports `domain`+`application`; nothing imports it back.
 - **`main.py`** — the single composition root. The only place that references concrete adapter classes and wires them into use cases → controllers → QML context properties.
 
@@ -46,6 +46,13 @@ Data model follows the Stremio addon protocol: addons serve `/manifest.json`, `/
 - **Startup ordering is deterministic on purpose.** `Home.qml` does *not* self-refresh on load. `main.py`'s `bootstrap()` installs the default addon, binds its manifest, then drives the first catalog refresh — otherwise the grid refreshes against an empty repo and shows nothing.
 - **libmpv is lazy-imported inside `_default_factory`** in `mpv_player.py` (not at module top), so the module and its tests import without libmpv present. `MpvPlayer` takes a `factory` seam — tests inject a `FakeMpv`, so player logic is unit-tested without the native lib. `locale.setlocale(LC_NUMERIC, "C")` must run at `mpv.MPV()` construction time (Qt resets the numeric locale), so it lives in the factory, not at import.
 - **The player renders in-scene via the libmpv render API, not `wid` embedding** — `wid` is dead on Wayland. `MpvVideoItem` (a `QQuickFramebufferObject` in `presentation/video/`) pulls the opaque mpv handle through the `MediaPlayer.render_handle()` port method; the mpv render context must be created on the Qt render thread (inside `createFramebufferObject`), and its `update_cb` fires on mpv's thread — hop to the GUI thread before calling `update()`.
+- **QML's `Image` never reaches Python.** Artwork is fetched by Qt's own network
+  stack, so an httpx-based cache cannot see it. `cache/network_cache.py` installs a
+  `QQmlNetworkAccessManagerFactory` (before any QML loads, and kept alive on the
+  engine like a context property) so `QNetworkDiskCache` caches posters honouring
+  CDN cache headers. Addon JSON is separate: `AddonClient` caches it in-process
+  per kind — manifest for the session, meta 24h, catalog 15m, **streams never**
+  (links expire; `_get_json` defaults to uncached so a new endpoint is safe).
 - **QML context properties need an explicit keep-alive.** `setContextProperty` doesn't take ownership; `main.py` holds them on `engine._gravitas_refs` or they get GC'd to null.
 - **Model role names shadow QML ids inside delegates.** QML injects every role as a bare context property in delegate scope, so a role named `detail` breaks any `detail.someFunction()` call in that delegate (the Detail page id resolves to the row's string). Before adding a role, grep the delegates that use the model for ids with the same name; `StreamListModel` exposes its detail text as `extra` for exactly this reason.
 - **QML has no unit tests** — it's verified at launch. `tests/conftest.py` forces `QT_QPA_PLATFORM=offscreen` for headless-safe Qt tests. `mypy --strict` covers `src` only; `python-mpv`/`qasync` are untyped, so precise `# type: ignore[...]` (with the specific code) is the norm, never blanket ignores.

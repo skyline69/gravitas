@@ -87,6 +87,11 @@ adapter.
 2. **Home** → `CatalogController` → `BrowseCatalog` → per addon
    `/catalog/{type}/{id}.json` → `list[MediaItem]` → `QAbstractListModel` →
    QML poster grid. Posters via `DiskCache.get_or_fetch` (async, off UI thread).
+   **Superseded (2026-07-16):** QML's `Image` fetches through Qt's own network
+   stack, which never reaches Python, so `DiskCache` could not actually serve
+   posters and was never wired up. It has been removed in favour of
+   `cache/network_cache.py`, which installs a `QNetworkDiskCache` on the QML
+   engine — honouring CDN cache headers and bounded by size.
 3. **Click poster** → `DetailController` → `GetDetail` →
    `/meta/{type}/{id}.json` → `MetaDetail` (+ `videos[]` for series).
 4. **Play / episode** → `ResolveStream` → `/stream/{type}/{id}.json` →
