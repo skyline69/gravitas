@@ -19,6 +19,9 @@ def _number(value: Any) -> float | None:
     # bool is an int subclass — reject it so True/False never counts as a score.
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
+    # Treat 0 as absent: MDBList's representation of a missing score is unverified,
+    # so we prefer showing no pill over a possibly-spurious 0. Revisit (allow >= 0)
+    # once live MDBList response is confirmed.
     return float(value) if value > 0 else None
 
 

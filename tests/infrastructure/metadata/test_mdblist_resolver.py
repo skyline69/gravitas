@@ -51,6 +51,25 @@ def test_parse_no_ratings_key():
     assert _parse_ratings({}) == _parse_ratings({"ratings": "nope"})
 
 
+def test_parse_rejects_boolean_values():
+    r = _parse_ratings(
+        {
+            "ratings": [
+                {"source": "tomatoes", "value": True},
+                {"source": "letterboxd", "value": False},
+            ]
+        }
+    )
+    assert r.rotten_tomatoes is None
+    assert r.letterboxd is None
+
+
+def test_parse_fresh_at_boundary_60():
+    r = _parse_ratings({"ratings": [{"source": "tomatoes", "value": 60}]})
+    assert r.rotten_tomatoes == "60"
+    assert r.rotten_tomatoes_fresh is True
+
+
 @pytest.mark.asyncio
 @respx.mock
 async def test_ratings_fetches_and_caches():
