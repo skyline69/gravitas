@@ -63,8 +63,30 @@ jobs:
         run: uv run --with pyinstaller pyinstaller packaging/gravitas.spec --noconfirm
       - name: Ad-hoc sign
         run: codesign --force --deep --sign - dist/Gravitas.app
+      - name: Install create-dmg
+        run: brew install create-dmg
       - name: Build dmg
-        run: hdiutil create -volname Gravitas -srcfolder dist/Gravitas.app -ov -format UDZO dist/Gravitas.dmg
+        # Styled installer window: branded background, the app on the left and an
+        # Applications drop-link on the right so users just drag across to install.
+        run: |
+          # create-dmg copies the *contents* of the source dir, so stage a clean
+          # folder holding only the app (avoids pulling in the rest of dist/).
+          rm -rf dist/dmg-src && mkdir -p dist/dmg-src
+          cp -R dist/Gravitas.app dist/dmg-src/
+          rm -f dist/Gravitas.dmg
+          create-dmg \
+            --volname "Gravitas" \
+            --volicon "packaging/icon/gravitas.icns" \
+            --background "packaging/dmg/background.tiff" \
+            --window-pos 200 120 \
+            --window-size 640 400 \
+            --icon-size 128 \
+            --icon "Gravitas.app" 170 185 \
+            --hide-extension "Gravitas.app" \
+            --app-drop-link 470 185 \
+            --no-internet-enable \
+            "dist/Gravitas.dmg" \
+            "dist/dmg-src"
       - name: Upload to the rolling release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
