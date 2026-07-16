@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from PySide6.QtCore import Property, QObject, Signal, Slot
 from qasync import asyncSlot  # type: ignore[import-untyped]
 
 from gravitas.application.get_detail import GetDetail
+from gravitas.application.get_ratings import GetRatings
 from gravitas.application.resolve_stream import ResolveStream
 from gravitas.application.watch_progress import WatchProgressRepository
 from gravitas.domain.errors import GravitasError, NoStreams
-from gravitas.domain.models import MediaType, MetaDetail, Video
+from gravitas.domain.models import MediaType, MetaDetail, Ratings, Video
 from gravitas.presentation.models.episode_list_model import EpisodeListModel
 from gravitas.presentation.models.stream_list_model import StreamListModel
 
@@ -23,6 +26,7 @@ class DetailController(QObject):
     metaChanged = Signal()
     episodesChanged = Signal()
     sourcesChanged = Signal()
+    ratingsChanged = Signal()
 
     def __init__(
         self,
@@ -31,6 +35,7 @@ class DetailController(QObject):
         stream_model: StreamListModel,
         episode_model: EpisodeListModel | None = None,
         progress: WatchProgressRepository | None = None,
+        get_ratings: GetRatings | None = None,
     ) -> None:
         super().__init__()
         self._get_detail = get_detail
@@ -38,7 +43,10 @@ class DetailController(QObject):
         self._stream_model = stream_model
         self._episode_model = episode_model
         self._progress = progress
+        self._get_ratings = get_ratings
         self._meta: MetaDetail | None = None
+        self._ratings: Ratings = Ratings()
+        self._ratings_task: asyncio.Task[None] | None = None
         # Season 0 ("Specials") sorts last; regular seasons ascending.
         self._seasons: list[int] = []
         self._season_idx = 0
@@ -91,6 +99,18 @@ class DetailController(QObject):
     @Property(str, notify=metaChanged)
     def imdbRating(self) -> str:
         return (self._meta.imdb_rating or "") if self._meta else ""
+
+    @Property(str, notify=ratingsChanged)
+    def rottenTomatoes(self) -> str:
+        return self._ratings.rotten_tomatoes or ""
+
+    @Property(bool, notify=ratingsChanged)
+    def rottenTomatoesFresh(self) -> bool:
+        return bool(self._ratings.rotten_tomatoes_fresh)
+
+    @Property(str, notify=ratingsChanged)
+    def letterboxd(self) -> str:
+        return self._ratings.letterboxd or ""
 
     def _genres(self) -> list[str]:
         return list(self._meta.genres) if self._meta else []
@@ -264,6 +284,8 @@ class DetailController(QObject):
         # meta/streams while this load is in flight
         self._meta = None
         self.metaChanged.emit()
+        self._ratings = Ratings()
+        self.ratingsChanged.emit()
         self._stream_model.set_streams([])
         self._seasons = []
         self._season_idx = 0
@@ -284,6 +306,12 @@ class DetailController(QObject):
                 return  # a newer load started; drop this stale result
             self._meta = meta
             self.metaChanged.emit()
+            if self._get_ratings is not None and meta.id.startswith("tt"):
+                # Fire-and-forget: ratings must not delay the stream fetch below,
+                # and GetRatings already swallows failures into empty Ratings.
+                # Kept on self so the task isn't GC'd mid-flight (RUF006); it is
+                # never awaited here on purpose.
+                self._ratings_task = asyncio.ensure_future(self._load_ratings(token, meta.id))
             if media_type == "series" and meta.videos and self._episode_model is not None:
                 # Episode-driven flow: no stream fetch until the user picks an
                 # episode (streams are per-episode video ids).
@@ -311,3 +339,13 @@ class DetailController(QObject):
             if token == self._seq and self._streams_loading:
                 self._streams_loading = False
                 self.sourcesChanged.emit()
+
+    async def _load_ratings(self, token: int, imdb_id: str) -> None:
+        get_ratings = self._get_ratings
+        if get_ratings is None:
+            return
+        ratings = await get_ratings(imdb_id)
+        if token != self._seq:
+            return  # a newer load started; drop this stale result
+        self._ratings = ratings
+        self.ratingsChanged.emit()

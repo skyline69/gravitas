@@ -1,7 +1,7 @@
 import asyncio
 
 from gravitas.domain.errors import AddonUnreachable, NoStreams
-from gravitas.domain.models import MetaDetail, Stream
+from gravitas.domain.models import MetaDetail, Ratings, Stream
 from gravitas.presentation.controllers.detail_controller import DetailController
 from gravitas.presentation.models.episode_list_model import EpisodeListModel
 from gravitas.presentation.models.stream_list_model import StreamListModel
@@ -32,6 +32,25 @@ class FakeResolve:
         return [
             Stream(name="1080p", title="web", url="http://s/v.mkv", info_hash=None, file_idx=None)
         ]
+
+
+class FakeGetRatings:
+    def __init__(self, result: Ratings) -> None:
+        self._result = result
+        self.calls: list[str] = []
+
+    async def __call__(self, imdb_id: str) -> Ratings:
+        self.calls.append(imdb_id)
+        return self._result
+
+
+async def _drain_pending_tasks() -> None:
+    """Let fire-and-forget tasks (scheduled via asyncio.ensure_future) run.
+
+    FakeGetRatings awaits no real I/O, so two loop turns are enough for its
+    task to reach completion and emit ratingsChanged."""
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
 
 
 class GatedGetDetail:
@@ -93,6 +112,51 @@ async def test_load_populates_meta(qapp: object) -> None:
     assert ctl.hasMeta is True
     assert model.rowCount() == 1
     assert changes
+
+
+async def test_loads_ratings_after_meta(qapp: object) -> None:
+    ratings = Ratings(rotten_tomatoes="87", rotten_tomatoes_fresh=True, letterboxd="4.1")
+    get_ratings = FakeGetRatings(ratings)
+    ctl = DetailController(
+        FakeGetDetail(),  # type: ignore[arg-type]
+        FakeResolve(),  # type: ignore[arg-type]
+        StreamListModel(),
+        get_ratings=get_ratings,  # type: ignore[arg-type]
+    )
+
+    await ctl.load("movie", "tt123")
+    await _drain_pending_tasks()
+
+    assert get_ratings.calls == ["tt123"]
+    assert ctl.rottenTomatoes == "87"
+    assert ctl.rottenTomatoesFresh is True
+    assert ctl.letterboxd == "4.1"
+
+
+async def test_skips_ratings_for_non_imdb_id(qapp: object) -> None:
+    get_ratings = FakeGetRatings(Ratings())
+    ctl = DetailController(
+        FakeGetDetail(),  # type: ignore[arg-type]
+        FakeResolve(),  # type: ignore[arg-type]
+        StreamListModel(),
+        get_ratings=get_ratings,  # type: ignore[arg-type]
+    )
+
+    await ctl.load("movie", "tmdb:99")  # not a tt id
+    await _drain_pending_tasks()
+
+    assert get_ratings.calls == []
+    assert ctl.rottenTomatoes == ""
+
+
+async def test_ratings_default_empty_without_resolver(qapp: object) -> None:
+    ctl = DetailController(FakeGetDetail(), FakeResolve(), StreamListModel())  # type: ignore[arg-type]
+
+    await ctl.load("movie", "tt123")
+
+    assert ctl.rottenTomatoes == ""
+    assert ctl.rottenTomatoesFresh is False
+    assert ctl.letterboxd == ""
 
 
 async def test_load_error_emits(qapp: object) -> None:
