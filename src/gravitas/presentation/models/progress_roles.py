@@ -15,7 +15,11 @@ def fraction_for(progress: WatchProgressRepository | None, item: MediaItem) -> f
         return 0.0
     if item.type == "series":
         # A series poster shows how far into the in-progress episode we are.
-        entry = progress.latest_for(item.id)
+        # Reads the latest *unwatched* entry, not latest_for: latest_for would
+        # surface a just-finished episode (watched=True, fraction=1.0) as a
+        # full bar on the whole show, disagreeing with in_progress() (which
+        # excludes watched rows and would say this show isn't in progress).
+        entry = progress.latest_unwatched_for(item.id)
         return entry.fraction if entry is not None else 0.0
     return progress.fraction_for(item.id)
 

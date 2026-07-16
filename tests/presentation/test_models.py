@@ -212,6 +212,56 @@ def test_poster_model_series_reads_the_latest_episode(qapp: object) -> None:
     assert model.data(model.index(0, 0), PosterGridModel.ProgressFractionRole) == 0.5
 
 
+def test_poster_model_series_shows_no_bar_once_the_latest_episode_is_watched(
+    qapp: object,
+) -> None:
+    """Finishing S1E1 must not read as the whole show being 100% done — that
+    disagreed with Settings, which excludes watched rows from in_progress()
+    and would say the same show is NOT in progress. The bar goes to 0 (no
+    bar) instead, matching in_progress()'s rule, until a later episode is
+    started."""
+    repo = WatchProgressRepository(
+        _Store(
+            [
+                _entry("tt9", "tt9:1:1", type="series", watched=True, position=0.0),
+            ]
+        )
+    )
+    model = PosterGridModel(repo)
+    model.set_items([MediaItem(id="tt9", type="series", name="S", poster=None)])
+    assert model.data(model.index(0, 0), PosterGridModel.ProgressFractionRole) == 0.0
+
+
+def test_poster_model_series_reads_the_in_progress_episode_over_a_watched_one(
+    qapp: object,
+) -> None:
+    repo = WatchProgressRepository(
+        _Store(
+            [
+                _entry(
+                    "tt9",
+                    "tt9:1:1",
+                    type="series",
+                    watched=True,
+                    position=0.0,
+                    updated_at=300,
+                ),
+                _entry(
+                    "tt9",
+                    "tt9:1:2",
+                    type="series",
+                    position=150.0,
+                    duration=600.0,
+                    updated_at=200,
+                ),
+            ]
+        )
+    )
+    model = PosterGridModel(repo)
+    model.set_items([MediaItem(id="tt9", type="series", name="S", poster=None)])
+    assert model.data(model.index(0, 0), PosterGridModel.ProgressFractionRole) == 0.25
+
+
 def test_poster_model_series_never_reports_watched(qapp: object) -> None:
     repo = WatchProgressRepository(
         _Store(
