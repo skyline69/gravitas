@@ -33,6 +33,7 @@ class SettingsController(QObject):
     addonsChanged = Signal()
     tmdbKeyChanged = Signal()
     subtitleStyleChanged = Signal()
+    mdblistKeyChanged = Signal()
 
     def __init__(
         self,
@@ -43,6 +44,7 @@ class SettingsController(QObject):
         key_holder: _KeyHolder | None = None,
         store: SettingsStore | None = None,
         style_holder: _StyleHolder | None = None,
+        mdblist_key_holder: _KeyHolder | None = None,
     ) -> None:
         super().__init__()
         self._uninstall = uninstall
@@ -52,6 +54,7 @@ class SettingsController(QObject):
         self._key_holder = key_holder
         self._store = store
         self._style_holder = style_holder
+        self._mdblist_key_holder = mdblist_key_holder
 
     @Property(str, notify=tmdbKeyChanged)
     def tmdbKey(self) -> str:
@@ -66,17 +69,32 @@ class SettingsController(QObject):
             self.tmdbKeyChanged.emit()
         self.persist()
 
+    @Property(str, notify=mdblistKeyChanged)
+    def mdblistKey(self) -> str:
+        if self._mdblist_key_holder is not None and self._mdblist_key_holder.key:
+            return self._mdblist_key_holder.key
+        return ""
+
+    @Slot(str)
+    def setMdblistKey(self, key: str) -> None:
+        if self._mdblist_key_holder is not None:
+            self._mdblist_key_holder.key = key.strip() or None
+            self.mdblistKeyChanged.emit()
+        self.persist()
+
     @Slot()
     def persist(self) -> None:
         """Write the current user state to the store."""
         if self._store is None:
             return
         key = self._key_holder.key if self._key_holder is not None else None
+        mdb = self._mdblist_key_holder.key if self._mdblist_key_holder is not None else None
         style = self._style_holder.style if self._style_holder is not None else SubtitleStyle()
         self._store.save(
             PersistedSettings(
                 addon_urls=tuple(self._repo.user_addon_urls()),
                 tmdb_key=key,
+                mdblist_key=mdb,
                 subtitle_style=style,
             )
         )
