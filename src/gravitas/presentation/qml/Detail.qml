@@ -125,6 +125,30 @@ Item {
                 }
             }
 
+            AppButton {
+                text: "Forget progress"
+                ghost: true
+                iconGlyph: Icons.trash
+                tone: "negative"
+                // hasProgress() is a Slot, not a binding dependency — reading
+                // `revision` is what makes this re-evaluate when it changes.
+                visible: progressController
+                    && progressController.revision >= 0
+                    && progressController.hasProgress(detail.mediaId)
+                onClicked: forgetDialog.ask()
+            }
+
+            ConfirmDialog {
+                id: forgetDialog
+                heading: "Forget progress for "
+                    + (detailController ? detailController.title : "this title") + "?"
+                body: detail.mediaType === "series"
+                    ? "Every episode's saved position is cleared. This cannot be undone."
+                    : "The saved position is cleared. This cannot be undone."
+                confirmText: "Forget"
+                onConfirmed: progressController.forgetMedia(detail.mediaId)
+            }
+
             // description
             Text {
                 width: parent.width
@@ -293,7 +317,14 @@ Item {
                         tags: model.tags
                         stars: model.stars
                         detailText: model.extra
-                        onClicked: if (model.url) detail.playUrl(model.url)
+                        onClicked: {
+                            if (!model.url)
+                                return
+                            // Identity must land before play(); the controller
+                            // reads it to resume and to record.
+                            playerController.setMediaContext(detailController.mediaContext())
+                            detail.playUrl(model.url)
+                        }
                     }
                 }
             }

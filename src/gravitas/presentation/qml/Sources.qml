@@ -95,7 +95,14 @@ Item {
             tags: model.tags
             stars: model.stars
             detailText: model.extra
-            onClicked: if (model.url) sources.playUrl(model.url)
+            onClicked: {
+                if (!model.url)
+                    return
+                // Identity must land before play(); the controller
+                // reads it to resume and to record.
+                playerController.setMediaContext(detailController.mediaContext())
+                sources.playUrl(model.url)
+            }
         }
         // Rows pop in as the resolve finishes.
         add: Transition {

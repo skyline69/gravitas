@@ -107,6 +107,53 @@ Item {
         return h > 0 ? h + ":" + pad(m) + ":" + pad(sec) : m + ":" + pad(sec)
     }
 
+    function formatClock(seconds) {
+        var total = Math.max(0, Math.floor(seconds))
+        var h = Math.floor(total / 3600)
+        var m = Math.floor((total % 3600) / 60)
+        var s = total % 60
+        var mm = (h > 0 && m < 10 ? "0" : "") + m
+        return (h > 0 ? h + ":" : "") + mm + ":" + (s < 10 ? "0" : "") + s
+    }
+
+    // Self-contained pill: the shared Toast lives in Main.qml and the player
+    // page has no handle on it.
+    Rectangle {
+        id: resumePill
+        z: 50
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top: parent.top
+        anchors.topMargin: 24
+        width: resumeLabel.implicitWidth + 28
+        height: 40
+        radius: 20
+        color: Qt.rgba(0, 0, 0, 0.78)
+        border.width: 1
+        border.color: Theme.borderStrong
+        opacity: 0
+        visible: opacity > 0
+        Text {
+            id: resumeLabel
+            anchors.centerIn: parent
+            color: Theme.text
+            font.pixelSize: Theme.fontSmall
+        }
+        SequentialAnimation {
+            id: resumeFade
+            NumberAnimation { target: resumePill; property: "opacity"; to: 1; duration: Theme.durMed }
+            PauseAnimation { duration: 2600 }
+            NumberAnimation { target: resumePill; property: "opacity"; to: 0; duration: Theme.durMed }
+        }
+    }
+
+    Connections {
+        target: playerController
+        function onResumed(position) {
+            resumeLabel.text = "Resumed from " + player.formatClock(position)
+            resumeFade.restart()
+        }
+    }
+
     Component.onCompleted: player.forceActiveFocus()
     focus: true
     Keys.onPressed: (event) => {
