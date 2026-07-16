@@ -46,6 +46,19 @@ class Video:
 
 
 @dataclass(frozen=True, slots=True)
+class Ratings:
+    """External critic/audience scores for a title, keyed by its IMDb id.
+
+    All optional: a missing source is None and renders nothing. IMDb is NOT
+    here — it comes from the addon's own meta. `rotten_tomatoes` is a percent
+    string with no sign (e.g. "87"); `letterboxd` is out of 5 (e.g. "4.1")."""
+
+    rotten_tomatoes: str | None = None
+    rotten_tomatoes_fresh: bool | None = None
+    letterboxd: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class MetaDetail:
     id: str
     type: MediaType
