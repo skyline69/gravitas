@@ -111,8 +111,16 @@ class WatchProgressRepository:
         return entry is not None and entry.watched
 
     def in_progress(self) -> list[PlaybackProgress]:
-        """One row per media (the latest touched), unwatched, newest first."""
-        rows = [e for e in self._latest.values() if not e.watched]
+        """One row per media (its newest unwatched entry), newest first.
+
+        Reads `_latest_unwatched`, not `_latest` filtered by watched: `_latest`
+        holds the newest-touched entry whatever its watched state, so finishing
+        an OLD episode of a show you are midway through would make `_latest`
+        that watched episode, drop it here, and vanish a half-watched show from
+        the list — while its poster bar (which reads `_latest_unwatched`) still
+        showed real progress. Same dict, same rule, both surfaces agree.
+        """
+        rows = list(self._latest_unwatched.values())
         rows.sort(key=lambda e: e.updated_at, reverse=True)
         return rows
 
