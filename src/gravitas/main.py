@@ -29,6 +29,7 @@ from gravitas.domain.errors import GravitasError
 from gravitas.domain.models import SubtitleStyle
 from gravitas.domain.ports import MediaPlayer
 from gravitas.infrastructure.addons.client import AddonClient
+from gravitas.infrastructure.cache.network_cache import CachingNetworkAccessManagerFactory
 from gravitas.infrastructure.metadata.tmdb_resolver import TmdbResolver
 from gravitas.infrastructure.player.mpv_player import MpvPlayer
 from gravitas.infrastructure.progress.sqlite_store import SqliteProgressStore
@@ -150,6 +151,14 @@ def build_app(
 
     engine = QQmlApplicationEngine()
 
+    # Artwork is fetched by QML's Image through Qt's network stack, which never
+    # reaches Python -- so posters re-downloaded on every launch. Must be
+    # installed before any QML loads, or the first requests bypass it. Like a
+    # context property, the factory is not owned by Qt: without a surviving
+    # Python reference it is collected and every request silently misses.
+    nam_factory = CachingNetworkAccessManagerFactory()
+    engine.setNetworkAccessManagerFactory(nam_factory)
+
     def make_player() -> MediaPlayer:
         return MpvPlayer()
 
@@ -254,6 +263,7 @@ def build_app(
         progress_controller,
         watched_model,
     )
+    engine._gravitas_nam_factory = nam_factory  # type: ignore[attr-defined]
     engine._gravitas_bootstrap = bootstrap  # type: ignore[attr-defined]
     engine._gravitas_http = http  # type: ignore[attr-defined]
     return app, engine
