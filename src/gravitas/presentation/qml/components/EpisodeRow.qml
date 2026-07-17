@@ -191,12 +191,16 @@ Rectangle {
         }
     }
 
-    // Resume bar, pinned to the row's bottom edge inside its rounded corners.
+    // Resume bar, pinned to the row's bottom edge. Inset horizontally by the
+    // corner radius so it starts where the straight edge does — a 2px inset
+    // left it visibly poking past the corner arc.
     Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        anchors.margins: 2
+        anchors.leftMargin: root.radius
+        anchors.rightMargin: root.radius
+        anchors.bottomMargin: 3
         height: 3
         radius: 1.5
         color: Theme.border
