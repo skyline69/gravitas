@@ -91,8 +91,15 @@ _TRAKT_ROWS_KEY = "gravitas://trakt-rows"
 # Qt runtime warnings we deliberately swallow. An addon's `/meta` routinely
 # points at CDN artwork that has since 404'd (or times out); Qt's `Image`
 # already degrades gracefully -- it holds the skeleton and never fades the
-# poster in -- so the per-poster `QQuickImage: Error transferring ...` warning
-# is pure noise with no action attached.
+# poster in -- so the per-poster `Error transferring ...` warning is pure
+# noise with no action attached. (Matched without the emitter prefix: Qt 6.11
+# renamed it from `QQuickImage:` to `QML QQuickImage*:`, which silently
+# un-matched the old needle.)
+#
+# `QIODevice::read (QSslSocket): device not open` is the tail of the same
+# story: a poster fetch aborted because its delegate was torn down mid-flight
+# (a model reset while images stream in). The transfer was for a card that no
+# longer exists; nothing to act on.
 #
 # The bundled Inter.ttf carries only Latin/Cyrillic/Greek OpenType tables, so
 # any addon title in Devanagari, Arabic, CJK, etc. makes Qt log
@@ -105,7 +112,8 @@ _TRAKT_ROWS_KEY = "gravitas://trakt-rows"
 # KWin still uses the window icon we set, and installed builds ship the desktop
 # file, so this line is noise only in the dev checkout.
 _MUTED_QT_WARNINGS = (
-    "QQuickImage: Error transferring",
+    "Error transferring",
+    "QIODevice::read (QSslSocket): device not open",
     "OpenType support missing",
     "Could not register app ID",
 )
