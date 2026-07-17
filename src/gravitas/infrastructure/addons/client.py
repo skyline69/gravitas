@@ -1,7 +1,15 @@
-"""AddonSource implementation backed by an httpx.AsyncClient."""
+"""AddonSource implementation backed by an httpx.AsyncClient.
+
+CPU work (JSON decode, response parsing) runs in a worker thread via
+asyncio.to_thread: the app's asyncio loop IS the Qt GUI thread (qasync), so
+milliseconds spent decoding a fat Cinemeta catalog on the loop are
+milliseconds the render loop cannot sync — visible as animation hitches
+wherever a spinner or transition is running while fetches land.
+"""
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Callable
 from typing import Any
@@ -60,7 +68,7 @@ class AddonClient:
         except httpx.HTTPError as exc:
             raise AddonUnreachable(f"GET {url} failed: {exc}") from exc
         try:
-            data = response.json()
+            data = await asyncio.to_thread(response.json)
         except ValueError as exc:
             raise InvalidResponse(f"non-JSON response from {url}") from exc
         if not isinstance(data, dict):
@@ -89,13 +97,15 @@ class AddonClient:
         # a genre-required catalog must be asked with.
         path = parsing.catalog_path_extra(ref, genre, skip, search)
         data = await self._get_json(manifest.base_url + path, cache_for=AddonClient.CATALOG_TTL)
-        return parsing.parse_catalog(data)
+        # Catalogs and meta are the two big payloads (hundreds of items /
+        # full episode lists); their parse loops leave the GUI thread too.
+        return await asyncio.to_thread(parsing.parse_catalog, data)
 
     async def fetch_meta(self, manifest: AddonManifest, type: MediaType, id: str) -> MetaDetail:
         data = await self._get_json(
             manifest.base_url + parsing.meta_path(type, id), cache_for=AddonClient.META_TTL
         )
-        return parsing.parse_meta(data)
+        return await asyncio.to_thread(parsing.parse_meta, data)
 
     async def fetch_streams(
         self, manifest: AddonManifest, type: MediaType, id: str

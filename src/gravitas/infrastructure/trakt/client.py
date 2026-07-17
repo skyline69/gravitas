@@ -7,6 +7,7 @@ documented at https://trakt.docs.apiary.io/.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from datetime import datetime
@@ -329,7 +330,10 @@ class TraktClient:
                 f"Trakt playback sync failed (HTTP {resp.status_code})",
                 status=resp.status_code,
             )
-        data = resp.json()
+        # Off the GUI thread (qasync runs asyncio there): extended=full
+        # payloads are hefty, and decoding them on the loop hitches whatever
+        # is animating when the sync lands.
+        data = await asyncio.to_thread(resp.json)
         if not isinstance(data, list):
             raise TraktError("unexpected Trakt playback response")
         entries: list[TraktPlayback] = []
@@ -378,7 +382,7 @@ class TraktClient:
                 f"Trakt {path} failed (HTTP {resp.status_code})",
                 status=resp.status_code,
             )
-        data = resp.json()
+        data = await asyncio.to_thread(resp.json)
         if not isinstance(data, list):
             raise TraktError(f"unexpected Trakt {path} response")
         return data
