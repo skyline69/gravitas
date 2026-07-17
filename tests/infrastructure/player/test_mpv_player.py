@@ -14,6 +14,7 @@ class FakeMpv:
         self.mute = False
         self.time_pos: float | None = None
         self.duration: float | None = None
+        self.demuxer_cache_time: float | None = None
         self.sid: Any = "auto"
         self.aid: Any = "auto"
         self.played: list[str] = []
@@ -89,6 +90,14 @@ def test_position_and_duration_default_to_zero() -> None:
     fake.duration = 100.0
     assert player.position() == 12.5
     assert player.duration() == 100.0
+
+
+def test_buffered_to_defaults_to_zero_and_reads_demuxer_cache() -> None:
+    player, fake = _player()
+    # None before the file opens (and for local files).
+    assert player.buffered_to() == 0.0
+    fake.demuxer_cache_time = 245.7
+    assert player.buffered_to() == 245.7
 
 
 def test_volume_clamped_and_mute() -> None:

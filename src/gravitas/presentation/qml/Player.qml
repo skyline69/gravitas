@@ -28,6 +28,9 @@ Item {
     // Polled buffering state; loader shows for the initial open too (no
     // duration yet). A short on-delay keeps fast seeks from flashing it.
     property bool buffering: false
+    // Absolute position (seconds) the demuxer has downloaded up to; drives
+    // the lighter loaded-ahead track in the timeline.
+    property real bufferedTo: 0
     readonly property bool mediaLoading: player.url.length > 0 && (dur <= 0 || buffering)
     property bool showLoader: false
     onMediaLoadingChanged: {
@@ -158,27 +161,59 @@ Item {
     focus: true
     Keys.onPressed: (event) => {
         player.showControls()
+        // Shift stretches the arrow jumps (10s -> 60s), YouTube-style.
+        var jump = (event.modifiers & Qt.ShiftModifier) ? 60 : 10
         switch (event.key) {
         case Qt.Key_Space:
-            playerController.togglePause(); event.accepted = true; break
+        case Qt.Key_K:
+            playerController.togglePause()
+            // Flash the NEW state, YouTube-style: pausing shows the pause bars.
+            osd.flash(playerController.paused ? Icons.pause : Icons.play)
+            event.accepted = true; break
         case Qt.Key_Left:
-            playerController.seekBy(-10); event.accepted = true; break
+            playerController.seekBy(-jump)
+            if (jump === 60) osd.flash(Icons.fastRewind, "60s")
+            else osd.flash(Icons.replay10)
+            event.accepted = true; break
         case Qt.Key_Right:
-            playerController.seekBy(10); event.accepted = true; break
+            playerController.seekBy(jump)
+            if (jump === 60) osd.flash(Icons.fastForward, "60s")
+            else osd.flash(Icons.forward10)
+            event.accepted = true; break
+        case Qt.Key_J:
+            playerController.seekBy(-10); osd.flash(Icons.replay10); event.accepted = true; break
+        case Qt.Key_L:
+            playerController.seekBy(10); osd.flash(Icons.forward10); event.accepted = true; break
         case Qt.Key_Up:
-            playerController.setVolume(Math.min(100, playerController.volume + 5)); event.accepted = true; break
+            playerController.setVolume(Math.min(100, playerController.volume + 5))
+            osd.flash(Icons.volumeUp, Math.round(playerController.volume) + "%")
+            event.accepted = true; break
         case Qt.Key_Down:
-            playerController.setVolume(Math.max(0, playerController.volume - 5)); event.accepted = true; break
+            playerController.setVolume(Math.max(0, playerController.volume - 5))
+            osd.flash(playerController.volume > 0 ? Icons.volumeUp : Icons.volumeOff,
+                      Math.round(playerController.volume) + "%")
+            event.accepted = true; break
         case Qt.Key_F:
             player.toggleFullscreen(); event.accepted = true; break
         case Qt.Key_M:
-            playerController.toggleMute(); event.accepted = true; break
+            playerController.toggleMute()
+            osd.flash(playerController.muted ? Icons.volumeOff : Icons.volumeUp,
+                      playerController.muted ? "Muted" : Math.round(playerController.volume) + "%")
+            event.accepted = true; break
         case Qt.Key_Escape:
             if (player.isFullscreen)
                 Window.window.visibility = Window.Windowed
             else
                 player.leave()
             event.accepted = true
+            break
+        default:
+            // 0-9: jump to that tenth of the runtime (5 -> 50%), like mpv/YT.
+            // No-op before the duration is known.
+            if (event.key >= Qt.Key_0 && event.key <= Qt.Key_9 && player.dur > 0) {
+                playerController.seek(player.dur * (event.key - Qt.Key_0) / 10)
+                event.accepted = true
+            }
             break
         }
     }
@@ -213,6 +248,7 @@ Item {
         onTriggered: {
             player.dur = playerController.duration
             player.buffering = playerController.isLoading()
+            player.bufferedTo = playerController.bufferedTo()
             if (!timeline.pressed)
                 timeline.value = playerController.position()
         }
@@ -234,6 +270,84 @@ Item {
         onDoubleClicked: {
             singleClickTimer.stop()
             player.toggleFullscreen()
+        }
+    }
+
+    // ---- keyboard OSD flash (YouTube-style) ----
+    // A centered circle that pops and fades when a KEYBOARD action changes
+    // playback state. Pointer-driven changes stay silent: the buttons the
+    // user just clicked are feedback enough, and the flash would sit right
+    // where the film is.
+    Item {
+        id: osd
+        z: 9
+        anchors.centerIn: parent
+        width: 84
+        height: 84
+        opacity: 0
+        visible: opacity > 0
+
+        property string glyph: ""
+        property string label: ""
+        readonly property bool hasLabel: label.length > 0
+        function flash(glyph, label) {
+            osd.glyph = glyph
+            osd.label = label === undefined ? "" : label
+            osdAnim.restart()
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            radius: 18
+            color: Qt.rgba(0, 0, 0, 0.55)
+        }
+        AppIcon {
+            id: osdIcon
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.verticalCenter: parent.verticalCenter
+            // The Text box includes the font's descent below the glyph (icon
+            // glyphs sit on the baseline), so a plain centerIn rides the glyph
+            // high — push it down by half the descent to center it optically.
+            // With a label, lift the pair so icon + label center together.
+            anchors.verticalCenterOffset: osdIconMetrics.descent / 2
+                - (osd.hasLabel ? 9 : 0)
+            glyph: osd.glyph
+            font.pixelSize: osd.hasLabel ? 32 : 40
+            color: "white"
+        }
+        FontMetrics { id: osdIconMetrics; font: osdIcon.font }
+        Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: 12
+            visible: osd.hasLabel
+            text: osd.label
+            color: "white"
+            font.pixelSize: Theme.fontSmall
+            font.bold: true
+        }
+        // Pop in fast at full strength, then grow gently while fading out —
+        // reads as an acknowledgement, not a dialog.
+        ParallelAnimation {
+            id: osdAnim
+            NumberAnimation {
+                target: osd
+                property: "scale"
+                from: 0.8; to: 1.25
+                duration: 700
+                easing.type: Easing.OutCubic
+            }
+            SequentialAnimation {
+                NumberAnimation { target: osd; property: "opacity"; from: 0; to: 1; duration: 90 }
+                PauseAnimation { duration: 160 }
+                NumberAnimation {
+                    target: osd
+                    property: "opacity"
+                    to: 0
+                    duration: 450
+                    easing.type: Easing.InQuad
+                }
+            }
         }
     }
 
@@ -302,6 +416,7 @@ Item {
                 width: parent.width
                 from: 0
                 to: Math.max(1, player.dur)
+                bufferFraction: player.dur > 0 ? player.bufferedTo / player.dur : 0
                 // No drag-seeking before the duration is known — a 0..1 range
                 // would turn any drag into a seek to the first second.
                 enabled: player.dur > 0

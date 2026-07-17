@@ -7,9 +7,14 @@ Item {
     objectName: "homePage"
     signal openDetail(string type, string id)
     signal seeAll(string addonId, string type, string catalogId)
+    // Set by Main from the TopBar tab. "watchlist" swaps the catalog rows for
+    // the watchlist grid; anything else shows the (already filtered) rows.
+    property string catalogMode: "all"
+    readonly property bool watchlistMode: catalogMode === "watchlist"
 
     ListView {
         id: rowsView
+        visible: !home.watchlistMode
         maximumFlickVelocity: 12000
         flickDeceleration: 8000
         anchors.fill: parent
@@ -44,9 +49,207 @@ Item {
     // the Flickable would not.
     Item {
         anchors.fill: rowsView
+        visible: rowsView.visible
         WheelHandler {
             acceptedDevices: PointerDevice.Mouse
             onWheel: (w) => Scroll.wheel(rowsView, w)
+        }
+    }
+
+    // ---- watchlist tab: centered title + Movies / Series sections ----
+    // A poster count small enough to curate by hand never needs delegate
+    // recycling, so plain Repeaters in a Flickable beat two GridViews here:
+    // both sections scroll as one page.
+    Flickable {
+        id: watchlistFlick
+        visible: home.watchlistMode && moviesRep.count + seriesRep.count > 0
+        maximumFlickVelocity: 12000
+        flickDeceleration: 8000
+        anchors.fill: parent
+        anchors.leftMargin: 24
+        anchors.rightMargin: 0
+        anchors.bottomMargin: 24
+        // Content inset (not an anchor margin): the header rests below the
+        // floating bar, but scrolled content slides underneath it.
+        topMargin: 92
+        contentWidth: width
+        contentHeight: watchlistContent.implicitHeight + 24
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        ScrollBar.vertical: AppScrollBar {}
+
+        Column {
+            id: watchlistContent
+            width: watchlistFlick.width - 24
+            spacing: 28
+
+            // Page title, centered — the tab has no catalog rows to fill the
+            // space, so it names itself instead.
+            Column {
+                width: parent.width
+                spacing: 6
+                AppIcon {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    glyph: Icons.bookmark
+                    font.pixelSize: 30
+                    color: "#A855F7"
+                }
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: "Your Watchlist"
+                    color: Theme.text
+                    font.pixelSize: 30
+                    font.bold: true
+                }
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: {
+                        var parts = []
+                        if (moviesRep.count > 0)
+                            parts.push(moviesRep.count + (moviesRep.count === 1 ? " movie" : " movies"))
+                        if (seriesRep.count > 0)
+                            parts.push(seriesRep.count + (seriesRep.count === 1 ? " series" : " series"))
+                        return parts.join(" · ")
+                    }
+                    color: Theme.textDim
+                    font.pixelSize: Theme.fontBody
+                }
+            }
+
+            // Movies section
+            Column {
+                width: parent.width
+                spacing: 8
+                visible: moviesRep.count > 0
+                Row {
+                    spacing: 10
+                    AppIcon {
+                        anchors.verticalCenter: parent.verticalCenter
+                        glyph: Icons.theaters
+                        font.pixelSize: Theme.fontTitle
+                        color: "#3B82F6"
+                    }
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "Movies"
+                        color: "white"
+                        font.pixelSize: 18
+                        font.bold: true
+                    }
+                }
+                Flow {
+                    width: parent.width
+                    spacing: 16
+                    Repeater {
+                        id: moviesRep
+                        model: watchlistMoviesModel
+                        delegate: PosterCard {
+                            // A little wider than the 160px card so the hover
+                            // scale-up grows into the slack, not the clip edge.
+                            width: 176
+                            height: 300
+                            title: model.name
+                            posterUrl: model.poster ? model.poster : ""
+                            posterShape: model.posterShape
+                            mediaType: model.type
+                            progressFraction: model.progressFraction
+                            watched: model.watched
+                            forgetContext: ({
+                                mediaId: model.id,
+                                videoId: "",
+                                type: model.type,
+                                name: model.name,
+                                poster: model.poster ? model.poster : "",
+                                label: ""
+                            })
+                            onClicked: home.openDetail(model.type, model.id)
+                        }
+                    }
+                }
+            }
+
+            // Series section
+            Column {
+                width: parent.width
+                spacing: 8
+                visible: seriesRep.count > 0
+                Row {
+                    spacing: 10
+                    AppIcon {
+                        anchors.verticalCenter: parent.verticalCenter
+                        glyph: Icons.liveTv
+                        font.pixelSize: Theme.fontTitle
+                        color: "#22C55E"
+                    }
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "Series"
+                        color: "white"
+                        font.pixelSize: 18
+                        font.bold: true
+                    }
+                }
+                Flow {
+                    width: parent.width
+                    spacing: 16
+                    Repeater {
+                        id: seriesRep
+                        model: watchlistSeriesModel
+                        delegate: PosterCard {
+                            width: 176
+                            height: 300
+                            title: model.name
+                            posterUrl: model.poster ? model.poster : ""
+                            posterShape: model.posterShape
+                            mediaType: model.type
+                            progressFraction: model.progressFraction
+                            watched: model.watched
+                            forgetContext: ({
+                                mediaId: model.id,
+                                videoId: "",
+                                type: model.type,
+                                name: model.name,
+                                poster: model.poster ? model.poster : "",
+                                label: ""
+                            })
+                            onClicked: home.openDetail(model.type, model.id)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Item {
+        anchors.fill: watchlistFlick
+        visible: watchlistFlick.visible
+        WheelHandler {
+            acceptedDevices: PointerDevice.Mouse
+            onWheel: (w) => Scroll.wheel(watchlistFlick, w)
+        }
+    }
+
+    Column {
+        anchors.centerIn: parent
+        spacing: 12
+        visible: home.watchlistMode && moviesRep.count + seriesRep.count === 0
+        AppIcon {
+            anchors.horizontalCenter: parent.horizontalCenter
+            glyph: Icons.bookmarkBorder
+            font.pixelSize: 56
+            color: Theme.borderStrong
+        }
+        Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: "Your watchlist is empty"
+            color: Theme.text
+            font.pixelSize: Theme.fontTitle
+            font.bold: true
+        }
+        Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: "Add titles from their page or a poster's right-click menu."
+            color: Theme.textDim
+            font.pixelSize: Theme.fontBody
         }
     }
 

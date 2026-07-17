@@ -89,6 +89,12 @@ class PlayerController(QObject):
         """Polled with position: buffering or mid-seek."""
         return self._player.is_loading() if self._player is not None else False
 
+    @Slot(result=float)
+    def bufferedTo(self) -> float:
+        """Polled with position: how far ahead (absolute seconds) the demuxer
+        has downloaded — the timeline's loaded track."""
+        return self._player.buffered_to() if self._player is not None else 0.0
+
     # --- renderer bridge ---
 
     @Slot(QObject)

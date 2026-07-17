@@ -12,6 +12,7 @@ class FakePlayer:
         self._paused = False
         self._muted = False
         self.loading = False
+        self.buffered = 0.0
         self._volume = 100.0
         self._position = 0.0
         self.start = 0.0
@@ -73,6 +74,9 @@ class FakePlayer:
 
     def is_loading(self) -> bool:
         return self.loading
+
+    def buffered_to(self) -> float:
+        return self.buffered
 
     def set_subtitle_track(self, track_id: int | None) -> None:
         self.sub = track_id
@@ -241,6 +245,15 @@ def test_is_loading_polled(qapp: object) -> None:
     controller.play("http://s/v.mkv")
     player.loading = True
     assert controller.isLoading() is True
+
+
+def test_buffered_to_polled(qapp: object) -> None:
+    player = FakePlayer()
+    controller = PlayerController(lambda: player)
+    assert controller.bufferedTo() == 0.0  # no player yet
+    controller.play("http://s/v.mkv")
+    player.buffered = 321.5
+    assert controller.bufferedTo() == 321.5
 
 
 def test_state_callback_emits_state_changed(qapp: object) -> None:

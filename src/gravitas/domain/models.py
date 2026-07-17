@@ -291,6 +291,20 @@ class PersistedSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class WatchlistEntry:
+    """One saved title. `name`, `poster` and `year` are denormalized onto the
+    entry (like PlaybackProgress) so the watchlist renders without refetching
+    any addon's meta."""
+
+    media_id: str
+    type: MediaType
+    name: str
+    poster: str | None
+    year: str | None
+    added_at: int
+
+
+@dataclass(frozen=True, slots=True)
 class PlaybackProgress:
     """One resumable position. `video_id` is "" for movies.
 

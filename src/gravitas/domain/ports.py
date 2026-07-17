@@ -17,6 +17,7 @@ from gravitas.domain.models import (
     ResolvedMedia,
     Stream,
     SubtitleStyle,
+    WatchlistEntry,
 )
 
 
@@ -69,6 +70,11 @@ class MediaPlayer(Protocol):
         """True while playback is stalled on I/O (buffering or seeking)."""
         ...
 
+    def buffered_to(self) -> float:
+        """Absolute position (seconds) the demuxer has downloaded up to, or 0.0
+        when unknown — drives the loaded-ahead track in the timeline."""
+        ...
+
     def set_subtitle_track(self, track_id: int | None) -> None: ...
     def subtitle_tracks(self) -> list[tuple[int, str]]: ...
     def set_audio_track(self, track_id: int | None) -> None: ...
@@ -109,6 +115,17 @@ class SettingsStore(Protocol):
 
     def load(self) -> PersistedSettings: ...
     def save(self, settings: PersistedSettings) -> None: ...
+
+
+@runtime_checkable
+class WatchlistStore(Protocol):
+    """Durable store for the user's watchlist. load_all() must never raise on
+    missing or corrupt data — it returns an empty list instead."""
+
+    def load_all(self) -> list[WatchlistEntry]: ...
+    def save(self, entry: WatchlistEntry) -> None: ...
+    def delete(self, media_id: str) -> None: ...
+    def clear(self) -> None: ...
 
 
 @runtime_checkable

@@ -5,6 +5,10 @@ import "."
 Slider {
     id: control
     implicitHeight: 20
+    // How far ahead of `from` the media is loaded, 0..1 of the range. Drawn
+    // as a lighter track under the played fill (the player's buffer bar);
+    // the default 0 renders nothing, so plain sliders are untouched.
+    property real bufferFraction: 0
     // Never grab keyboard focus on click: a focused Slider eats Space/arrow
     // keys (Space "presses" it and commits a seek on release) instead of the
     // player page's shortcuts.
@@ -19,6 +23,12 @@ Slider {
         height: 4
         radius: 2
         color: Qt.rgba(1, 1, 1, 0.22)
+        Rectangle {
+            width: Math.max(0, Math.min(1, control.bufferFraction)) * parent.width
+            height: parent.height
+            radius: 2
+            color: Qt.rgba(1, 1, 1, 0.3)
+        }
         Rectangle {
             width: control.visualPosition * parent.width
             height: parent.height

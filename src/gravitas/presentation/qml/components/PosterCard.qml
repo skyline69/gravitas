@@ -51,8 +51,12 @@ Item {
                 action: () => progressController.forgetMedia(root.forgetContext.mediaId)
             })
         }
-        if (items.length === 0)
-            return
+        // Label resolved at open time, so no revision binding is needed here.
+        items.push({
+            label: watchlistController.contains(root.forgetContext.mediaId)
+                ? "Remove from watchlist" : "Add to watchlist",
+            action: () => watchlistController.toggle(root.forgetContext)
+        })
         root.showMenu(items, position)
     }
 

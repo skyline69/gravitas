@@ -375,6 +375,15 @@ class MpvPlayer:
     def is_loading(self) -> bool:
         return bool(self._prop("paused_for_cache")) or bool(self._prop("seeking"))
 
+    def buffered_to(self) -> float:
+        # demuxer-cache-time: the absolute timestamp the demuxer has data up
+        # to. Unavailable (None) before the file opens and for local files.
+        value = self._prop("demuxer_cache_time")
+        try:
+            return float(value) if value is not None else 0.0
+        except (TypeError, ValueError):
+            return 0.0
+
     # --- tracks ---
 
     def subtitle_tracks(self) -> list[tuple[int, str]]:

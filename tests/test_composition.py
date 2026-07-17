@@ -247,6 +247,37 @@ def test_build_app_rebuilds_continue_watching_on_progress_change(
         loop.close()
 
 
+def test_build_app_wires_watchlist(qapp: object) -> None:
+    from gravitas.main import DEFAULT_ADDON, build_app
+
+    _, engine = build_app([], DEFAULT_ADDON)
+    assert engine.rootObjects(), "Main.qml failed to load (QML parse/type error)"
+    ctx = engine.rootContext()
+    watchlist_controller = ctx.contextProperty("watchlistController")
+    movies_model = ctx.contextProperty("watchlistMoviesModel")
+    series_model = ctx.contextProperty("watchlistSeriesModel")
+    assert watchlist_controller is not None
+    assert movies_model is not None
+    assert series_model is not None
+    # setContextProperty does not take ownership; without a surviving Python
+    # reference these read back as null in QML.
+    names = {type(ref).__name__ for ref in engine._gravitas_refs}
+    assert "WatchlistController" in names
+
+    # Toggling through the controller must land in the section model the
+    # page's Repeater reads — a movie in Movies, not Series.
+    rows_before = movies_model.rowCount()
+    watchlist_controller.toggle(
+        {"mediaId": "tt-test", "type": "movie", "name": "T", "poster": "", "year": ""}
+    )
+    assert movies_model.rowCount() == rows_before + 1
+    assert series_model.rowCount() == 0
+    watchlist_controller.toggle(
+        {"mediaId": "tt-test", "type": "movie", "name": "T", "poster": "", "year": ""}
+    )
+    assert movies_model.rowCount() == rows_before
+
+
 def test_deep_link_controller_is_wired_into_qml(qapp: object) -> None:
     from gravitas.main import DEFAULT_ADDON, build_app
 

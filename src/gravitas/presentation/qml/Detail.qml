@@ -198,17 +198,40 @@ Item {
                 }
             }
 
-            AppButton {
-                text: "Forget progress"
-                ghost: true
-                iconGlyph: Icons.trash
-                tone: "negative"
-                // hasProgress() is a Slot, not a binding dependency — reading
-                // `revision` is what makes this re-evaluate when it changes.
-                visible: progressController
-                    && progressController.revision >= 0
-                    && progressController.hasProgress(detail.mediaId)
-                onClicked: forgetDialog.ask()
+            Row {
+                spacing: 8
+
+                AppButton {
+                    // contains() is a Slot, not a binding dependency — reading
+                    // `revision` is what makes this re-evaluate on toggle.
+                    readonly property bool inList: watchlistController
+                        && watchlistController.revision >= 0
+                        && watchlistController.contains(detail.mediaId)
+                    text: inList ? "In watchlist" : "Add to watchlist"
+                    ghost: true
+                    iconGlyph: inList ? Icons.bookmark : Icons.bookmarkAdd
+                    tone: inList ? "accent" : "neutral"
+                    onClicked: watchlistController.toggle({
+                        mediaId: detail.mediaId,
+                        type: detail.mediaType,
+                        name: detailController ? detailController.title : "",
+                        poster: detailController ? detailController.poster : "",
+                        year: detailController ? detailController.year : ""
+                    })
+                }
+
+                AppButton {
+                    text: "Forget progress"
+                    ghost: true
+                    iconGlyph: Icons.trash
+                    tone: "negative"
+                    // hasProgress() is a Slot, not a binding dependency — reading
+                    // `revision` is what makes this re-evaluate when it changes.
+                    visible: progressController
+                        && progressController.revision >= 0
+                        && progressController.hasProgress(detail.mediaId)
+                    onClicked: forgetDialog.ask()
+                }
             }
 
             ConfirmDialog {

@@ -13,6 +13,10 @@ ApplicationWindow {
     title: "Gravitas"
     color: Theme.bg
 
+    // The TopBar tab currently showing on Home. "watchlist" swaps Home's
+    // catalog rows for the watchlist grid; every other mode filters the rows.
+    property string catalogMode: "all"
+
     // Neutral focus sink OUTSIDE the StackView's focus scope. Moving active
     // focus here truly blurs a focused field; forcing focus onto the StackView
     // (itself a FocusScope) would just re-delegate focus back to the field.
@@ -51,7 +55,11 @@ ApplicationWindow {
             && stack.currentItem.objectName === "settingsPage"
         onTabSelected: (mode) => {
             while (stack.depth > 1) stack.pop()
-            catalogController.setFilter(mode)
+            window.catalogMode = mode
+            // The rows model has no "watchlist" filter — Home swaps views on
+            // catalogMode instead, so the last real filter stays in place.
+            if (mode !== "watchlist")
+                catalogController.setFilter(mode)
         }
         onOpenSettings: {
             if (stack.currentItem.objectName !== "settingsPage")
@@ -120,6 +128,7 @@ ApplicationWindow {
     Component {
         id: homePage
         Home {
+            catalogMode: window.catalogMode
             onOpenDetail: (type, id) => stack.push(detailPage, {mediaType: type, mediaId: id})
             onSeeAll: (addonId, type, catalogId) => {
                 discoverController.open(addonId, type, catalogId)

@@ -36,6 +36,7 @@ from gravitas.application.resolve_stream import ResolveStream
 from gravitas.application.search_media import SearchMedia
 from gravitas.application.uninstall_addon import UninstallAddon
 from gravitas.application.watch_progress import WatchProgressRepository
+from gravitas.application.watchlist import WatchlistRepository
 from gravitas.domain.errors import GravitasError
 from gravitas.domain.models import SubtitleStyle
 from gravitas.domain.ports import MediaPlayer
@@ -50,6 +51,7 @@ from gravitas.infrastructure.metadata.tmdb_resolver import TmdbResolver
 from gravitas.infrastructure.player.mpv_player import MpvPlayer
 from gravitas.infrastructure.progress.sqlite_store import SqliteProgressStore
 from gravitas.infrastructure.settings.json_store import JsonSettingsStore
+from gravitas.infrastructure.watchlist.sqlite_store import SqliteWatchlistStore
 from gravitas.presentation.controllers.addon_controller import AddonController
 from gravitas.presentation.controllers.catalog_controller import CatalogController
 from gravitas.presentation.controllers.deep_link_controller import DeepLinkController
@@ -59,6 +61,7 @@ from gravitas.presentation.controllers.player_controller import PlayerController
 from gravitas.presentation.controllers.progress_controller import ProgressController
 from gravitas.presentation.controllers.search_controller import SearchController
 from gravitas.presentation.controllers.settings_controller import SettingsController
+from gravitas.presentation.controllers.watchlist_controller import WatchlistController
 from gravitas.presentation.models.addon_list_model import AddonListModel
 from gravitas.presentation.models.catalog_rows_model import CatalogRowsModel
 from gravitas.presentation.models.episode_list_model import EpisodeListModel
@@ -273,6 +276,15 @@ def build_app(
     watched_model = WatchedListModel()
     progress_controller = ProgressController(progress_repo, watched_model)
 
+    watchlist_repo = WatchlistRepository(SqliteWatchlistStore())
+    # One model per Watchlist section (Movies / Series), progress-aware so
+    # watchlist posters carry the same bars/checkmarks as every other grid.
+    watchlist_movies_model = PosterGridModel(progress_repo)
+    watchlist_series_model = PosterGridModel(progress_repo)
+    watchlist_controller = WatchlistController(
+        watchlist_repo, watchlist_movies_model, watchlist_series_model
+    )
+
     player_controller = PlayerController(make_player, lambda: sub_style.style, progress_repo)
     # Live-apply subtitle style edits to an active player.
     settings_controller.subtitleStyleChanged.connect(player_controller.applySubtitleStyle)
@@ -288,6 +300,8 @@ def build_app(
         episode_model.refresh_progress()
         search_results_model.refresh_progress()
         search_page_model.refresh_progress()
+        watchlist_movies_model.refresh_progress()
+        watchlist_series_model.refresh_progress()
         # Not just the bars: this row's membership changes too -- finishing or
         # forgetting a title removes it. Rebuilding is a dict read, never a
         # catalog re-fetch, which is why it is safe on the 5s playback tick.
@@ -322,6 +336,9 @@ def build_app(
     ctx.setContextProperty("searchPageModel", search_page_model)
     ctx.setContextProperty("progressController", progress_controller)
     ctx.setContextProperty("watchedListModel", watched_model)
+    ctx.setContextProperty("watchlistController", watchlist_controller)
+    ctx.setContextProperty("watchlistMoviesModel", watchlist_movies_model)
+    ctx.setContextProperty("watchlistSeriesModel", watchlist_series_model)
     ctx.setContextProperty("deepLinkController", deep_link_controller)
 
     # One listener owns both delivery paths: forwarded links from a second
@@ -384,6 +401,9 @@ def build_app(
         search_page_model,
         progress_controller,
         watched_model,
+        watchlist_controller,
+        watchlist_movies_model,
+        watchlist_series_model,
         deep_link_controller,
     )
     # Same rule as the context properties: nothing else holds this, and a

@@ -55,7 +55,7 @@ def qml_warnings(qapp: object, app_font: None) -> Iterator[list[str]]:
         qInstallMessageHandler(previous)
 
 
-def _instantiate(source: str) -> None:
+def _instantiate(source: str, context: dict[str, object] | None = None) -> None:
     """Build `source` as QML inside a real Window, then tear it down.
 
     The style is not set here -- QQuickStyle.setStyle() only takes effect before
@@ -66,6 +66,8 @@ def _instantiate(source: str) -> None:
     """
     engine = QQmlEngine()
     engine.addImportPath(str(_QML_DIR))
+    for name, obj in (context or {}).items():
+        engine.rootContext().setContextProperty(name, obj)
     component = QQmlComponent(engine)
     component.setData(source.encode("utf-8"), _COMPONENTS_DIR.as_uri() + "/probe.qml")
     assert not component.isError(), component.errorString()
@@ -146,6 +148,15 @@ def test_poster_card_builds_its_menu_only_when_asked(qml_warnings: list[str]) ->
     """A ContextMenu costs ~36 KB per delegate if built eagerly (measured), paid
     by every visible card for a menu most are never asked for. It must stay
     behind a Loader -- and must still open."""
+    from PySide6.QtCore import QObject, Slot
+
+    class _StubWatchlist(QObject):
+        # openMenu asks membership at open time to label the watchlist entry.
+        @Slot(str, result=bool)
+        def contains(self, media_id: str) -> bool:
+            return False
+
+    stub = _StubWatchlist()
     _instantiate(
         """
         import QtQuick
@@ -176,12 +187,15 @@ def test_poster_card_builds_its_menu_only_when_asked(qml_warnings: list[str]) ->
                 card.openMenu(Qt.point(10, 10))
                 if (l.item === null) throw new Error("menu did not build on demand")
                 if (!l.item.visible) throw new Error("menu built but never shown")
-                if (l.item.entries.length !== 2)
-                    throw new Error("expected mark-watched + forget, got "
+                if (l.item.entries.length !== 3)
+                    throw new Error("expected mark-watched + forget + watchlist, got "
                                     + l.item.entries.length)
+                if (l.item.entries[2].label !== "Add to watchlist")
+                    throw new Error("watchlist entry mislabelled: " + l.item.entries[2].label)
             }
         }
-        """
+        """,
+        context={"watchlistController": stub},
     )
     assert qml_warnings == []
 

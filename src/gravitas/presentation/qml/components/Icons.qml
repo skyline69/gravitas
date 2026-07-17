@@ -31,5 +31,11 @@ QtObject {
     readonly property string fullscreenExit: String.fromCharCode(0xe5d1) // fullscreen_exit
     readonly property string replay10: String.fromCharCode(0xe059) // replay_10
     readonly property string forward10: String.fromCharCode(0xe056) // forward_10
+    readonly property string fastRewind: String.fromCharCode(0xe020) // fast_rewind
+    readonly property string fastForward: String.fromCharCode(0xe01f) // fast_forward
     readonly property string check: String.fromCharCode(0xe5ca) // check
+    // watchlist
+    readonly property string bookmark: String.fromCharCode(0xe866) // bookmark
+    readonly property string bookmarkBorder: String.fromCharCode(0xe867) // bookmark_border
+    readonly property string bookmarkAdd: String.fromCharCode(0xe598) // bookmark_add
 }

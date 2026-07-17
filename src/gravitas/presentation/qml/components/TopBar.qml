@@ -33,7 +33,8 @@ Rectangle {
         { label: "All", mode: "all", icon: Icons.dashboard, color: Theme.accent },
         { label: "Movies", mode: "movie", icon: Icons.theaters, color: "#3B82F6" },
         { label: "Series", mode: "series", icon: Icons.liveTv, color: "#22C55E" },
-        { label: "Trending", mode: "trending", icon: Icons.fire, color: "#F97316" }
+        { label: "Trending", mode: "trending", icon: Icons.fire, color: "#F97316" },
+        { label: "Watchlist", mode: "watchlist", icon: Icons.bookmark, color: "#A855F7" }
     ]
 
     // RowLayout (not anchor math + width Behavior) so the search field tracks
