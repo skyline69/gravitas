@@ -362,3 +362,26 @@ def test_app_checkbox_reports_the_requested_value(qapp: object) -> None:
         assert win.property("reported").toVariant() == [True]
     finally:
         win.deleteLater()
+
+
+def test_catalog_row_strip_instantiates_without_warnings(qml_warnings: list[str]) -> None:
+    _instantiate(
+        """
+        import QtQuick
+        import QtQuick.Controls
+        import "."
+
+        ApplicationWindow {
+            width: 1280; height: 800
+            CatalogRowStrip {
+                width: 1200
+                title: "Recommended Movies"
+                addonId: ""
+                type: "movie"
+                catalogId: ""
+                posters: null
+            }
+        }
+        """
+    )
+    assert qml_warnings == []

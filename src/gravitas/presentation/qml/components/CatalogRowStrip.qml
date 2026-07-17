@@ -109,4 +109,39 @@ Item {
             }
         }
     }
+
+    // Edge fades: cards dissolving into the background say "more this way"
+    // without chrome. Siblings of the ListView, NOT children — a Flickable
+    // reparents child items into its contentItem, which would scroll the
+    // fades away with the cards. Plain Rectangles with no pointer handlers,
+    // so hover and clicks pass straight through to the cards beneath; each
+    // side appears only while something is actually hidden behind it.
+    Rectangle {
+        anchors.left: strip.left
+        anchors.top: strip.top
+        anchors.bottom: strip.bottom
+        width: 56
+        opacity: strip.contentWidth > strip.width && !strip.atXBeginning ? 1 : 0
+        visible: opacity > 0
+        gradient: Gradient {
+            orientation: Gradient.Horizontal
+            GradientStop { position: 0.0; color: Theme.bg }
+            GradientStop { position: 1.0; color: Qt.rgba(Theme.bg.r, Theme.bg.g, Theme.bg.b, 0) }
+        }
+        Behavior on opacity { NumberAnimation { duration: Theme.durMed } }
+    }
+    Rectangle {
+        anchors.right: strip.right
+        anchors.top: strip.top
+        anchors.bottom: strip.bottom
+        width: 56
+        opacity: strip.contentWidth > strip.width && !strip.atXEnd ? 1 : 0
+        visible: opacity > 0
+        gradient: Gradient {
+            orientation: Gradient.Horizontal
+            GradientStop { position: 0.0; color: Qt.rgba(Theme.bg.r, Theme.bg.g, Theme.bg.b, 0) }
+            GradientStop { position: 1.0; color: Theme.bg }
+        }
+        Behavior on opacity { NumberAnimation { duration: Theme.durMed } }
+    }
 }
