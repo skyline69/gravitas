@@ -45,22 +45,61 @@ Item {
                 Row {
                     width: parent.width
                     spacing: 8
+                    // Manifest fetch + first catalog load take visible
+                    // seconds; the row locks and a spinner slides in so the
+                    // click reads as "working", not "ignored".
+                    readonly property bool busy: addonController && addonController.installing
                     AppTextField {
                         id: urlField
-                        width: parent.width - addButton.width - parent.spacing
+                        width: parent.width - addButton.width - addSpinner.width
+                            - parent.spacing * (addSpinner.width > 0 ? 2 : 1)
+                        enabled: !parent.busy
+                        opacity: enabled ? 1 : 0.6
+                        Behavior on opacity { NumberAnimation { duration: Theme.durFast } }
                         placeholderText: "Addon manifest URL…"
                         onAccepted: addButton.clicked()
                     }
+                    AppSpinner {
+                        id: addSpinner
+                        anchors.verticalCenter: parent.verticalCenter
+                        // Slide open from zero width so the field glides
+                        // aside instead of jumping.
+                        width: parent.busy ? 18 : 0
+                        height: 18
+                        running: parent.busy
+                        opacity: parent.busy ? 1 : 0
+                        Behavior on width { NumberAnimation { duration: Theme.durMed; easing.type: Easing.OutCubic } }
+                        Behavior on opacity { NumberAnimation { duration: Theme.durFast } }
+                    }
                     AppButton {
                         id: addButton
-                        text: "Add"
+                        text: parent.busy ? "Adding…" : "Add"
                         tone: "positive"
+                        enabled: !parent.busy
                         onClicked: {
                             if (urlField.text.trim().length === 0)
                                 return
                             addonController.addAddon(urlField.text)
                             urlField.text = ""
                         }
+                    }
+                }
+
+                // Bootstrap is still restoring addons when Settings opens
+                // early; a spinner beats an empty card that pops full.
+                Row {
+                    spacing: 10
+                    visible: settingsController && settingsController.addonsLoading
+                    AppSpinner {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 20; height: 20
+                        running: parent.visible
+                    }
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "Loading addons…"
+                        color: Theme.textDim
+                        font.pixelSize: Theme.fontSmall
                     }
                 }
 
@@ -72,6 +111,13 @@ Item {
                     clip: true
                     spacing: 6
                     ScrollBar.vertical: AppScrollBar {}
+                    // The list lands as one model reset when bootstrap
+                    // finishes; fade the rows in with a slight rise so the
+                    // handover from the spinner reads as motion, not a pop.
+                    populate: Transition {
+                        NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durMed * 2; easing.type: Easing.OutCubic }
+                        NumberAnimation { property: "y"; from: 12; duration: Theme.durMed * 2; easing.type: Easing.OutCubic }
+                    }
                     delegate: Rectangle {
                         id: addonRow
                         width: ListView.view.width

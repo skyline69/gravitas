@@ -69,6 +69,39 @@ async def test_add_addon_success(qapp: object) -> None:
     assert installed == ["Fake Addon"]
 
 
+async def test_installing_flag_wraps_the_install(qapp: object) -> None:
+    repo = AddonRepository(FakeSource())
+    catalog = FakeCatalogController()
+    controller = AddonController(InstallAddon(repo), catalog)  # type: ignore[arg-type]
+
+    states: list[bool] = []
+    controller.installingChanged.connect(lambda: states.append(controller.installing))
+
+    assert controller.installing is False
+    await controller.addAddon("https://a/manifest.json")
+    # Busy through the whole install, idle again once the catalog refreshed.
+    assert states == [True, False]
+
+
+async def test_installing_flag_resets_after_failure(qapp: object) -> None:
+    repo = AddonRepository(UnreachableSource())
+    catalog = FakeCatalogController()
+    controller = AddonController(InstallAddon(repo), catalog)  # type: ignore[arg-type]
+
+    await controller.addAddon("https://a/manifest.json")
+    # A dead addon must not leave the Add row locked forever.
+    assert controller.installing is False
+
+
+async def test_blank_url_never_flips_installing(qapp: object) -> None:
+    repo = AddonRepository(FakeSource())
+    controller = AddonController(InstallAddon(repo), FakeCatalogController())  # type: ignore[arg-type]
+    states: list[bool] = []
+    controller.installingChanged.connect(lambda: states.append(controller.installing))
+    await controller.addAddon("   ")
+    assert states == []  # no flicker for a no-op
+
+
 async def test_add_addon_error_emits_signal(qapp: object) -> None:
     repo = AddonRepository(UnreachableSource())
     catalog = FakeCatalogController()

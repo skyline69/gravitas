@@ -65,6 +65,10 @@ class SettingsController(QObject):
         self._style_holder = style_holder
         self._mdblist_key_holder = mdblist_key_holder
         self._trakt_holder = trakt_holder
+        # True until bootstrap primes the list: opening Settings mid-startup
+        # shows a spinner instead of an empty card that pops full moments
+        # later. The first refreshAddons() clears it.
+        self._addons_loading = True
 
     @Property(str, notify=tmdbKeyChanged)
     def tmdbKey(self) -> str:
@@ -171,11 +175,16 @@ class SettingsController(QObject):
         self.subtitleStyleChanged.emit()
         self.persist()
 
+    @Property(bool, notify=addonsChanged)
+    def addonsLoading(self) -> bool:
+        return self._addons_loading
+
     @Slot()
     def refreshAddons(self) -> None:
         installed = self._repo.installed()
         protected = {m.id for m in installed if self._repo.is_protected(m.id)}
         self._model.set_addons(installed, protected)
+        self._addons_loading = False
         self.addonsChanged.emit()
 
     @asyncSlot(str)  # type: ignore[untyped-decorator]

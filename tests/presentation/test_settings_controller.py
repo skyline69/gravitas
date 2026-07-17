@@ -32,6 +32,15 @@ async def test_refresh_populates_model_with_protected_flag(qapp: object) -> None
     assert model.data(model.index(0, 0), AddonListModel.IdRole) == protected.id
 
 
+async def test_addons_loading_true_until_first_refresh(qapp: object) -> None:
+    repo = AddonRepository(FakeSource())
+    controller, _model, _ = _build(repo)
+    # Settings opened mid-bootstrap: the list is not primed yet.
+    assert controller.addonsLoading is True
+    controller.refreshAddons()
+    assert controller.addonsLoading is False
+
+
 async def test_remove_addon_uninstalls_and_refreshes(qapp: object) -> None:
     repo = AddonRepository(FakeSource())
     manifest = await repo.install("https://a/")  # not protected
