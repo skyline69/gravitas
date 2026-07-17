@@ -108,7 +108,7 @@ def test_detail_qml_loads(qapp: object) -> None:
 def test_player_qml_loads(qapp: object) -> None:
     from pathlib import Path
 
-    from PySide6.QtCore import QObject
+    from PySide6.QtCore import QObject, QtMsgType, Slot, qInstallMessageHandler
     from PySide6.QtQml import QQmlComponent, QQmlEngine, qmlRegisterType
 
     import gravitas.main as gmain
@@ -117,11 +117,37 @@ def test_player_qml_loads(qapp: object) -> None:
     # Registration is idempotent per process; needed when this test runs alone.
     qmlRegisterType(MpvVideoItem, "Gravitas", 1, 0, "MpvVideo")  # type: ignore[call-overload]
     engine = QQmlEngine()
-    engine.rootContext().setContextProperty("playerController", QObject())
+
+    class _StubPlayerController(QObject):
+        # Called from MpvVideo's Component.onCompleted even with no playback.
+        @Slot(QObject)
+        def attachVideo(self, item: QObject) -> None:
+            pass
+
+    # Named variable, not an inline temporary: setContextProperty does not
+    # take ownership, and a GC'd stub reads back as null — which then fails
+    # this test's own no-TypeError assertion for the wrong reason.
+    stub = _StubPlayerController()
+    engine.rootContext().setContextProperty("playerController", stub)
     qml = Path(gmain.__file__).parent / "presentation" / "qml" / "Player.qml"
     component = QQmlComponent(engine, str(qml))
-    obj = component.create()
+    # Creation-time TypeErrors (e.g. an attached property whose import is
+    # missing) leave the component loadable but the feature dead — the hotkey
+    # gate did exactly this once. Collect warnings and fail on them.
+    warnings: list[str] = []
+
+    def handler(mode: QtMsgType, _context: object, message: str) -> None:
+        if mode in (QtMsgType.QtWarningMsg, QtMsgType.QtCriticalMsg):
+            warnings.append(message)
+
+    previous = qInstallMessageHandler(handler)
+    try:
+        obj = component.create()
+    finally:
+        qInstallMessageHandler(previous)
     assert obj is not None, f"Player.qml failed to load: {component.errorString()}"
+    errors = [w for w in warnings if "TypeError" in w or "ReferenceError" in w]
+    assert errors == [], f"Player.qml loaded with runtime errors: {errors}"
 
 
 def test_settings_qml_loads(qapp: object) -> None:

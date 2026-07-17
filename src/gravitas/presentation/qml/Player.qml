@@ -1,4 +1,6 @@
 import QtQuick
+// StackView's attached properties (hotkey gating) live in Controls.
+import QtQuick.Controls
 import Gravitas 1.0
 import "components"
 
@@ -154,67 +156,123 @@ Item {
     }
 
     Component.onCompleted: {
-        player.forceActiveFocus()
         if (player.url.length)
             playerController.play(player.url, player.headers)
     }
-    focus: true
-    Keys.onPressed: (event) => {
+
+    // ---- hotkeys ----
+    // Window-scoped Shortcuts, NOT Keys.onPressed: a Keys handler only fires
+    // while its Item holds active focus, and anything that shuffles focus (a
+    // track menu closing, a fullscreen switch, plain window-manager churn
+    // during a long hands-off stretch) silently killed every hotkey until the
+    // user clicked the video again. Shortcuts fire regardless of focus, so
+    // they are gated instead: only while this page is the stack's current
+    // item and no track menu is open (menus keep their own arrow/Esc keys).
+    readonly property bool hotkeysOn: player.StackView.status === StackView.Active
+        && !subsMenu.visible && !audioMenu.visible
+
+    function kbTogglePause() {
         player.showControls()
-        // Shift stretches the arrow jumps (10s -> 60s), YouTube-style.
-        var jump = (event.modifiers & Qt.ShiftModifier) ? 60 : 10
-        switch (event.key) {
-        case Qt.Key_Space:
-        case Qt.Key_K:
-            playerController.togglePause()
-            // Flash the NEW state, YouTube-style: pausing shows the pause bars.
-            osd.flash(playerController.paused ? Icons.pause : Icons.play)
-            event.accepted = true; break
-        case Qt.Key_Left:
-            playerController.seekBy(-jump)
-            if (jump === 60) osd.flash(Icons.fastRewind, "60s")
-            else osd.flash(Icons.replay10)
-            event.accepted = true; break
-        case Qt.Key_Right:
-            playerController.seekBy(jump)
-            if (jump === 60) osd.flash(Icons.fastForward, "60s")
-            else osd.flash(Icons.forward10)
-            event.accepted = true; break
-        case Qt.Key_J:
-            playerController.seekBy(-10); osd.flash(Icons.replay10); event.accepted = true; break
-        case Qt.Key_L:
-            playerController.seekBy(10); osd.flash(Icons.forward10); event.accepted = true; break
-        case Qt.Key_Up:
-            playerController.setVolume(Math.min(100, playerController.volume + 5))
-            osd.flash(Icons.volumeUp, Math.round(playerController.volume) + "%")
-            event.accepted = true; break
-        case Qt.Key_Down:
-            playerController.setVolume(Math.max(0, playerController.volume - 5))
-            osd.flash(playerController.volume > 0 ? Icons.volumeUp : Icons.volumeOff,
-                      Math.round(playerController.volume) + "%")
-            event.accepted = true; break
-        case Qt.Key_F:
-            player.toggleFullscreen(); event.accepted = true; break
-        case Qt.Key_M:
+        playerController.togglePause()
+        // Flash the NEW state, YouTube-style: pausing shows the pause bars.
+        osd.flash(playerController.paused ? Icons.pause : Icons.play)
+    }
+    function kbSeek(delta) {
+        player.showControls()
+        playerController.seekBy(delta)
+        if (delta <= -60) osd.flash(Icons.fastRewind, "60s")
+        else if (delta < 0) osd.flash(Icons.replay10)
+        else if (delta >= 60) osd.flash(Icons.fastForward, "60s")
+        else osd.flash(Icons.forward10)
+    }
+    function kbVolume(delta) {
+        player.showControls()
+        playerController.setVolume(
+            Math.max(0, Math.min(100, playerController.volume + delta)))
+        osd.flash(playerController.volume > 0 ? Icons.volumeUp : Icons.volumeOff,
+                  Math.round(playerController.volume) + "%")
+    }
+
+    Shortcut {
+        enabled: player.hotkeysOn
+        sequences: ["Space", "K"]
+        autoRepeat: false // a held Space must not machine-gun pause toggles
+        onActivated: player.kbTogglePause()
+    }
+    Shortcut {
+        enabled: player.hotkeysOn
+        sequences: ["Left", "J"]
+        onActivated: player.kbSeek(-10)
+    }
+    Shortcut {
+        enabled: player.hotkeysOn
+        sequences: ["Right", "L"]
+        onActivated: player.kbSeek(10)
+    }
+    Shortcut {
+        enabled: player.hotkeysOn
+        sequence: "Shift+Left"
+        onActivated: player.kbSeek(-60)
+    }
+    Shortcut {
+        enabled: player.hotkeysOn
+        sequence: "Shift+Right"
+        onActivated: player.kbSeek(60)
+    }
+    Shortcut {
+        enabled: player.hotkeysOn
+        sequence: "Up"
+        onActivated: player.kbVolume(5)
+    }
+    Shortcut {
+        enabled: player.hotkeysOn
+        sequence: "Down"
+        onActivated: player.kbVolume(-5)
+    }
+    Shortcut {
+        enabled: player.hotkeysOn
+        sequence: "F"
+        autoRepeat: false
+        onActivated: { player.showControls(); player.toggleFullscreen() }
+    }
+    Shortcut {
+        enabled: player.hotkeysOn
+        sequence: "M"
+        autoRepeat: false
+        onActivated: {
+            player.showControls()
             playerController.toggleMute()
             osd.flash(playerController.muted ? Icons.volumeOff : Icons.volumeUp,
                       playerController.muted ? "Muted" : Math.round(playerController.volume) + "%")
-            event.accepted = true; break
-        case Qt.Key_Escape:
+        }
+    }
+    Shortcut {
+        enabled: player.hotkeysOn
+        sequence: "Escape"
+        autoRepeat: false
+        onActivated: {
             if (player.isFullscreen)
                 Window.window.visibility = Window.Windowed
             else
                 player.leave()
-            event.accepted = true
-            break
-        default:
-            // 0-9: jump to that tenth of the runtime (5 -> 50%), like mpv/YT.
-            // No-op before the duration is known.
-            if (event.key >= Qt.Key_0 && event.key <= Qt.Key_9 && player.dur > 0) {
-                playerController.seek(player.dur * (event.key - Qt.Key_0) / 10)
-                event.accepted = true
+        }
+    }
+    // 0-9: jump to that tenth of the runtime (5 -> 50%), like mpv/YT.
+    // No-op before the duration is known. Shortcut is not an Item, so the
+    // ten of them come from an Instantiator, not a Repeater.
+    Instantiator {
+        model: 10
+        delegate: Shortcut {
+            required property int index
+            enabled: player.hotkeysOn
+            sequence: String(index)
+            autoRepeat: false
+            onActivated: {
+                if (player.dur > 0) {
+                    player.showControls()
+                    playerController.seek(player.dur * index / 10)
+                }
             }
-            break
         }
     }
 
