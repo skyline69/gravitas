@@ -19,6 +19,10 @@ class PlayerController(QObject):
     stateChanged = Signal()
     resumed = Signal(float)
     progressRecorded = Signal()
+    # One playback lifecycle event: action ("start" | "pause" | "stop"), the
+    # media context, position and duration at that moment. main.py wires it
+    # to the Trakt scrobbler; with nothing connected it is inert.
+    scrobbleEvent = Signal(str, "QVariantMap", float, float)  # type: ignore[arg-type]
 
     # Frequent enough that a hard kill costs seconds, not minutes; rare enough
     # that a two-hour film writes ~1400 rows' worth of UPSERTs, not 7 million.
@@ -125,6 +129,7 @@ class PlayerController(QObject):
         except PlaybackFailed as exc:
             self.errorOccurred.emit(str(exc))
             return
+        self._emit_scrobble("start")
         if start > 0:
             # StackView applies the `url` property (which triggers this play())
             # between beginCreate() and completeCreate(); Player.qml's
@@ -150,6 +155,8 @@ class PlayerController(QObject):
     def stop(self) -> None:
         if self._player is not None:
             self._record()
+            # Before player.stop(): position dies with the playback.
+            self._emit_scrobble("stop")
             self._save_timer.stop()
             self._player.stop()
 
@@ -158,11 +165,13 @@ class PlayerController(QObject):
         if self._player is not None:
             self._player.pause()
             self._record()
+            self._emit_scrobble("pause")
 
     @Slot()
     def resume(self) -> None:
         if self._player is not None:
             self._player.resume()
+            self._emit_scrobble("start")
 
     @Slot()
     def togglePause(self) -> None:
@@ -170,8 +179,10 @@ class PlayerController(QObject):
             return
         if self._player.is_paused():
             self._player.resume()
+            self._emit_scrobble("start")
         else:
             self._player.pause()
+            self._emit_scrobble("pause")
         self.stateChanged.emit()
 
     @Slot(float)
@@ -231,6 +242,15 @@ class PlayerController(QObject):
     def _on_tick(self) -> None:
         if self._player is not None and not self._player.is_paused():
             self._record()
+
+    def _emit_scrobble(self, action: str) -> None:
+        """Snapshot the moment: consumers run async, and by the time they
+        look, the player may have moved on (or been stopped)."""
+        if not self._context.get("mediaId") or self._player is None:
+            return
+        self.scrobbleEvent.emit(
+            action, dict(self._context), self._player.position(), self._player.duration()
+        )
 
     def _resume_position(self) -> float:
         media_id = self._context.get("mediaId", "")

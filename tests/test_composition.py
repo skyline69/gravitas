@@ -278,6 +278,22 @@ def test_build_app_wires_watchlist(qapp: object) -> None:
     assert movies_model.rowCount() == rows_before
 
 
+def test_build_app_wires_trakt(qapp: object) -> None:
+    from gravitas.main import DEFAULT_ADDON, build_app
+
+    _, engine = build_app([], DEFAULT_ADDON)
+    assert engine.rootObjects(), "Main.qml failed to load (QML parse/type error)"
+    ctx = engine.rootContext()
+    trakt_controller = ctx.contextProperty("traktController")
+    assert trakt_controller is not None
+    names = {type(ref).__name__ for ref in engine._gravitas_refs}
+    assert "TraktController" in names
+    # The scrobble wire: player lifecycle events must reach the Trakt sink.
+    player_controller = ctx.contextProperty("playerController")
+    receivers = player_controller.receivers("2scrobbleEvent(QString,QVariantMap,double,double)")
+    assert receivers >= 1
+
+
 def test_deep_link_controller_is_wired_into_qml(qapp: object) -> None:
     from gravitas.main import DEFAULT_ADDON, build_app
 

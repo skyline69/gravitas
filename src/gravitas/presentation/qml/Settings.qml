@@ -223,6 +223,107 @@ Item {
 
             SettingsCard {
                 width: parent.width
+                title: "Integrations"
+                enterDelay: 75
+
+                // One row, Stremio-style: icon, label, and a single action
+                // pill. Authenticate opens trakt.tv in the browser with the
+                // device code pre-filled; the row flips as the poll resolves.
+                Item {
+                    width: parent.width
+                    height: 56
+
+                    Row {
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 14
+
+                        Image {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 40; height: 40
+                            source: "assets/trakt.png"
+                            sourceSize.width: 80
+                            fillMode: Image.PreserveAspectFit
+                        }
+                        Column {
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 2
+                            Text {
+                                text: "Trakt Scrobbling"
+                                color: Theme.text
+                                font.pixelSize: Theme.fontBody
+                                font.bold: true
+                            }
+                            Text {
+                                text: {
+                                    if (!traktController) return ""
+                                    if (traktController.authenticated)
+                                        return "Connected"
+                                            + (traktController.username.length > 0
+                                                ? " as " + traktController.username : "")
+                                    if (traktController.authInProgress)
+                                        return "Approve in your browser — code "
+                                            + traktController.userCode
+                                    return "Sync what you watch to your Trakt profile"
+                                }
+                                color: traktController && traktController.authenticated
+                                    ? Theme.positive : Theme.textDim
+                                font.pixelSize: Theme.fontSmall
+                            }
+                        }
+                    }
+
+                    Row {
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 8
+
+                        AppSpinner {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 18; height: 18
+                            running: traktController
+                                && (traktController.authInProgress || traktController.syncing)
+                            visible: running
+                        }
+                        AppButton {
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: traktController && traktController.authenticated
+                            enabled: !(traktController && traktController.syncing)
+                            text: traktController && traktController.syncing
+                                ? "Syncing…" : "Sync progress"
+                            ghost: true
+                            tooltip: "Pull unfinished playback from Trakt into Continue Watching"
+                            onClicked: traktController.syncNow()
+                        }
+                        AppButton {
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: traktController
+                                && !traktController.authenticated
+                                && !traktController.authInProgress
+                            text: "Authenticate"
+                            onClicked: traktController.startAuth()
+                        }
+                        AppButton {
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: traktController && traktController.authInProgress
+                            text: "Cancel"
+                            ghost: true
+                            onClicked: traktController.cancelAuth()
+                        }
+                        AppButton {
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: traktController && traktController.authenticated
+                            text: "Log out"
+                            tone: "negative"
+                            ghost: true
+                            onClicked: traktController.logout()
+                        }
+                    }
+                }
+            }
+
+            SettingsCard {
+                width: parent.width
                 title: "Subtitles"
                 caption: "Changes apply to the player instantly"
                 enterDelay: 90

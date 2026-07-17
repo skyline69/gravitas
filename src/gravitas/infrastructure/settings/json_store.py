@@ -7,7 +7,7 @@ import logging
 import os
 from pathlib import Path
 
-from gravitas.domain.models import PersistedSettings, SubtitleStyle
+from gravitas.domain.models import PersistedSettings, SubtitleStyle, TraktAuth
 
 _log = logging.getLogger(__name__)
 
@@ -37,6 +37,23 @@ def _style_from(raw: object) -> SubtitleStyle:
     )
 
 
+def _trakt_auth_from(raw: object) -> TraktAuth | None:
+    if not isinstance(raw, dict):
+        return None
+    access = raw.get("access_token")
+    refresh = raw.get("refresh_token")
+    if not isinstance(access, str) or not access or not isinstance(refresh, str) or not refresh:
+        return None
+    expires = raw.get("expires_at")
+    username = raw.get("username")
+    return TraktAuth(
+        access_token=access,
+        refresh_token=refresh,
+        expires_at=expires if isinstance(expires, int) and not isinstance(expires, bool) else 0,
+        username=username if isinstance(username, str) else "",
+    )
+
+
 class JsonSettingsStore:
     def __init__(self, path: Path | None = None) -> None:
         self._path = path if path is not None else default_settings_path()
@@ -61,10 +78,19 @@ class JsonSettingsStore:
             tmdb_key=key,
             mdblist_key=mdb_key,
             subtitle_style=_style_from(data.get("subtitle_style")),
+            trakt_auth=_trakt_auth_from(data.get("trakt")),
         )
 
     def save(self, settings: PersistedSettings) -> None:
         style = settings.subtitle_style
+        trakt: dict[str, object] = {}
+        if settings.trakt_auth is not None:
+            trakt = {
+                "access_token": settings.trakt_auth.access_token,
+                "refresh_token": settings.trakt_auth.refresh_token,
+                "expires_at": settings.trakt_auth.expires_at,
+                "username": settings.trakt_auth.username,
+            }
         payload = {
             "addon_urls": list(settings.addon_urls),
             "tmdb_key": settings.tmdb_key,
@@ -76,6 +102,7 @@ class JsonSettingsStore:
                 "back_opacity": style.back_opacity,
                 "bold": style.bold,
             },
+            "trakt": trakt,
         }
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)

@@ -17,6 +17,9 @@ from gravitas.domain.models import (
     ResolvedMedia,
     Stream,
     SubtitleStyle,
+    TraktAuth,
+    TraktDeviceCode,
+    TraktPlayback,
     WatchlistEntry,
 )
 
@@ -106,6 +109,46 @@ class ExternalIdResolver(Protocol):
 @runtime_checkable
 class RatingsResolver(Protocol):
     async def ratings(self, imdb_id: str, media_type: MediaType) -> Ratings: ...
+
+
+@runtime_checkable
+class TraktApi(Protocol):
+    """Trakt's HTTP surface, verb by verb. Token lifecycle (when to refresh,
+    where tokens live) is application policy and stays out of here. Every
+    call may raise TraktError."""
+
+    async def device_code(self, client_id: str) -> TraktDeviceCode: ...
+    async def poll_device_token(
+        self, client_id: str, client_secret: str, device_code: str
+    ) -> TraktAuth | None:
+        """One poll. None while the user has not approved yet; raises
+        TraktError once the code is denied or expired."""
+        ...
+
+    async def refresh_token(
+        self, client_id: str, client_secret: str, refresh_token: str
+    ) -> TraktAuth: ...
+    async def revoke(self, client_id: str, client_secret: str, access_token: str) -> None: ...
+    async def username(self, client_id: str, access_token: str) -> str: ...
+    async def scrobble(
+        self,
+        client_id: str,
+        access_token: str,
+        action: str,
+        *,
+        imdb_id: str,
+        season: int | None,
+        episode: int | None,
+        progress: float,
+    ) -> None:
+        """action is "start" | "pause" | "stop". season/episode None means a
+        movie; set means an episode of the show `imdb_id`."""
+        ...
+
+    async def playback(self, client_id: str, access_token: str) -> list[TraktPlayback]:
+        """The user's paused-playback list, newest first — what other Trakt
+        clients left unfinished."""
+        ...
 
 
 @runtime_checkable

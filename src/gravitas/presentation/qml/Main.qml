@@ -225,6 +225,15 @@ ApplicationWindow {
         target: searchController
         function onErrorOccurred(msg) { toast.show(msg, true) }
     }
+    Connections {
+        target: traktController
+        function onErrorOccurred(msg) { toast.show(msg, true) }
+        function onSyncCompleted(applied) {
+            toast.show(applied === 0
+                ? "Trakt: nothing new to sync"
+                : "Trakt: synced " + applied + (applied === 1 ? " title" : " titles"), false)
+        }
+    }
 
     Toast { id: toast }
 }

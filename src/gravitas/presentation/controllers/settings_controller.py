@@ -11,7 +11,7 @@ from qasync import asyncSlot  # type: ignore[import-untyped]
 from gravitas.application.addon_repository import AddonRepository
 from gravitas.application.uninstall_addon import UninstallAddon
 from gravitas.domain.errors import GravitasError
-from gravitas.domain.models import PersistedSettings, SubtitleStyle
+from gravitas.domain.models import PersistedSettings, SubtitleStyle, TraktAuth
 from gravitas.domain.ports import SettingsStore
 from gravitas.presentation.models.addon_list_model import AddonListModel
 
@@ -26,6 +26,14 @@ class _KeyHolder(Protocol):
 
 class _StyleHolder(Protocol):
     style: SubtitleStyle
+
+
+class _TraktHolder(Protocol):
+    """What persist() reads off the Trakt account (TraktAccount satisfies it).
+    Only the granted session — app credentials are build-level, never user
+    state."""
+
+    auth: TraktAuth | None
 
 
 class SettingsController(QObject):
@@ -45,6 +53,7 @@ class SettingsController(QObject):
         store: SettingsStore | None = None,
         style_holder: _StyleHolder | None = None,
         mdblist_key_holder: _KeyHolder | None = None,
+        trakt_holder: _TraktHolder | None = None,
     ) -> None:
         super().__init__()
         self._uninstall = uninstall
@@ -55,6 +64,7 @@ class SettingsController(QObject):
         self._store = store
         self._style_holder = style_holder
         self._mdblist_key_holder = mdblist_key_holder
+        self._trakt_holder = trakt_holder
 
     @Property(str, notify=tmdbKeyChanged)
     def tmdbKey(self) -> str:
@@ -90,12 +100,14 @@ class SettingsController(QObject):
         key = self._key_holder.key if self._key_holder is not None else None
         mdb = self._mdblist_key_holder.key if self._mdblist_key_holder is not None else None
         style = self._style_holder.style if self._style_holder is not None else SubtitleStyle()
+        trakt = self._trakt_holder
         self._store.save(
             PersistedSettings(
                 addon_urls=tuple(self._repo.user_addon_urls()),
                 tmdb_key=key,
                 mdblist_key=mdb,
                 subtitle_style=style,
+                trakt_auth=trakt.auth if trakt is not None else None,
             )
         )
 

@@ -280,6 +280,48 @@ class SubtitleStyle:
 
 
 @dataclass(frozen=True, slots=True)
+class TraktAuth:
+    """A granted Trakt OAuth session. `expires_at` is wall-clock epoch seconds
+    (created_at + expires_in from the token response); `username` is filled
+    from /users/me after the grant and is display-only."""
+
+    access_token: str
+    refresh_token: str
+    expires_at: int
+    username: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class TraktDeviceCode:
+    """One device-auth handshake: show `user_code` + `verification_url` to the
+    user, poll every `interval` seconds for at most `expires_in`."""
+
+    device_code: str
+    user_code: str
+    verification_url: str
+    interval: int
+    expires_in: int
+
+
+@dataclass(frozen=True, slots=True)
+class TraktPlayback:
+    """One paused-playback entry from Trakt (/sync/playback) — what another
+    client (Stremio, Kodi, …) scrobbled and left unfinished. `progress` is
+    Trakt's percent (0-100); `runtime_minutes` comes from extended metadata
+    and turns that percent back into seconds locally."""
+
+    media_type: MediaType
+    imdb_id: str
+    title: str
+    progress: float
+    paused_at: int
+    season: int | None = None
+    episode: int | None = None
+    episode_title: str | None = None
+    runtime_minutes: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class PersistedSettings:
     """User state restored across launches. Protected (built-in) addons are
     re-installed by bootstrap and never persisted."""
@@ -288,6 +330,9 @@ class PersistedSettings:
     tmdb_key: str | None = None
     mdblist_key: str | None = None
     subtitle_style: SubtitleStyle = SubtitleStyle()
+    # Only the granted session persists. The API app credentials are
+    # build-level (infrastructure/trakt/app_credentials.py), not user state.
+    trakt_auth: TraktAuth | None = None
 
 
 @dataclass(frozen=True, slots=True)

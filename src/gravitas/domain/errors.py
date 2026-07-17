@@ -39,3 +39,13 @@ class UnsupportedLink(GravitasError):
 
 class MdbListUnavailable(GravitasError):
     """MDBList could not be reached or returned an unusable response."""
+
+
+class TraktError(GravitasError):
+    """A Trakt request failed. `status` carries the HTTP status when the
+    server answered (0 for transport failures), so callers can tell an
+    expired token (401) from everything else."""
+
+    def __init__(self, message: str, status: int = 0) -> None:
+        super().__init__(message)
+        self.status = status

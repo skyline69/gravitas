@@ -34,6 +34,8 @@ from gravitas.application.preview_addon import PreviewAddon
 from gravitas.application.resolve_media_link import ResolveMediaLink
 from gravitas.application.resolve_stream import ResolveStream
 from gravitas.application.search_media import SearchMedia
+from gravitas.application.trakt_account import TraktAccount
+from gravitas.application.trakt_sync import TraktSync
 from gravitas.application.uninstall_addon import UninstallAddon
 from gravitas.application.watch_progress import WatchProgressRepository
 from gravitas.application.watchlist import WatchlistRepository
@@ -51,6 +53,8 @@ from gravitas.infrastructure.metadata.tmdb_resolver import TmdbResolver
 from gravitas.infrastructure.player.mpv_player import MpvPlayer
 from gravitas.infrastructure.progress.sqlite_store import SqliteProgressStore
 from gravitas.infrastructure.settings.json_store import JsonSettingsStore
+from gravitas.infrastructure.trakt import app_credentials as trakt_app
+from gravitas.infrastructure.trakt.client import TraktClient
 from gravitas.infrastructure.watchlist.sqlite_store import SqliteWatchlistStore
 from gravitas.presentation.controllers.addon_controller import AddonController
 from gravitas.presentation.controllers.catalog_controller import CatalogController
@@ -61,6 +65,7 @@ from gravitas.presentation.controllers.player_controller import PlayerController
 from gravitas.presentation.controllers.progress_controller import ProgressController
 from gravitas.presentation.controllers.search_controller import SearchController
 from gravitas.presentation.controllers.settings_controller import SettingsController
+from gravitas.presentation.controllers.trakt_controller import TraktController
 from gravitas.presentation.controllers.watchlist_controller import WatchlistController
 from gravitas.presentation.models.addon_list_model import AddonListModel
 from gravitas.presentation.models.catalog_rows_model import CatalogRowsModel
@@ -205,6 +210,13 @@ def build_app(
     sub_style = _SubStyleHolder()
     sub_style.style = persisted.subtitle_style
 
+    trakt_account = TraktAccount(TraktClient(http))
+    # The app ships its own Trakt credentials (Stremio-style one-click auth);
+    # only the granted session is user state.
+    trakt_account.client_id = trakt_app.CLIENT_ID or None
+    trakt_account.client_secret = trakt_app.CLIENT_SECRET or None
+    trakt_account.auth = persisted.trakt_auth
+
     rows_model = CatalogRowsModel(progress_repo)
     stream_model = StreamListModel()
 
@@ -235,7 +247,10 @@ def build_app(
         settings_store,
         sub_style,
         mdblist_key,
+        trakt_account,
     )
+    trakt_sync = TraktSync(trakt_account, progress_repo, GetDetail(repo))
+    trakt_controller = TraktController(trakt_account, settings_controller.persist, trakt_sync)
 
     # Keep the Settings list in sync — and the settings file current — after a
     # user installs a new addon.
@@ -315,6 +330,12 @@ def build_app(
     # even though the bars themselves refreshed fine. progressChanged above
     # already fans out to the bars, so this does not double-refresh them.
     player_controller.progressRecorded.connect(progress_controller.notifyRecorded)
+    # Scrobble what plays. The asyncSlot schedules onto the qasync loop; with
+    # no Trakt session connected every event is a cheap no-op.
+    player_controller.scrobbleEvent.connect(trakt_controller.onScrobbleEvent)
+    # A pull from Trakt mutates the progress repo behind ProgressController's
+    # back — same staleness problem as the player's writes, same cure.
+    trakt_controller.syncCompleted.connect(lambda _applied: progress_controller.notifyRecorded())
     # The final seconds of a session would otherwise die with the process.
     app.aboutToQuit.connect(player_controller.flushProgress)
 
@@ -336,6 +357,7 @@ def build_app(
     ctx.setContextProperty("searchPageModel", search_page_model)
     ctx.setContextProperty("progressController", progress_controller)
     ctx.setContextProperty("watchedListModel", watched_model)
+    ctx.setContextProperty("traktController", trakt_controller)
     ctx.setContextProperty("watchlistController", watchlist_controller)
     ctx.setContextProperty("watchlistMoviesModel", watchlist_movies_model)
     ctx.setContextProperty("watchlistSeriesModel", watchlist_series_model)
@@ -372,6 +394,11 @@ def build_app(
         link = pending_link(argv)
         if link is not None:
             await deep_link_controller.handleLink(link)
+        # Last, and best-effort: pull what other Trakt clients left unfinished
+        # so Continue Watching greets the user with it. After the catalog so a
+        # slow Trakt answer never delays first paint.
+        if trakt_account.authenticated:
+            await trakt_controller.sync_quietly()
 
     engine.load(str(_QML_DIR / "Main.qml"))
 
@@ -401,6 +428,7 @@ def build_app(
         search_page_model,
         progress_controller,
         watched_model,
+        trakt_controller,
         watchlist_controller,
         watchlist_movies_model,
         watchlist_series_model,

@@ -168,6 +168,9 @@ class WatchProgressRepository:
         label: str,
         position: float,
         duration: float,
+        # For imported rows (Trakt sync): the moment the OTHER client paused,
+        # so ordering against local activity is honest. None = "now".
+        updated_at: int | None = None,
     ) -> None:
         if not media_id or position < MIN_POSITION:
             return
@@ -184,7 +187,7 @@ class WatchProgressRepository:
                 position=0.0 if finished else position,
                 duration=duration,
                 watched=finished,
-                updated_at=self._clock(),
+                updated_at=updated_at if updated_at is not None else self._clock(),
             )
         )
 

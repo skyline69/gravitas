@@ -476,6 +476,57 @@ def test_switching_titles_without_stopping_records_against_the_right_one(
     ]
 
 
+def test_scrobble_events_follow_the_playback_lifecycle(qapp: object) -> None:
+    player = FakePlayer()
+    controller = PlayerController(lambda: player, None, FakeProgress())
+    events: list[tuple[str, float]] = []
+    controller.scrobbleEvent.connect(
+        lambda action, _ctx, position, _duration: events.append((action, position))
+    )
+    controller.setMediaContext(CONTEXT)
+    controller.play("http://s/v.mkv")
+    controller.pause()
+    controller.resume()
+    player.seek(300.0)
+    controller.stop()
+    assert events == [("start", 0.0), ("pause", 0.0), ("start", 0.0), ("stop", 300.0)]
+
+
+def test_toggle_pause_emits_scrobble_events(qapp: object) -> None:
+    player = FakePlayer()
+    controller = PlayerController(lambda: player, None, FakeProgress())
+    events: list[str] = []
+    controller.scrobbleEvent.connect(lambda action, _c, _p, _d: events.append(action))
+    controller.setMediaContext(CONTEXT)
+    controller.play("http://s/v.mkv")
+    controller.togglePause()
+    controller.togglePause()
+    assert events == ["start", "pause", "start"]
+
+
+def test_no_scrobble_event_without_media_context(qapp: object) -> None:
+    player = FakePlayer()
+    controller = PlayerController(lambda: player)
+    events: list[str] = []
+    controller.scrobbleEvent.connect(lambda action, _c, _p, _d: events.append(action))
+    controller.play("http://s/v.mkv")  # unknown surface: nothing to scrobble
+    controller.stop()
+    assert events == []
+
+
+def test_scrobble_context_snapshot_is_detached(qapp: object) -> None:
+    """The consumer runs async; by then setMediaContext may have replaced the
+    dict. The emitted copy must not follow it."""
+    player = FakePlayer()
+    controller = PlayerController(lambda: player, None, FakeProgress())
+    contexts: list[dict] = []
+    controller.scrobbleEvent.connect(lambda _a, ctx, _p, _d: contexts.append(ctx))
+    controller.setMediaContext(CONTEXT)
+    controller.play("http://s/v.mkv")
+    controller.setMediaContext({**CONTEXT, "mediaId": "tt-other"})
+    assert contexts[0]["mediaId"] == "tt9"
+
+
 def test_play_forwards_proxy_headers_from_qml() -> None:
     player = FakePlayer()
     controller = PlayerController(lambda: player)
