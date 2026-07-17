@@ -145,3 +145,38 @@ async def test_empty_endpoint_drops_its_row() -> None:
     api.movie_recs = [_movie(1)]
     result = await rows()
     assert [r.title for r in result] == [RECOMMENDED_MOVIES_TITLE]
+
+
+def test_rows_payload_roundtrip() -> None:
+    from gravitas.application.trakt_rows import TraktRow, rows_from_payload, rows_to_payload
+    from gravitas.domain.models import MediaItem
+
+    rows = [
+        TraktRow(
+            title="Recommended Movies",
+            type="movie",
+            items=[MediaItem(id="tt1", type="movie", name="Inception", poster="http://p/1.jpg")],
+        ),
+        TraktRow(
+            title="Recently Watched",
+            type="",
+            items=[MediaItem(id="tt2", type="series", name="The Show", poster=None)],
+        ),
+    ]
+    rebuilt = rows_from_payload(rows_to_payload(rows))
+    assert rebuilt == rows
+
+
+def test_rows_payload_tolerates_garbage() -> None:
+    from gravitas.application.trakt_rows import rows_from_payload
+
+    assert rows_from_payload(None) == []
+    assert rows_from_payload({"rows": "nope"}) == []
+    assert rows_from_payload({"rows": [{"title": 5}, "x"]}) == []
+    # A malformed item is dropped; a row left with none disappears.
+    assert (
+        rows_from_payload(
+            {"rows": [{"title": "R", "type": "movie", "items": [{"id": 7, "type": "movie"}]}]}
+        )
+        == []
+    )

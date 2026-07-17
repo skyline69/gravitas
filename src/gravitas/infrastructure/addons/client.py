@@ -26,9 +26,17 @@ from gravitas.domain.models import (
     Stream,
 )
 from gravitas.infrastructure.addons import parsing
+from gravitas.infrastructure.cache.json_disk_cache import JsonDiskCache
 from gravitas.infrastructure.cache.ttl_cache import TtlCache
 
 _MANIFEST_SUFFIX = "manifest.json"
+
+# How long a DISK entry may satisfy a normal (non-stale) read. In-memory the
+# manifest is cached for the session (cache_for=inf) because reinstalling is
+# what refreshes it — but "for the session" must not become "forever" once
+# entries persist, or an upgraded addon would never be seen again. A day
+# bounds every kind without touching the in-memory policy.
+_DISK_FRESH_CAP = 24 * 60 * 60.0
 
 
 class AddonClient:
@@ -54,14 +62,33 @@ class AddonClient:
         self,
         client: httpx.AsyncClient,
         clock: Callable[[], float] = time.monotonic,
+        disk: JsonDiskCache | None = None,
     ) -> None:
         self._client = client
         self._cache: TtlCache[dict[str, Any]] = TtlCache(clock=clock)
+        self._disk = disk
+        # Boot's stale-while-revalidate switch (flipped by the composition
+        # root): while True, a disk entry of ANY age satisfies a read, so a
+        # warm launch paints instantly; the boot's second pass then runs with
+        # it off and refreshes whatever was actually stale. Stale hits are
+        # never promoted to the in-memory cache — that would make the second
+        # pass read the stale data back as "fresh".
+        self.serve_stale = False
 
     async def _get_json(self, url: str, *, cache_for: float = 0.0) -> dict[str, Any]:
         cached = self._cache.get(url) if cache_for > 0 else None
         if cached is not None:
             return cached
+        if self._disk is not None and cache_for > 0:
+            hit = await asyncio.to_thread(self._disk.get, url)
+            if hit is not None:
+                data, age = hit
+                if age <= min(cache_for, _DISK_FRESH_CAP):
+                    # Fresh enough: promote for the freshness it has left.
+                    self._cache.put(url, data, ttl=cache_for - age)
+                    return data
+                if self.serve_stale:
+                    return data
         try:
             response = await self._client.get(url, follow_redirects=True, timeout=15.0)
             response.raise_for_status()
@@ -76,6 +103,8 @@ class AddonClient:
         # Only a good response is cached: a dead addon must not poison the
         # cache for the next quarter of an hour.
         self._cache.put(url, data, ttl=cache_for)
+        if self._disk is not None and cache_for > 0:
+            await asyncio.to_thread(self._disk.put, url, data)
         return data
 
     async def fetch_manifest(self, url: str) -> AddonManifest:

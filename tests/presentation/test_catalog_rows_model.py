@@ -427,3 +427,20 @@ def test_set_trakt_rows_respects_continue_watching_offset(qapp: object) -> None:
     model.set_trakt_rows(_TRAKT_ROWS[:1])  # type: ignore[arg-type]
     assert _titles(model)[:2] == ["Continue Watching", "Recommended Movies"]
     assert _titles(model)[2] == "Popular Movies"
+
+
+def test_set_rows_with_identical_content_skips_the_reset(qapp: object) -> None:
+    """The boot's revalidation pass re-derives the same catalog most of the
+    time; resetting then would rebuild every delegate to show identical
+    content."""
+    model = CatalogRowsModel()
+    model.set_rows(_ROWS)
+    posters_before = model.data(model.index(0, 0), CatalogRowsModel.PostersRole)
+    resets: list[None] = []
+    model.modelAboutToBeReset.connect(lambda: resets.append(None))
+    model.set_rows(list(_ROWS))  # equal content, fresh list object
+    assert resets == []
+    assert model.data(model.index(0, 0), CatalogRowsModel.PostersRole) is posters_before
+    model.set_rows(_ROWS[:2])  # actual change still resets
+    assert len(resets) == 1
+    assert model.rowCount() == 2

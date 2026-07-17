@@ -18,7 +18,7 @@ from PySide6.QtGui import QDesktopServices
 from qasync import asyncSlot  # type: ignore[import-untyped]
 
 from gravitas.application.trakt_account import TraktAccount
-from gravitas.application.trakt_rows import TraktRows
+from gravitas.application.trakt_rows import TraktRow, TraktRows
 from gravitas.application.trakt_sync import TraktSync
 from gravitas.domain.errors import TraktError
 from gravitas.domain.models import TraktAuth
@@ -45,6 +45,9 @@ class TraktController(QObject):
         sync: TraktSync | None = None,
         rows: TraktRows | None = None,
         rows_model: CatalogRowsModel | None = None,
+        # Composition-root hook: snapshot the rows just shown, so the next
+        # launch can paint them instantly while fresh ones are fetched.
+        rows_persist: Callable[[list[TraktRow]], None] | None = None,
         # Test seams: the poll loop sleeps with `sleep` (tests inject a no-op
         # to poll instantly); `open_url` launches the system browser.
         sleep: Callable[[float], Awaitable[object]] | None = None,
@@ -56,6 +59,7 @@ class TraktController(QObject):
         self._sync = sync
         self._rows = rows
         self._rows_model = rows_model
+        self._rows_persist = rows_persist
         self._syncing = False
         self._sleep: Callable[[float], Awaitable[object]] = (
             sleep if sleep is not None else asyncio.sleep
@@ -156,6 +160,7 @@ class TraktController(QObject):
             return
         if not self._account.authenticated:
             self._rows_model.set_trakt_rows([])
+            self._persist_rows([])
             return
         try:
             rows = await self._rows()
@@ -163,6 +168,11 @@ class TraktController(QObject):
             _log.warning("Trakt rows refresh failed: %s", exc)
             return
         self._rows_model.set_trakt_rows(rows)
+        self._persist_rows(rows)
+
+    def _persist_rows(self, rows: list[TraktRow]) -> None:
+        if self._rows_persist is not None:
+            self._rows_persist(rows)
 
     async def _run_sync(self) -> int:
         if self._sync is None:
@@ -259,6 +269,7 @@ class TraktController(QObject):
         # Personalized rows belong to the session that just ended.
         if self._rows_model is not None:
             self._rows_model.set_trakt_rows([])
+        self._persist_rows([])
         # Best-effort revoke AFTER local state is cleared: the user asked to
         # be logged out, and a network hiccup must not veto that.
         if auth is not None and self._account.has_credentials:

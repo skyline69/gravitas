@@ -1,6 +1,12 @@
 import os
+import tempfile
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+# build_app() opens the JSON disk cache at its default XDG path; without this
+# the composition tests would read and write the developer's real
+# ~/.cache/gravitas. One throwaway dir for the whole test session.
+os.environ.setdefault("XDG_CACHE_HOME", tempfile.mkdtemp(prefix="gravitas-test-cache-"))
 
 # Match build_app's QQuickStyle.setStyle("Basic") -- without it a test process
 # takes the platform default, which on macOS is the native style. Native styles

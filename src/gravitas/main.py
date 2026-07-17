@@ -35,7 +35,7 @@ from gravitas.application.resolve_media_link import ResolveMediaLink
 from gravitas.application.resolve_stream import ResolveStream
 from gravitas.application.search_media import SearchMedia
 from gravitas.application.trakt_account import TraktAccount
-from gravitas.application.trakt_rows import TraktRows
+from gravitas.application.trakt_rows import TraktRows, rows_from_payload, rows_to_payload
 from gravitas.application.trakt_sync import TraktSync
 from gravitas.application.uninstall_addon import UninstallAddon
 from gravitas.application.watch_progress import WatchProgressRepository
@@ -44,6 +44,7 @@ from gravitas.domain.errors import GravitasError
 from gravitas.domain.models import SubtitleStyle
 from gravitas.domain.ports import MediaPlayer
 from gravitas.infrastructure.addons.client import AddonClient
+from gravitas.infrastructure.cache.json_disk_cache import JsonDiskCache
 from gravitas.infrastructure.cache.network_cache import CachingNetworkAccessManagerFactory
 from gravitas.infrastructure.desktop.url_scheme import (
     DeepLinkListener,
@@ -82,6 +83,9 @@ _log = logging.getLogger(__name__)
 _QML_DIR = Path(__file__).parent / "presentation" / "qml"
 DEFAULT_ADDON = "https://v3-cinemeta.strem.io/manifest.json"
 _LINK_SCHEME = "stremio://"
+# Disk-cache key for the last shown Trakt rows (not a real URL — the cache is
+# keyed by arbitrary strings and this one cannot collide with addon URLs).
+_TRAKT_ROWS_KEY = "gravitas://trakt-rows"
 
 
 # Qt runtime warnings we deliberately swallow. An addon's `/meta` routinely
@@ -178,7 +182,12 @@ def build_app(
         app.setFont(QFont(families[0]))
 
     http = httpx.AsyncClient()
-    source = AddonClient(http)
+    # Persistent JSON cache under the in-memory one: a warm launch paints the
+    # grid from disk instead of refetching every catalog. Pruned here (a
+    # bounded delete) so the file cannot grow forever.
+    disk_cache = JsonDiskCache()
+    disk_cache.prune()
+    source = AddonClient(http, disk=disk_cache)
     repo = AddonRepository(source)
 
     class _KeyHolder:
@@ -259,6 +268,9 @@ def build_app(
         trakt_sync,
         TraktRows(trakt_account, GetDetail(repo)),
         rows_model,
+        # Snapshot the rows just shown so the next boot paints them
+        # instantly; the payload is small, so the write is a non-event.
+        rows_persist=lambda rows: disk_cache.put(_TRAKT_ROWS_KEY, rows_to_payload(rows)),
     )
 
     # Keep the Settings list in sync — and the settings file current — after a
@@ -387,38 +399,46 @@ def build_app(
     deep_links.linkReceived.connect(deep_link_controller.handleLink)
     deep_links.install_macos_handler(app)
 
-    async def bootstrap() -> None:
+    async def _install_and_load() -> None:
         # Install the default addon as protected (non-removable), restore the
-        # user's persisted addons, then bring the UI up to date
-        # deterministically: load the catalog rows and prime the Settings
-        # addon list before bootstrap() returns.
+        # user's persisted addons, then load the catalog rows. Quiet: pass
+        # one runs behind the boot overlay, pass two behind live content.
+        await install_addon(default_addon_url, protected=True)
+        for url in persisted.addon_urls:
+            try:
+                await install_addon(url)
+            except GravitasError as exc:
+                # A dead addon must not block startup; it stays in the
+                # settings file so a later successful launch restores it.
+                addon_controller.errorOccurred.emit(f"Could not restore addon: {exc}")
+        await catalog_controller.load_catalog(quiet=True)
+
+    async def bootstrap() -> None:
+        # Stale-while-revalidate, in two passes.
         #
-        # Everything runs behind the boot gate: Home shows one full-page
-        # spinner until the grid — catalog, Continue Watching, Trakt rows —
-        # is complete, then reveals it once. Without the gate the page
-        # assembles itself in front of the user (catalog first, Trakt rows
-        # popping in later), which reads as jank rather than loading.
+        # Pass one runs behind the boot gate with the addon client serving
+        # disk-cached JSON of any age: on a warm start the whole grid —
+        # catalog, Continue Watching, the last session's Trakt rows — builds
+        # without touching the network, and the spinner lasts a blink. Cold
+        # caches degrade to exactly the old behaviour (fetch behind the
+        # spinner).
+        #
+        # Pass two repeats the load with staleness honoured and pulls Trakt,
+        # AFTER the reveal. Its writes are surgical: set_rows() skips when
+        # the refreshed catalog is unchanged (the common case), and Trakt
+        # rows splice in without touching the catalog rows' delegates.
         catalog_controller.set_booting(True)
+        source.serve_stale = True
         try:
-            await install_addon(default_addon_url, protected=True)
-            for url in persisted.addon_urls:
-                try:
-                    await install_addon(url)
-                except GravitasError as exc:
-                    # A dead addon must not block startup; it stays in the
-                    # settings file so a later successful launch restores it.
-                    addon_controller.errorOccurred.emit(f"Could not restore addon: {exc}")
-            await catalog_controller.load_catalog()
+            await _install_and_load()
             settings_controller.refreshAddons()
             # After load_catalog: set_rows() rebuilds the visible rows, so
             # priming this first would be discarded. A dict read, not a fetch.
             rows_model.set_continue_watching(continue_watching())
-            # Best-effort: pull what other Trakt clients watched or left
-            # unfinished, then the personalized rows, so the first reveal
-            # already carries them.
             if trakt_account.authenticated:
-                await trakt_controller.sync_quietly()
-                await trakt_controller.refresh_rows_quietly()
+                snapshot = await asyncio.to_thread(disk_cache.get, _TRAKT_ROWS_KEY)
+                if snapshot is not None:
+                    rows_model.set_trakt_rows(rows_from_payload(snapshot[0]))
             # A settle beat before the reveal: the grid sits invisible in the
             # scene, so this hands the event loop ~25 frames to incubate
             # delegates and decode the first posters while the spinner still
@@ -429,13 +449,21 @@ def build_app(
         finally:
             # The gate must fall whatever happened above — a dead network
             # shows an empty grid with toasts, never an eternal spinner.
+            source.serve_stale = False
             catalog_controller.set_booting(False)
         # A link that launched the app is handled only now: installing into the
         # repository requires the repository to exist, and the confirmation
-        # dialog needs a window to be centred on.
+        # dialog needs a window to be centred on. Before pass two, so a slow
+        # revalidation never delays the link the user launched us with.
         link = pending_link(argv)
         if link is not None:
             await deep_link_controller.handleLink(link)
+        # Pass two: revalidate.
+        await _install_and_load()
+        settings_controller.refreshAddons()
+        if trakt_account.authenticated:
+            await trakt_controller.sync_quietly()
+            await trakt_controller.refresh_rows_quietly()
 
     engine.load(str(_QML_DIR / "Main.qml"))
 

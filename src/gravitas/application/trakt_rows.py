@@ -113,6 +113,64 @@ class TraktRows:
         return detail.poster
 
 
+def rows_to_payload(rows: list[TraktRow]) -> dict[str, object]:
+    """The rows as a JSON-safe snapshot, so the last session's rows can greet
+    the user instantly on the next launch while fresh ones are fetched."""
+    return {
+        "rows": [
+            {
+                "title": row.title,
+                "type": row.type,
+                "items": [
+                    {"id": i.id, "type": i.type, "name": i.name, "poster": i.poster}
+                    for i in row.items
+                ],
+            }
+            for row in rows
+        ]
+    }
+
+
+def rows_from_payload(payload: object) -> list[TraktRow]:
+    """Rebuild rows from a snapshot; anything malformed is dropped silently —
+    a cache is never worth an error."""
+    if not isinstance(payload, dict):
+        return []
+    raw_rows = payload.get("rows")
+    if not isinstance(raw_rows, list):
+        return []
+    rows: list[TraktRow] = []
+    for raw in raw_rows:
+        if not isinstance(raw, dict) or not isinstance(raw.get("title"), str):
+            continue
+        items: list[MediaItem] = []
+        for entry in raw.get("items") or []:
+            if not isinstance(entry, dict):
+                continue
+            media_id = entry.get("id")
+            media_type = entry.get("type")
+            if not isinstance(media_id, str) or media_type not in ("movie", "series"):
+                continue
+            poster = entry.get("poster")
+            items.append(
+                MediaItem(
+                    id=media_id,
+                    type=media_type,
+                    name=str(entry.get("name") or ""),
+                    poster=poster if isinstance(poster, str) else None,
+                )
+            )
+        if items:
+            rows.append(
+                TraktRow(
+                    title=raw["title"],
+                    type=raw["type"] if isinstance(raw.get("type"), str) else "",
+                    items=items,
+                )
+            )
+    return rows
+
+
 def _dedupe(entries: list[TraktListItem]) -> list[TraktListItem]:
     """First occurrence wins — history repeats a show once per play."""
     seen: set[str] = set()

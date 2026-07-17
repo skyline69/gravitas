@@ -47,7 +47,9 @@ class CatalogRowsModel(QAbstractListModel):
         super().__init__()
         self._progress = progress
         # Catalog rows only, and the currently-visible subset (which may also
-        # carry the synthetic Continue Watching row).
+        # carry the synthetic Continue Watching row). _source_rows is the
+        # as-given input, kept to recognize a no-op refresh.
+        self._source_rows: list[CatalogRow] = []
         self._all_rows: list[_Row] = []
         self._rows: list[_Row] = []
         self._filter = "all"
@@ -68,6 +70,13 @@ class CatalogRowsModel(QAbstractListModel):
     # --- rows ---
 
     def set_rows(self, rows: list[CatalogRow]) -> None:
+        if rows == self._source_rows:
+            # A refresh pass re-derived identical content (the common case for
+            # the boot's revalidation pass over warm caches) — a reset here
+            # would tear down and re-incubate every delegate to show the same
+            # thing.
+            return
+        self._source_rows = list(rows)
         self.beginResetModel()
         self._all_rows = [
             _Row(

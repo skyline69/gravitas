@@ -407,3 +407,31 @@ async def test_sync_toggles_update_account_and_persist(qapp: object) -> None:
     assert controller.syncForgets is False
     assert controller.syncWatched is False
     assert len(persists) == 2  # each toggle reaches the settings file
+
+
+async def test_rows_refresh_persists_a_snapshot(qapp: object) -> None:
+    from gravitas.presentation.controllers.trakt_controller import TraktController
+    from gravitas.presentation.models.catalog_rows_model import CatalogRowsModel
+
+    rows = FakeRows(_rows_fixture())
+    account = TraktAccount(FakeApi(), clock=lambda: 0)
+    account.client_id = "CID"
+    account.client_secret = "SEC"
+    account.auth = AUTH
+    model = CatalogRowsModel()
+    snapshots: list[list[object]] = []
+    controller = TraktController(
+        account,
+        None,
+        None,
+        rows,  # type: ignore[arg-type]
+        model,
+        rows_persist=snapshots.append,  # type: ignore[arg-type]
+        sleep=_noop_sleep,
+    )
+    await controller.refresh_rows_quietly()
+    assert len(snapshots) == 1 and len(snapshots[0]) == 1
+    # Logging out clears the snapshot too — the next boot must not greet a
+    # logged-out user with someone's personalized rows.
+    await controller.logout()
+    assert snapshots[-1] == []

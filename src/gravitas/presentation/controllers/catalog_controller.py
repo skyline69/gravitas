@@ -35,15 +35,20 @@ class CatalogController(QObject):
         self._booting = value
         self.bootingChanged.emit()
 
-    async def load_catalog(self) -> None:
-        self.loadingChanged.emit(True)
+    async def load_catalog(self, *, quiet: bool = False) -> None:
+        """Load rows into the model. `quiet` skips the loading signal — the
+        boot flow owns its own indicator, and its background revalidation
+        pass must not flash a spinner over content already on screen."""
+        if not quiet:
+            self.loadingChanged.emit(True)
         try:
             rows = await self._browse()
             self._model.set_rows(rows)
         except GravitasError as exc:
             self.errorOccurred.emit(str(exc))
         finally:
-            self.loadingChanged.emit(False)
+            if not quiet:
+                self.loadingChanged.emit(False)
 
     @asyncSlot()  # type: ignore[untyped-decorator]
     async def refresh(self) -> None:

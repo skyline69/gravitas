@@ -259,3 +259,115 @@ async def test_a_failure_is_not_cached() -> None:
         detail = await client.fetch_meta(_MANIFEST, "movie", "tt1")
     assert detail.name == "M"
     assert route.call_count == 2
+
+
+# --- disk cache layer ---------------------------------------------------------
+
+_CATALOG_JSON = {"metas": [{"id": "tt1", "type": "movie", "name": "A", "poster": "p"}]}
+_CATALOG_URL = "https://cin.strem.io/catalog/movie/top.json"
+
+
+def _manifest() -> AddonManifest:
+    return AddonManifest(
+        id="c",
+        name="C",
+        version="1",
+        resources=(ResourceSpec(name="catalog", types=("movie",)),),
+        types=("movie",),
+        catalogs=(CatalogRef(type="movie", id="top", name="T"),),
+        base_url="https://cin.strem.io/",
+    )
+
+
+class _Clock:
+    def __init__(self, now: float = 1_000.0) -> None:
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def _disk(tmp_path, clock):  # type: ignore[no-untyped-def]
+    from gravitas.infrastructure.cache.json_disk_cache import JsonDiskCache
+
+    return JsonDiskCache(tmp_path / "cache.db", clock=clock)
+
+
+@respx.mock
+async def test_fresh_disk_hit_skips_the_network(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    clock = _Clock()
+    disk = _disk(tmp_path, clock)
+    disk.put(_CATALOG_URL, _CATALOG_JSON)
+    clock.now += 60  # well inside CATALOG_TTL
+    # No respx route for the URL: any network attempt would raise.
+    async with httpx.AsyncClient() as http:
+        client = AddonClient(http, disk=disk)
+        ref = CatalogRef(type="movie", id="top", name="T")
+        items = await client.fetch_catalog(_manifest(), ref)
+    assert items[0].id == "tt1"
+
+
+@respx.mock
+async def test_stale_disk_entry_refetches_normally(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    clock = _Clock()
+    disk = _disk(tmp_path, clock)
+    disk.put(_CATALOG_URL, {"metas": []})  # stale content
+    clock.now += AddonClient.CATALOG_TTL + 1
+    route = respx.get(_CATALOG_URL).mock(return_value=httpx.Response(200, json=_CATALOG_JSON))
+    async with httpx.AsyncClient() as http:
+        client = AddonClient(http, disk=disk)
+        ref = CatalogRef(type="movie", id="top", name="T")
+        items = await client.fetch_catalog(_manifest(), ref)
+    assert route.called
+    assert items[0].id == "tt1"
+    # The refetch refreshed the disk entry.
+    hit = disk.get(_CATALOG_URL)
+    assert hit is not None and hit[1] == 0
+
+
+@respx.mock
+async def test_serve_stale_returns_old_entry_without_network(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    clock = _Clock()
+    disk = _disk(tmp_path, clock)
+    disk.put(_CATALOG_URL, _CATALOG_JSON)
+    clock.now += AddonClient.CATALOG_TTL + 1
+    async with httpx.AsyncClient() as http:
+        client = AddonClient(http, disk=disk)
+        client.serve_stale = True
+        ref = CatalogRef(type="movie", id="top", name="T")
+        items = await client.fetch_catalog(_manifest(), ref)
+    assert items[0].id == "tt1"
+
+
+@respx.mock
+async def test_stale_serving_never_poisons_the_memory_cache(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    # Serve stale once, then flip the switch off: the next read must hit the
+    # network, not a stale entry promoted into the in-memory cache.
+    clock = _Clock()
+    disk = _disk(tmp_path, clock)
+    disk.put(_CATALOG_URL, {"metas": []})
+    clock.now += AddonClient.CATALOG_TTL + 1
+    route = respx.get(_CATALOG_URL).mock(return_value=httpx.Response(200, json=_CATALOG_JSON))
+    async with httpx.AsyncClient() as http:
+        client = AddonClient(http, disk=disk)
+        client.serve_stale = True
+        ref = CatalogRef(type="movie", id="top", name="T")
+        stale = await client.fetch_catalog(_manifest(), ref)
+        assert stale == []
+        client.serve_stale = False
+        fresh = await client.fetch_catalog(_manifest(), ref)
+    assert route.called
+    assert fresh[0].id == "tt1"
+
+
+@respx.mock
+async def test_network_response_lands_on_disk(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    clock = _Clock()
+    disk = _disk(tmp_path, clock)
+    respx.get(_CATALOG_URL).mock(return_value=httpx.Response(200, json=_CATALOG_JSON))
+    async with httpx.AsyncClient() as http:
+        client = AddonClient(http, disk=disk)
+        ref = CatalogRef(type="movie", id="top", name="T")
+        await client.fetch_catalog(_manifest(), ref)
+    hit = disk.get(_CATALOG_URL)
+    assert hit is not None and hit[0] == _CATALOG_JSON
