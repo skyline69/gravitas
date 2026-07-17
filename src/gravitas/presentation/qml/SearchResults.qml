@@ -52,6 +52,7 @@ Item {
         cellWidth: 180
         cellHeight: 300
         clip: true
+        reuseItems: true
         visible: !root.loading
         ScrollBar.vertical: AppScrollBar {}
         model: searchPageModel

@@ -40,6 +40,10 @@ Item {
         // reveal finished cards, not loading spinners. Delegate creation is
         // spread over frames by the view, so this does not stall the reveal.
         cacheBuffer: 6000
+        // Recycle row delegates that do scroll out instead of destroying and
+        // re-instantiating them — creation cost is the other half of scroll
+        // stutter.
+        reuseItems: true
         ScrollBar.vertical: AppScrollBar {}
         model: catalogRowsModel
         delegate: CatalogRowStrip {

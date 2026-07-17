@@ -370,3 +370,26 @@ def test_cw_update_never_resets_the_model(qapp: object) -> None:
     assert inserted == [(0, 0)]
     assert removed == [(0, 0)]
     assert changed == [0]
+
+
+def test_continue_watching_tick_with_same_titles_keeps_the_row_alive(qapp: object) -> None:
+    """The 5s playback tick only moves resume positions; the row's poster
+    model must survive it untouched (a rebuild re-incubates every card in
+    the row, every tick, for no visible change)."""
+    model = CatalogRowsModel()
+    model.set_continue_watching([_progress("tt1", position=100.0)])
+    posters_before = model.data(model.index(0, 0), CatalogRowsModel.PostersRole)
+    model.set_continue_watching([_progress("tt1", position=200.0, updated_at=999)])
+    assert model.data(model.index(0, 0), CatalogRowsModel.PostersRole) is posters_before
+
+
+def test_continue_watching_membership_change_still_rebuilds(qapp: object) -> None:
+    model = CatalogRowsModel()
+    model.set_continue_watching([_progress("tt1")])
+    posters_before = model.data(model.index(0, 0), CatalogRowsModel.PostersRole)
+    model.set_continue_watching([_progress("tt1"), _progress("tt2")])
+    posters_after = model.data(model.index(0, 0), CatalogRowsModel.PostersRole)
+    assert posters_after is not posters_before
+    assert posters_after.rowCount() == 2
+    model.set_continue_watching([])
+    assert model.rowCount() == 0

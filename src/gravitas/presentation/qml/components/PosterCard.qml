@@ -1,5 +1,5 @@
 import QtQuick
-import Qt5Compat.GraphicalEffects
+import QtQuick.Window
 import "."
 
 Item {
@@ -152,31 +152,38 @@ Item {
                 }
             }
 
-            // the poster, masked to a rounded rectangle
+            // The poster. Corners are rounded by the frame overlay below, NOT
+            // by an OpacityMask: a mask is a per-card ShaderEffect, and a
+            // grid keeps hundreds of cards alive — each one broke scene-graph
+            // batching into its own draw call, which is what made scrolling
+            // stutter. The frame is one shared texture, so every card
+            // batches.
             Image {
                 id: img
                 anchors.fill: parent
-                // Request/decode a poster sized for this card, not full-res art.
-                source: Img.sized(root.posterUrl, Math.round(root.coverHeight))
-                sourceSize.width: Math.round(root.coverHeight)
+                // Request/decode a poster sized for this card (in device
+                // pixels, so retina stays sharp), not full-res art.
+                source: Img.sized(root.posterUrl, Math.round(root.coverWidth * Screen.devicePixelRatio))
+                sourceSize.width: Math.round(root.coverWidth * Screen.devicePixelRatio)
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
                 cache: true
-                visible: false
-            }
-            Rectangle {
-                id: mask
-                anchors.fill: parent
-                radius: 14
-                visible: false
-            }
-            OpacityMask {
-                anchors.fill: parent
-                source: img
-                maskSource: mask
                 // fade the poster in once it has decoded
-                opacity: img.status === Image.Ready ? 1.0 : 0.0
+                opacity: status === Image.Ready ? 1.0 : 0.0
                 Behavior on opacity { NumberAnimation { duration: Theme.durMed } }
+            }
+            // Rounded-corner illusion: a BorderImage whose corners are filled
+            // with the page background and whose centre/edges are transparent.
+            // Cards sit on the flat window background everywhere (opaque bars
+            // cover the ones scrolling beneath them), so painting bg-coloured
+            // notches over the poster's corners is indistinguishable from a
+            // real mask. The asset bakes Theme.bg — regenerate with
+            // scripts/gen_corner_frame.py if that colour ever changes.
+            BorderImage {
+                anchors.fill: parent
+                source: "../assets/corner-frame.png"
+                border { left: 14; right: 14; top: 14; bottom: 14 }
+                visible: img.status === Image.Ready
             }
 
             // rounded white frame — only on the active (hovered) poster

@@ -66,6 +66,7 @@ Item {
         // inside this), so sideways scrolling reveals loaded art instead of
         // per-card spinners.
         cacheBuffer: 8000
+        reuseItems: true
         // inset the content from the clip edges so the first/last card has
         // room to grow on hover without being clipped
         leftMargin: 10

@@ -218,6 +218,7 @@ Item {
         cellWidth: Math.floor(width / Math.max(1, Math.floor(width / 180)))
         cellHeight: 300
         clip: true
+        reuseItems: true
         ScrollBar.vertical: AppScrollBar {}
         model: discoverProxy
         // Filtering reads as movement, not a repaint: entering items fade in

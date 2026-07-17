@@ -61,6 +61,9 @@ class CatalogRowsModel(QAbstractListModel):
         # rebuild re-fetch every addon's /catalog over the network.
         self._cw_entries: list[PlaybackProgress] = []
         self._cw_row: _Row | None = None
+        # What the current CW row displays — the change detector that lets
+        # the 5s playback tick skip rebuilding an unchanged row.
+        self._cw_shown_items: list[MediaItem] = []
 
     # --- rows ---
 
@@ -110,8 +113,16 @@ class CatalogRowsModel(QAbstractListModel):
         half-incubated cards (`object destroyed during incubation`) -- just to
         touch the single synthetic row that lives at index 0. Mutate only that
         row instead; the catalog delegates never see it.
+
+        Rebuild only when the row's CONTENT changed. The tick's usual payload
+        is a moved resume position, which reaches the cards through
+        refresh_progress() (model roles), not through this row's item list —
+        rebuilding then would tear down and re-incubate the row's delegates
+        every 5 seconds during playback for no visible change.
         """
         self._cw_entries = list(entries)
+        if self._cw_row is not None and self._cw_visible_items() == self._cw_shown_items:
+            return
         old_row, new_row = self._cw_row, self._build_continue_watching()
         self._cw_row = new_row
         if old_row is not None and new_row is not None:
@@ -159,19 +170,25 @@ class CatalogRowsModel(QAbstractListModel):
         trakt = self._filtered_trakt()
         self._rows = ([self._cw_row] if self._cw_row is not None else []) + trakt + rows
 
-    def _build_continue_watching(self) -> _Row | None:
+    def _cw_visible_items(self) -> list[MediaItem]:
+        """The card list the Continue Watching row would show under the
+        active filter — the identity set_continue_watching compares to decide
+        whether a rebuild is warranted."""
         if self._filter == "trending":
             # Trending is what is popular, not what you personally started.
-            return None
+            return []
         entries = self._cw_entries
         if self._filter in ("movie", "series"):
             entries = [e for e in entries if e.type == self._filter]
-        if not entries:
-            # An empty row is worse than no row.
-            return None
-        items = [
+        return [
             MediaItem(id=e.media_id, type=e.type, name=e.name, poster=e.poster) for e in entries
         ]
+
+    def _build_continue_watching(self) -> _Row | None:
+        items = self._cw_shown_items = self._cw_visible_items()
+        if not items:
+            # An empty row is worse than no row.
+            return None
         return _Row(
             title=CONTINUE_WATCHING_TITLE,
             # No addon and no catalog stand behind this row, so See All has
