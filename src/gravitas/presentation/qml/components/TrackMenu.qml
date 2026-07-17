@@ -67,6 +67,10 @@ Popup {
             color: rowHover.hovered ? Theme.surfaceHover : "transparent"
             HoverHandler { id: rowHover; cursorShape: Qt.PointingHandCursor }
             TapHandler {
+                // Same fix as ContextMenu: take the exclusive grab so the
+                // click can't also reach the video underneath (a track pick
+                // used to fall through and toggle pause).
+                gesturePolicy: TapHandler.ReleaseWithinBounds
                 onTapped: {
                     menu.picked(modelData.id)
                     menu.close()

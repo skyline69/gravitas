@@ -77,6 +77,13 @@ Popup {
                 color: rowHover.hovered ? Theme.surfaceHover : "transparent"
                 HoverHandler { id: rowHover; cursorShape: Qt.PointingHandCursor }
                 TapHandler {
+                    // ReleaseWithinBounds takes the exclusive grab at press.
+                    // The default (DragThreshold) is a passive grab that never
+                    // ACCEPTS the event, so the same click also reached
+                    // whatever sat under the popup — picking "Mark as
+                    // watched" on an episode row simultaneously "clicked" the
+                    // row and pushed the Sources page underneath the menu.
+                    gesturePolicy: TapHandler.ReleaseWithinBounds
                     onTapped: {
                         menu.close()
                         modelData.action()

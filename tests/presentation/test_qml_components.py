@@ -116,6 +116,60 @@ def test_context_menu_instantiates_and_opens_without_warnings(
     assert qml_warnings == []
 
 
+def test_context_menu_click_does_not_leak_beneath_the_popup(qapp: object) -> None:
+    """The entry TapHandler must take the exclusive grab: with the default
+    passive policy the same click also reached items under the modal popup
+    (picking "Mark as watched" on an episode row simultaneously clicked the
+    row and pushed the Sources page underneath the menu)."""
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+
+    engine = QQmlEngine()
+    component = QQmlComponent(engine)
+    component.setData(
+        b"""
+        import QtQuick
+        import QtQuick.Window
+        import "."
+
+        Window {
+            id: win
+            width: 400; height: 400; visible: true
+            property int underTaps: 0
+            property int actions: 0
+            // Live bindings, not a snapshot: popupAt clamps against the
+            // overlay, whose size settles only once the window is exposed.
+            property real menuX: menu.x
+            property real menuY: menu.y
+            Item {
+                id: host
+                anchors.fill: parent
+                TapHandler { onTapped: win.underTaps++ }
+            }
+            ContextMenu { id: menu }
+            Component.onCompleted: {
+                menu.entries = [{ label: "Mark as watched", action: function() { win.actions++ } }]
+                menu.popupAt(host, Qt.point(120, 120))
+            }
+        }
+        """,
+        _COMPONENTS_DIR.as_uri() + "/probe.qml",
+    )
+    assert not component.isError(), component.errorString()
+    win = component.create()
+    assert win is not None, component.errorString()
+    QTest.qWait(300)  # window exposure + the popup's enter transition
+    # Click the middle of the first (only) entry row: padding 4 + half the
+    # control height, safely inside the popup.
+    x = int(win.property("menuX")) + 30
+    y = int(win.property("menuY")) + 4 + 18
+    QTest.mouseClick(win, Qt.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(x, y))
+    QTest.qWait(100)
+    assert win.property("actions") == 1, "the menu entry itself must fire"
+    assert win.property("underTaps") == 0, "the click leaked through the popup"
+    win.deleteLater()
+
+
 def test_settings_page_survives_its_controllers_going_away(
     qml_warnings: list[str], tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> None:
