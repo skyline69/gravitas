@@ -14,6 +14,11 @@ class FakeStore:
     def delete(self, media_id: str, video_id: str | None = None) -> None: ...
     def clear(self) -> None: ...
 
+    def load_forgotten(self) -> list[tuple[str, str, int]]:
+        return []
+
+    def save_forgotten(self, media_id: str, video_id: str, deleted_at: int) -> None: ...
+
 
 def entry(media_id: str, video_id: str = "", **kw: object) -> PlaybackProgress:
     base: dict[str, object] = {

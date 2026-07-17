@@ -13,6 +13,7 @@ from PySide6.QtCore import (
 )
 
 from gravitas.application.browse_catalog import CatalogRow
+from gravitas.application.trakt_rows import TraktRow
 from gravitas.application.watch_progress import WatchProgressRepository
 from gravitas.domain.models import MediaItem, PlaybackProgress
 from gravitas.presentation.models.poster_grid_model import PosterGridModel
@@ -50,6 +51,10 @@ class CatalogRowsModel(QAbstractListModel):
         self._all_rows: list[_Row] = []
         self._rows: list[_Row] = []
         self._filter = "all"
+        # Trakt-served rows (recommendations, history) — like catalog rows
+        # but with no addon behind them, and set on their own clock: a slow
+        # Trakt answer lands after the catalog painted.
+        self._trakt_rows: list[_Row] = []
         # Continue Watching is held apart from the catalog rows because it is
         # rebuilt on a different clock: progress changes every few seconds
         # during playback, and folding it into set_rows() would make each
@@ -69,6 +74,26 @@ class CatalogRowsModel(QAbstractListModel):
                 catalog_id=row.catalog_id,
                 posters=self._poster_model(row.items),
                 continue_watching=False,
+            )
+            for row in rows
+        ]
+        self._rebuild()
+        self.endResetModel()
+
+    def set_trakt_rows(self, rows: list[TraktRow]) -> None:
+        """Replace the Trakt rows. A full reset is fine here: this runs on
+        startup/auth/sync — not the 5s playback tick that forbids resets in
+        set_continue_watching."""
+        self.beginResetModel()
+        self._trakt_rows = [
+            _Row(
+                title=row.title,
+                # No addon and no catalog stand behind these rows; QML hides
+                # See All when there is no catalog to see all of.
+                addon_id="",
+                type=row.type,
+                catalog_id="",
+                posters=self._poster_model(row.items),
             )
             for row in rows
         ]
@@ -113,6 +138,8 @@ class CatalogRowsModel(QAbstractListModel):
         # not just the filtered subset — a filter switch must not show stale bars.
         for row in self._all_rows:
             row.posters.refresh_progress()
+        for row in self._trakt_rows:
+            row.posters.refresh_progress()
         if self._cw_row is not None:
             self._cw_row.posters.refresh_progress()
 
@@ -129,7 +156,8 @@ class CatalogRowsModel(QAbstractListModel):
         depend on the active tab."""
         self._cw_row = self._build_continue_watching()
         rows = self._filtered(self._all_rows, self._filter)
-        self._rows = ([self._cw_row] if self._cw_row is not None else []) + rows
+        trakt = self._filtered_trakt()
+        self._rows = ([self._cw_row] if self._cw_row is not None else []) + trakt + rows
 
     def _build_continue_watching(self) -> _Row | None:
         if self._filter == "trending":
@@ -154,6 +182,15 @@ class CatalogRowsModel(QAbstractListModel):
             posters=self._poster_model(items),
             continue_watching=True,
         )
+
+    def _filtered_trakt(self) -> list[_Row]:
+        """Trakt rows under the active filter. Personalized rows are not
+        trending; the mixed-type history row (type "") shows only under All."""
+        if self._filter in ("movie", "series"):
+            return [r for r in self._trakt_rows if r.type == self._filter]
+        if self._filter == "trending":
+            return []
+        return list(self._trakt_rows)
 
     @staticmethod
     def _filtered(rows: list[_Row], mode: str) -> list[_Row]:

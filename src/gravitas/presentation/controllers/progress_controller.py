@@ -17,6 +17,9 @@ class ProgressController(QObject):
     progressForgotten = Signal(str, str)  # media_id, video_id ("" = movie row)
     mediaForgotten = Signal(str)
     allProgressReset = Signal()
+    # Mark-as-watched events, same pattern: the media context markWatched
+    # received, emitted after the local mutation so Trakt can mirror it.
+    watchedMarked = Signal("QVariantMap")  # type: ignore[arg-type]
 
     def __init__(self, progress: WatchProgressRepository, model: WatchedListModel) -> None:
         super().__init__()
@@ -84,6 +87,7 @@ class ProgressController(QObject):
             label=str(context.get("label", "")),
         )
         self._changed()
+        self.watchedMarked.emit(context)
 
     @Slot()
     def resetAll(self) -> None:

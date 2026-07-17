@@ -111,6 +111,75 @@ def test_filter_persists_across_set_rows(qapp: object) -> None:
     assert _titles(model) == ["New Series", "Documentaries"]
 
 
+def _trakt_row(title: str, type_: str) -> object:
+    from gravitas.application.trakt_rows import TraktRow
+
+    return TraktRow(
+        title=title,
+        type=type_,
+        items=[MediaItem(id="tt9", type="movie", name="T", poster=None)],
+    )
+
+
+_TRAKT_ROWS = [
+    _trakt_row("Recommended Movies", "movie"),
+    _trakt_row("Recommended Series", "series"),
+    _trakt_row("Recently Watched", ""),
+]
+
+
+def test_trakt_rows_sit_before_catalog_rows(qapp: object) -> None:
+    model = CatalogRowsModel()
+    model.set_rows(_ROWS)
+    model.set_trakt_rows(_TRAKT_ROWS)  # type: ignore[arg-type]
+    assert _titles(model)[:3] == [
+        "Recommended Movies",
+        "Recommended Series",
+        "Recently Watched",
+    ]
+    assert model.rowCount() == 7
+    # No addon or catalog behind them, so See All (keyed on catalogId) hides.
+    index = model.index(0, 0)
+    assert model.data(index, CatalogRowsModel.AddonIdRole) == ""
+    assert model.data(index, CatalogRowsModel.CatalogIdRole) == ""
+    assert model.data(index, CatalogRowsModel.ContinueWatchingRole) is False
+
+
+def test_trakt_rows_follow_the_type_filter(qapp: object) -> None:
+    model = CatalogRowsModel()
+    model.set_rows(_ROWS)
+    model.set_trakt_rows(_TRAKT_ROWS)  # type: ignore[arg-type]
+    model.set_filter("movie")
+    # The mixed-type history row ("") shows only under All.
+    assert _titles(model) == ["Recommended Movies", "Popular Movies", "Trending Now"]
+    model.set_filter("series")
+    assert _titles(model) == ["Recommended Series", "New Series", "Documentaries"]
+
+
+def test_trakt_rows_hidden_under_trending(qapp: object) -> None:
+    model = CatalogRowsModel()
+    model.set_rows(_ROWS)
+    model.set_trakt_rows(_TRAKT_ROWS)  # type: ignore[arg-type]
+    model.set_filter("trending")
+    # Personalized rows are not what is popular.
+    assert _titles(model) == ["Popular Movies", "Trending Now"]
+
+
+def test_set_trakt_rows_empty_clears_them(qapp: object) -> None:
+    model = CatalogRowsModel()
+    model.set_rows(_ROWS)
+    model.set_trakt_rows(_TRAKT_ROWS)  # type: ignore[arg-type]
+    model.set_trakt_rows([])
+    assert model.rowCount() == 4
+
+
+def test_trakt_rows_survive_set_rows(qapp: object) -> None:
+    model = CatalogRowsModel()
+    model.set_trakt_rows(_TRAKT_ROWS)  # type: ignore[arg-type]
+    model.set_rows(_ROWS)
+    assert model.rowCount() == 7
+
+
 def test_refresh_progress_reaches_rows_hidden_by_the_active_filter(qapp: object) -> None:
     """refresh_progress must fan out over _all_rows, not the filtered _rows —
     otherwise switching filters back to a row that was hidden during a

@@ -30,10 +30,12 @@ class _StyleHolder(Protocol):
 
 class _TraktHolder(Protocol):
     """What persist() reads off the Trakt account (TraktAccount satisfies it).
-    Only the granted session — app credentials are build-level, never user
-    state."""
+    Only the granted session and the user's mirror policy — app credentials
+    are build-level, never user state."""
 
     auth: TraktAuth | None
+    sync_forgets: bool
+    sync_watched: bool
 
 
 class SettingsController(QObject):
@@ -112,6 +114,8 @@ class SettingsController(QObject):
                 mdblist_key=mdb,
                 subtitle_style=style,
                 trakt_auth=trakt.auth if trakt is not None else None,
+                trakt_sync_forgets=trakt.sync_forgets if trakt is not None else True,
+                trakt_sync_watched=trakt.sync_watched if trakt is not None else True,
             )
         )
 

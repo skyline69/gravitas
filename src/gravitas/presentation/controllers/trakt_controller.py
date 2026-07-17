@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 from collections.abc import Awaitable, Callable
 
 from PySide6.QtCore import Property, QObject, QUrl, Signal, Slot
@@ -17,9 +18,13 @@ from PySide6.QtGui import QDesktopServices
 from qasync import asyncSlot  # type: ignore[import-untyped]
 
 from gravitas.application.trakt_account import TraktAccount
+from gravitas.application.trakt_rows import TraktRows
 from gravitas.application.trakt_sync import TraktSync
 from gravitas.domain.errors import TraktError
 from gravitas.domain.models import TraktAuth
+from gravitas.presentation.models.catalog_rows_model import CatalogRowsModel
+
+_log = logging.getLogger(__name__)
 
 
 def _open_in_browser(url: str) -> None:
@@ -38,6 +43,8 @@ class TraktController(QObject):
         account: TraktAccount,
         persist: Callable[[], None] | None = None,
         sync: TraktSync | None = None,
+        rows: TraktRows | None = None,
+        rows_model: CatalogRowsModel | None = None,
         # Test seams: the poll loop sleeps with `sleep` (tests inject a no-op
         # to poll instantly); `open_url` launches the system browser.
         sleep: Callable[[float], Awaitable[object]] | None = None,
@@ -47,6 +54,8 @@ class TraktController(QObject):
         self._account = account
         self._persist = persist
         self._sync = sync
+        self._rows = rows
+        self._rows_model = rows_model
         self._syncing = False
         self._sleep: Callable[[float], Awaitable[object]] = (
             sleep if sleep is not None else asyncio.sleep
@@ -93,6 +102,26 @@ class TraktController(QObject):
     def syncing(self) -> bool:
         return self._syncing
 
+    # --- mirror policy toggles (the Integrations checkboxes) ---
+
+    @Property(bool, notify=traktChanged)
+    def syncForgets(self) -> bool:
+        return self._account.sync_forgets
+
+    @Slot(bool)
+    def setSyncForgets(self, enabled: bool) -> None:
+        self._account.sync_forgets = enabled
+        self._on_account_changed()
+
+    @Property(bool, notify=traktChanged)
+    def syncWatched(self) -> bool:
+        return self._account.sync_watched
+
+    @Slot(bool)
+    def setSyncWatched(self, enabled: bool) -> None:
+        self._account.sync_watched = enabled
+        self._on_account_changed()
+
     # --- playback sync (Trakt -> local Continue Watching) ---
 
     @asyncSlot()  # type: ignore[untyped-decorator]
@@ -104,6 +133,8 @@ class TraktController(QObject):
             self.errorOccurred.emit(str(exc))
             return
         self.syncCompleted.emit(applied)
+        # A manual sync is also the "my rows look stale" button.
+        await self.refresh_rows_quietly()
 
     async def sync_quietly(self) -> None:
         """Startup pull: best-effort, log-only — a dead network must not toast
@@ -114,6 +145,24 @@ class TraktController(QObject):
             return
         if applied:
             self.syncCompleted.emit(applied)
+
+    # --- personalized Home rows (recommendations, history) ---
+
+    async def refresh_rows_quietly(self) -> None:
+        """Rebuild the Trakt Home rows: best-effort, log-only — the catalog
+        already painted and must not toast over a dead Trakt. Disconnected
+        clears whatever rows were showing."""
+        if self._rows is None or self._rows_model is None:
+            return
+        if not self._account.authenticated:
+            self._rows_model.set_trakt_rows([])
+            return
+        try:
+            rows = await self._rows()
+        except TraktError as exc:
+            _log.warning("Trakt rows refresh failed: %s", exc)
+            return
+        self._rows_model.set_trakt_rows(rows)
 
     async def _run_sync(self) -> int:
         if self._sync is None:
@@ -195,6 +244,8 @@ class TraktController(QObject):
             username=username,
         )
         self._on_account_changed()
+        # A fresh connection should greet the user with their rows.
+        await self.refresh_rows_quietly()
 
     @Slot()
     def cancelAuth(self) -> None:
@@ -205,6 +256,9 @@ class TraktController(QObject):
         auth = self._account.auth
         self._account.auth = None
         self._on_account_changed()
+        # Personalized rows belong to the session that just ended.
+        if self._rows_model is not None:
+            self._rows_model.set_trakt_rows([])
         # Best-effort revoke AFTER local state is cleared: the user asked to
         # be logged out, and a network hiccup must not veto that.
         if auth is not None and self._account.has_credentials:
@@ -226,6 +280,12 @@ class TraktController(QObject):
     # --- forget mirrors (wired to ProgressController's forget signals) ---
     # A local forget must also drop Trakt's paused row, or the next sync
     # resurrects exactly what the user just deleted.
+
+    @asyncSlot("QVariantMap")  # type: ignore[untyped-decorator]
+    async def onWatchedMarked(self, context: dict[str, object]) -> None:
+        """Mirror a local mark-as-watched into Trakt's history (wired to
+        ProgressController.watchedMarked)."""
+        await self._account.mark_watched(context)
 
     @asyncSlot(str, str)  # type: ignore[untyped-decorator]
     async def onProgressForgotten(self, media_id: str, video_id: str) -> None:

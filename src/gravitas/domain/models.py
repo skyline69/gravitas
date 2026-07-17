@@ -325,6 +325,34 @@ class TraktPlayback:
 
 
 @dataclass(frozen=True, slots=True)
+class TraktHistoryItem:
+    """One play from /sync/history — something the user finished, on any
+    client. Episodes carry the SHOW's imdb id and title (Cinemeta-style
+    ids address episodes as show:season:episode); movies leave
+    season/episode None. `watched_at` orders it against local activity."""
+
+    media_type: MediaType
+    imdb_id: str
+    title: str
+    watched_at: int
+    season: int | None = None
+    episode: int | None = None
+    episode_title: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TraktListItem:
+    """One title from a Trakt list endpoint (recommendations, history).
+    Trakt serves no artwork, so entries are bare references — posters come
+    from the addons' own /meta, best-effort. History episodes collapse onto
+    their show: a row of posters has nowhere to show S2E5."""
+
+    media_type: MediaType
+    imdb_id: str
+    title: str
+
+
+@dataclass(frozen=True, slots=True)
 class PersistedSettings:
     """User state restored across launches. Protected (built-in) addons are
     re-installed by bootstrap and never persisted."""
@@ -336,6 +364,10 @@ class PersistedSettings:
     # Only the granted session persists. The API app credentials are
     # build-level (infrastructure/trakt/app_credentials.py), not user state.
     trakt_auth: TraktAuth | None = None
+    # Whether local forgets / mark-as-watched mirror into the Trakt account.
+    # Off never blocks the local action — Trakt just isn't told.
+    trakt_sync_forgets: bool = True
+    trakt_sync_watched: bool = True
 
 
 @dataclass(frozen=True, slots=True)

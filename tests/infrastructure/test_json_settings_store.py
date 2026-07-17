@@ -51,3 +51,19 @@ def test_subtitle_style_defaults_when_missing_or_junk(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     path.write_text('{"addon_urls": [], "subtitle_style": {"font_size": "big", "color": 5}}')
     assert JsonSettingsStore(path).load().subtitle_style == SubtitleStyle()
+
+
+def test_trakt_sync_flags_roundtrip(tmp_path: Path) -> None:
+    store = JsonSettingsStore(tmp_path / "settings.json")
+    store.save(PersistedSettings(trakt_sync_forgets=False, trakt_sync_watched=False))
+    loaded = store.load()
+    assert loaded.trakt_sync_forgets is False
+    assert loaded.trakt_sync_watched is False
+
+
+def test_trakt_sync_flags_default_on_when_missing(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text('{"addon_urls": []}')  # pre-flag settings file
+    loaded = JsonSettingsStore(path).load()
+    assert loaded.trakt_sync_forgets is True
+    assert loaded.trakt_sync_watched is True

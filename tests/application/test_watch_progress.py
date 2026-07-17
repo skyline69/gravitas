@@ -9,9 +9,17 @@ class FakeStore:
         self.deleted: list[tuple[str, str | None]] = []
         self.cleared = False
         self.delete_many_calls = 0
+        self.forgotten: list[tuple[str, str, int]] = []
+        self.forgotten_saved: list[tuple[str, str, int]] = []
 
     def load_all(self) -> list[PlaybackProgress]:
         return list(self.entries)
+
+    def load_forgotten(self) -> list[tuple[str, str, int]]:
+        return list(self.forgotten)
+
+    def save_forgotten(self, media_id: str, video_id: str, deleted_at: int) -> None:
+        self.forgotten_saved.append((media_id, video_id, deleted_at))
 
     def save(self, entry: PlaybackProgress) -> None:
         self.saved.append(entry)
@@ -682,3 +690,55 @@ def test_mark_watched_without_a_media_id_is_ignored() -> None:
     r.mark_watched(media_id="", video_id="", type="movie", name="M", poster=None, label="")
     assert store.saved == []
     assert r.total_count() == 0
+
+
+def test_forget_one_video_writes_a_tombstone() -> None:
+    store = FakeStore([entry("tt1", "tt1:1:2")])
+    r = repo(store, now=500)
+    r.forget("tt1", "tt1:1:2")
+    assert store.forgotten_saved == [("tt1", "tt1:1:2", 500)]
+    assert r.forgotten_at("tt1", "tt1:1:2") == 500
+    # Other rows of the media are untouched.
+    assert r.forgotten_at("tt1", "tt1:1:3") == 0
+
+
+def test_forget_whole_media_tombstone_covers_every_video() -> None:
+    store = FakeStore([entry("tt1", "tt1:1:2")])
+    r = repo(store, now=500)
+    r.forget("tt1")
+    assert store.forgotten_saved == [("tt1", "*", 500)]
+    assert r.forgotten_at("tt1", "tt1:1:2") == 500
+    assert r.forgotten_at("tt1", "") == 500
+    assert r.forgotten_at("tt2", "") == 0
+
+
+def test_reset_all_tombstones_every_media() -> None:
+    store = FakeStore([entry("tt1"), entry("tt2", "tt2:1:1", type="series")])
+    r = repo(store, now=500)
+    r.reset_all()
+    assert sorted(store.forgotten_saved) == [("tt1", "*", 500), ("tt2", "*", 500)]
+    assert r.forgotten_at("tt1", "") == 500
+    assert r.forgotten_at("tt2", "tt2:9:9") == 500
+
+
+def test_tombstones_survive_a_restart() -> None:
+    store = FakeStore()
+    store.forgotten = [("tt1", "*", 400)]
+    r = repo(store)
+    assert r.forgotten_at("tt1", "tt1:1:1") == 400
+
+
+def test_mark_watched_honours_an_imported_timestamp() -> None:
+    store = FakeStore()
+    r = repo(store, now=999)
+    r.mark_watched(
+        media_id="tt1",
+        video_id="",
+        type="movie",
+        name="M",
+        poster=None,
+        label="",
+        updated_at=400,
+    )
+    assert store.saved[0].updated_at == 400
+    assert store.saved[0].watched is True

@@ -1,6 +1,13 @@
 from gravitas.application.trakt_account import TraktAccount
 from gravitas.domain.errors import TraktError
-from gravitas.domain.models import TraktAuth, TraktDeviceCode, TraktPlayback
+from gravitas.domain.models import (
+    MediaType,
+    TraktAuth,
+    TraktDeviceCode,
+    TraktHistoryItem,
+    TraktListItem,
+    TraktPlayback,
+)
 
 NOW = 1_700_000_000
 FRESH = TraktAuth("ACCESS", "REFRESH", NOW + 90 * 86_400, "sky")
@@ -19,6 +26,8 @@ class FakeApi:
         self.playback_entries: list[TraktPlayback] = []
         self.playback_error: TraktError | None = None
         self.removed: list[int] = []
+        self.history_adds: list[tuple[str, str, str, int | None, int | None]] = []
+        self.history_fail_statuses: list[int] = []  # consumed per add call
 
     async def device_code(self, client_id: str) -> TraktDeviceCode:
         raise NotImplementedError
@@ -64,6 +73,30 @@ class FakeApi:
 
     async def remove_playback(self, client_id: str, access_token: str, playback_id: int) -> None:
         self.removed.append(playback_id)
+
+    async def recommendations(
+        self, client_id: str, access_token: str, media_type: MediaType, limit: int
+    ) -> list[TraktListItem]:
+        raise NotImplementedError
+
+    async def history(
+        self, client_id: str, access_token: str, limit: int
+    ) -> list[TraktHistoryItem]:
+        raise NotImplementedError
+
+    async def add_to_history(
+        self,
+        client_id: str,
+        access_token: str,
+        *,
+        media_type: MediaType,
+        imdb_id: str,
+        season: int | None,
+        episode: int | None,
+    ) -> None:
+        if self.history_fail_statuses:
+            raise TraktError("nope", status=self.history_fail_statuses.pop(0))
+        self.history_adds.append((access_token, media_type, imdb_id, season, episode))
 
 
 def make_account(auth: TraktAuth | None = FRESH) -> tuple[TraktAccount, FakeApi]:
@@ -244,8 +277,97 @@ async def test_remove_playback_errors_swallowed() -> None:
     assert api.removed == []
 
 
+async def test_mark_watched_movie_adds_history_and_drops_paused_row() -> None:
+    account, api = make_account()
+    api.playback_entries = list(_PLAYBACK_ROWS)
+    await account.mark_watched(MOVIE_CTX)
+    assert api.history_adds == [("ACCESS", "movie", "tt1375666", None, None)]
+    assert api.removed == [13]
+
+
+async def test_mark_watched_episode_parses_video_id() -> None:
+    account, api = make_account()
+    api.playback_entries = list(_PLAYBACK_ROWS)
+    await account.mark_watched({**EPISODE_CTX, "videoId": "tt0898266:1:1"})
+    assert api.history_adds == [("ACCESS", "series", "tt0898266", 1, 1)]
+    assert api.removed == [37]
+
+
+async def test_mark_watched_whole_show_adds_show_and_drops_every_row() -> None:
+    account, api = make_account()
+    api.playback_entries = list(_PLAYBACK_ROWS)
+    await account.mark_watched({"mediaId": "tt0898266", "videoId": "", "type": "series"})
+    assert api.history_adds == [("ACCESS", "series", "tt0898266", None, None)]
+    assert api.removed == [37, 38]
+
+
+async def test_mark_watched_noop_when_disconnected() -> None:
+    account, api = make_account(auth=None)
+    await account.mark_watched(MOVIE_CTX)
+    assert api.history_adds == []
+
+
+async def test_mark_watched_skips_non_imdb_ids() -> None:
+    account, api = make_account()
+    await account.mark_watched({**MOVIE_CTX, "mediaId": "kitsu:1"})
+    assert api.history_adds == []
+
+
+async def test_mark_watched_skips_unparseable_episode_ids() -> None:
+    account, api = make_account()
+    await account.mark_watched({**EPISODE_CTX, "videoId": "weird"})
+    assert api.history_adds == []
+
+
+async def test_mark_watched_401_refreshes_and_retries_once() -> None:
+    account, api = make_account()
+    api.history_fail_statuses = [401]
+    await account.mark_watched(MOVIE_CTX)
+    assert api.refreshes == 1
+    assert api.history_adds == [("NEW", "movie", "tt1375666", None, None)]
+
+
+async def test_mark_watched_other_errors_swallowed_and_skip_removal() -> None:
+    account, api = make_account()
+    api.history_fail_statuses = [503]
+    api.playback_entries = list(_PLAYBACK_ROWS)
+    await account.mark_watched(MOVIE_CTX)  # must not raise
+    assert api.history_adds == []
+    # The mark never reached Trakt, so its paused row must survive.
+    assert api.removed == []
+
+
 async def test_clear_playback_drops_everything() -> None:
     account, api = make_account()
     api.playback_entries = list(_PLAYBACK_ROWS)
     await account.clear_playback()
     assert api.removed == [13, 37, 38]
+
+
+async def test_sync_forgets_off_silences_playback_removal() -> None:
+    account, api = make_account()
+    account.sync_forgets = False
+    api.playback_entries = list(_PLAYBACK_ROWS)
+    await account.remove_playback("tt1375666", "")
+    await account.clear_playback()
+    assert api.removed == []
+
+
+async def test_sync_watched_off_silences_history_add() -> None:
+    account, api = make_account()
+    account.sync_watched = False
+    api.playback_entries = list(_PLAYBACK_ROWS)
+    await account.mark_watched(MOVIE_CTX)
+    assert api.history_adds == []
+    assert api.removed == []
+
+
+async def test_mark_watched_drops_paused_rows_even_with_sync_forgets_off() -> None:
+    # The paused-row cleanup belongs to the watched mirror, not the forget
+    # mirror — a watched title has nothing left to resume anywhere.
+    account, api = make_account()
+    account.sync_forgets = False
+    api.playback_entries = list(_PLAYBACK_ROWS)
+    await account.mark_watched(MOVIE_CTX)
+    assert api.history_adds == [("ACCESS", "movie", "tt1375666", None, None)]
+    assert api.removed == [13]

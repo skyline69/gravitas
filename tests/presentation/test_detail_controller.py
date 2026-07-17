@@ -368,6 +368,11 @@ class _CwStore:
     def delete(self, media_id: str, video_id: str | None = None) -> None: ...
     def clear(self) -> None: ...
 
+    def load_forgotten(self) -> list[tuple[str, str, int]]:
+        return []
+
+    def save_forgotten(self, media_id: str, video_id: str, deleted_at: int) -> None: ...
+
 
 def _progress_entry(video_id: str, **kw: object):  # type: ignore[no-untyped-def]
     from gravitas.domain.models import PlaybackProgress

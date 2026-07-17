@@ -150,3 +150,33 @@ def test_delete_many_on_a_broken_database_degrades_quietly(
     path = tmp_path / "progress.db"
     path.write_text("this is not a database", encoding="utf-8")
     SqliteProgressStore(path).delete_many([("tt1", "")])
+
+
+def test_forgotten_roundtrip(tmp_path: Path) -> None:
+    store = SqliteProgressStore(tmp_path / "progress.db")
+    store.save_forgotten("tt1", "*", 400)
+    store.save_forgotten("tt2", "tt2:1:1", 500)
+    # Survives a reopen, like progress rows.
+    reopened = SqliteProgressStore(tmp_path / "progress.db")
+    assert sorted(reopened.load_forgotten()) == [("tt1", "*", 400), ("tt2", "tt2:1:1", 500)]
+
+
+def test_forgotten_upserts_newer_timestamp(tmp_path: Path) -> None:
+    store = SqliteProgressStore(tmp_path / "progress.db")
+    store.save_forgotten("tt1", "*", 400)
+    store.save_forgotten("tt1", "*", 900)
+    assert store.load_forgotten() == [("tt1", "*", 900)]
+
+
+def test_forgotten_degrades_quietly_when_unwritable(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    import sqlite3
+
+    def _raise(*args: object, **kwargs: object) -> sqlite3.Connection:
+        raise OSError("unable to open database file")
+
+    monkeypatch.setattr(sqlite3, "connect", _raise)
+    store = SqliteProgressStore(tmp_path / "progress.db")
+    store.save_forgotten("tt1", "*", 400)  # must not raise
+    assert store.load_forgotten() == []

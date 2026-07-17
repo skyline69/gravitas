@@ -33,6 +33,9 @@ WATCHED_AT = 0.9
 # lifetime of use, while holding far more checkmarks than anyone will notice
 # losing. Only watched rows are subject to it — see prune().
 MAX_WATCHED_ROWS = 2000
+# Tombstone video_id marking "the whole media was forgotten". Cannot collide
+# with real ids: movies use "" and episodes "tt...:S:E".
+MEDIA_TOMBSTONE = "*"
 
 
 class WatchProgressRepository:
@@ -57,6 +60,14 @@ class WatchProgressRepository:
         # media_id -> most recently touched *unwatched* entry. What a series
         # poster/row bar reads, so it must stay O(1) like `_latest`.
         self._latest_unwatched: dict[str, PlaybackProgress] = {}
+        # Forget tombstones: (media_id, video_id-or-*) -> when the user
+        # deleted it. What lets an external sync (Trakt) tell "removed on
+        # purpose" from "never seen" — a bare row deletion looks identical to
+        # a title that was never started, so without these the next pull
+        # would resurrect exactly what the user just forgot.
+        self._forgotten: dict[tuple[str, str], int] = {
+            (media, video): at for media, video, at in store.load_forgotten()
+        }
         for entry in store.load_all():
             self._index(entry)
 
@@ -200,6 +211,10 @@ class WatchProgressRepository:
         name: str,
         poster: str | None,
         label: str,
+        # For imported marks (Trakt history sync): the moment the play
+        # actually happened, so ordering against local activity is honest.
+        # None = "now" (the user clicked Mark as watched here).
+        updated_at: int | None = None,
     ) -> None:
         if not media_id:
             return
@@ -226,7 +241,7 @@ class WatchProgressRepository:
                 position=0.0,
                 duration=existing.duration if existing is not None else 0.0,
                 watched=True,
-                updated_at=self._clock(),
+                updated_at=updated_at if updated_at is not None else self._clock(),
             )
         )
 
@@ -234,7 +249,22 @@ class WatchProgressRepository:
         self._index(entry)
         self._store.save(entry)
 
+    def forgotten_at(self, media_id: str, video_id: str = "") -> int:
+        """When the user last forgot this row (or its whole media); 0 if
+        never. An external sync compares its entry's timestamp against this:
+        anything at or before it was deleted on purpose and must stay gone."""
+        return max(
+            self._forgotten.get((media_id, video_id), 0),
+            self._forgotten.get((media_id, MEDIA_TOMBSTONE), 0),
+        )
+
+    def _tombstone(self, media_id: str, video_id: str) -> None:
+        at = self._clock()
+        self._forgotten[(media_id, video_id)] = at
+        self._store.save_forgotten(media_id, video_id, at)
+
     def forget(self, media_id: str, video_id: str | None = None) -> None:
+        self._tombstone(media_id, MEDIA_TOMBSTONE if video_id is None else video_id)
         if video_id is None:
             for key in [k for k in self._by_key if k[0] == media_id]:
                 del self._by_key[key]
@@ -288,6 +318,10 @@ class WatchProgressRepository:
                 self._latest[entry.media_id] = entry
 
     def reset_all(self) -> None:
+        # Tombstone every media being wiped, or the next external sync would
+        # restore the very list the user just reset.
+        for media_id in {key[0] for key in self._by_key}:
+            self._tombstone(media_id, MEDIA_TOMBSTONE)
         self._by_key.clear()
         self._latest.clear()
         self._latest_unwatched.clear()

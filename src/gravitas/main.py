@@ -35,6 +35,7 @@ from gravitas.application.resolve_media_link import ResolveMediaLink
 from gravitas.application.resolve_stream import ResolveStream
 from gravitas.application.search_media import SearchMedia
 from gravitas.application.trakt_account import TraktAccount
+from gravitas.application.trakt_rows import TraktRows
 from gravitas.application.trakt_sync import TraktSync
 from gravitas.application.uninstall_addon import UninstallAddon
 from gravitas.application.watch_progress import WatchProgressRepository
@@ -216,6 +217,8 @@ def build_app(
     trakt_account.client_id = trakt_app.CLIENT_ID or None
     trakt_account.client_secret = trakt_app.CLIENT_SECRET or None
     trakt_account.auth = persisted.trakt_auth
+    trakt_account.sync_forgets = persisted.trakt_sync_forgets
+    trakt_account.sync_watched = persisted.trakt_sync_watched
 
     rows_model = CatalogRowsModel(progress_repo)
     stream_model = StreamListModel()
@@ -250,7 +253,13 @@ def build_app(
         trakt_account,
     )
     trakt_sync = TraktSync(trakt_account, progress_repo, GetDetail(repo))
-    trakt_controller = TraktController(trakt_account, settings_controller.persist, trakt_sync)
+    trakt_controller = TraktController(
+        trakt_account,
+        settings_controller.persist,
+        trakt_sync,
+        TraktRows(trakt_account, GetDetail(repo)),
+        rows_model,
+    )
 
     # Keep the Settings list in sync — and the settings file current — after a
     # user installs a new addon.
@@ -341,6 +350,9 @@ def build_app(
     progress_controller.progressForgotten.connect(trakt_controller.onProgressForgotten)
     progress_controller.mediaForgotten.connect(trakt_controller.onMediaForgotten)
     progress_controller.allProgressReset.connect(trakt_controller.onAllProgressReset)
+    # Marking watched locally also lands in Trakt's history, so every Trakt
+    # client agrees on what is finished.
+    progress_controller.watchedMarked.connect(trakt_controller.onWatchedMarked)
     # The final seconds of a session would otherwise die with the process.
     app.aboutToQuit.connect(player_controller.flushProgress)
 
@@ -404,6 +416,9 @@ def build_app(
         # slow Trakt answer never delays first paint.
         if trakt_account.authenticated:
             await trakt_controller.sync_quietly()
+            # Then the personalized rows (recommendations, history) — same
+            # best-effort stance, after the catalog for the same reason.
+            await trakt_controller.refresh_rows_quietly()
 
     engine.load(str(_QML_DIR / "Main.qml"))
 

@@ -306,3 +306,59 @@ def test_addon_install_dialog_configuration_required_variant(qml_warnings: list[
         """
     )
     assert qml_warnings == []
+
+
+def test_app_checkbox_instantiates_without_warnings(qml_warnings: list[str]) -> None:
+    _instantiate(
+        """
+        import QtQuick
+        import QtQuick.Controls
+        import "."
+
+        ApplicationWindow {
+            width: 1280; height: 800
+            AppCheckBox { checked: true; label: "Sync forgets to Trakt" }
+        }
+        """
+    )
+    assert qml_warnings == []
+
+
+def test_app_checkbox_reports_the_requested_value(qapp: object) -> None:
+    """Stateless by design: a click reports the flipped value through
+    toggled() and leaves `checked` alone — the backend binding is the only
+    thing allowed to move the visual."""
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+
+    engine = QQmlEngine()
+    engine.addImportPath(str(_QML_DIR))
+    component = QQmlComponent(engine)
+    component.setData(
+        b"""
+        import QtQuick
+        import QtQuick.Window
+        import "."
+
+        Window {
+            id: win
+            width: 400; height: 100; visible: true
+            property var reported: []
+            AppCheckBox {
+                x: 0; y: 38
+                checked: false
+                label: "Probe"
+                onToggled: (value) => win.reported.push(value)
+            }
+        }
+        """,
+        _COMPONENTS_DIR.as_uri() + "/probe.qml",
+    )
+    assert not component.isError(), component.errorString()
+    win = component.create()
+    assert win is not None, component.errorString()
+    try:
+        QTest.mouseClick(win, Qt.MouseButton.LeftButton, pos=QPoint(9, 50))  # type: ignore[arg-type]
+        assert win.property("reported").toVariant() == [True]
+    finally:
+        win.deleteLater()

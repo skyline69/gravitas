@@ -15,6 +15,11 @@ class _Store:
 
     def save(self, entry: PlaybackProgress) -> None: ...
 
+    def load_forgotten(self) -> list[tuple[str, str, int]]:
+        return []
+
+    def save_forgotten(self, media_id: str, video_id: str, deleted_at: int) -> None: ...
+
     def delete(self, media_id: str, video_id: str | None = None) -> None:
         self.deleted.append((media_id, video_id))
 
@@ -127,6 +132,24 @@ def test_mark_watched_without_a_media_id_is_ignored(qapp: object) -> None:
     controller, _, _ = build([])
     controller.markWatched({"mediaId": "", "videoId": "", "type": "movie"})
     assert controller.inProgressCount() == 0
+
+
+def test_mark_watched_emits_context_for_mirrors(qapp: object) -> None:
+    controller, _, _ = build([])
+    seen: list[dict[str, object]] = []
+    controller.watchedMarked.connect(seen.append)
+    ctx = {"mediaId": "tt9", "videoId": "", "type": "movie", "name": "M", "label": ""}
+    controller.markWatched(ctx)
+    assert len(seen) == 1
+    assert seen[0]["mediaId"] == "tt9"
+
+
+def test_mark_watched_without_media_id_does_not_emit(qapp: object) -> None:
+    controller, _, _ = build([])
+    seen: list[dict[str, object]] = []
+    controller.watchedMarked.connect(seen.append)
+    controller.markWatched({"mediaId": "", "videoId": "", "type": "movie"})
+    assert seen == []
 
 
 def test_total_count_includes_watched_titles(qapp: object) -> None:

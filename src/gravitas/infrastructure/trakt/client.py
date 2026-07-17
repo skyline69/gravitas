@@ -15,7 +15,14 @@ from typing import Any
 import httpx
 
 from gravitas.domain.errors import TraktError
-from gravitas.domain.models import TraktAuth, TraktDeviceCode, TraktPlayback
+from gravitas.domain.models import (
+    MediaType,
+    TraktAuth,
+    TraktDeviceCode,
+    TraktHistoryItem,
+    TraktListItem,
+    TraktPlayback,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -125,6 +132,56 @@ def _playback_entry(raw: dict[str, Any]) -> TraktPlayback | None:
             episode=number,
             episode_title=str(episode.get("title")) if episode.get("title") else None,
             runtime_minutes=_int_or_none(episode.get("runtime")),
+        )
+    return None
+
+
+def _list_item(media_type: MediaType, raw: object) -> TraktListItem | None:
+    """A movie/show object into a bare reference, or None without an imdb id
+    (Trakt also lists titles our ids cannot address)."""
+    if not isinstance(raw, dict):
+        return None
+    ids_raw = raw.get("ids")
+    ids = ids_raw if isinstance(ids_raw, dict) else {}
+    imdb = ids.get("imdb")
+    if not isinstance(imdb, str) or not imdb.startswith("tt"):
+        return None
+    return TraktListItem(media_type=media_type, imdb_id=imdb, title=str(raw.get("title") or ""))
+
+
+def _history_item(raw: dict[str, Any]) -> TraktHistoryItem | None:
+    """One /sync/history play, or None when it cannot be addressed locally
+    (no imdb id, no watched_at, malformed episode ref)."""
+    watched_at = _epoch(raw.get("watched_at"))
+    if watched_at <= 0:
+        return None
+    kind = raw.get("type")
+    if kind == "movie":
+        ref = _list_item("movie", raw.get("movie"))
+        if ref is None:
+            return None
+        return TraktHistoryItem(
+            media_type="movie", imdb_id=ref.imdb_id, title=ref.title, watched_at=watched_at
+        )
+    if kind == "episode":
+        # The show's imdb id, not the episode's own — local ids address
+        # episodes as show:season:episode.
+        ref = _list_item("series", raw.get("show"))
+        episode = raw.get("episode")
+        if ref is None or not isinstance(episode, dict):
+            return None
+        season = _int_or_none(episode.get("season"))
+        number = _int_or_none(episode.get("number"))
+        if season is None or number is None:
+            return None
+        return TraktHistoryItem(
+            media_type="series",
+            imdb_id=ref.imdb_id,
+            title=ref.title,
+            watched_at=watched_at,
+            season=season,
+            episode=number,
+            episode_title=str(episode.get("title")) if episode.get("title") else None,
         )
     return None
 
@@ -301,5 +358,76 @@ class TraktClient:
         if resp.status_code not in (204, 404):
             raise TraktError(
                 f"Trakt playback removal failed (HTTP {resp.status_code})",
+                status=resp.status_code,
+            )
+
+    async def _get_list(
+        self, path: str, client_id: str, access_token: str, limit: int
+    ) -> list[Any]:
+        try:
+            resp = await self._client.get(
+                f"{_API}{path}",
+                params={"limit": limit},
+                headers=_headers(client_id, access_token),
+                timeout=30.0,
+            )
+        except httpx.HTTPError as exc:
+            raise TraktError(f"Trakt request failed: {exc}") from exc
+        if resp.status_code != 200:
+            raise TraktError(
+                f"Trakt {path} failed (HTTP {resp.status_code})",
+                status=resp.status_code,
+            )
+        data = resp.json()
+        if not isinstance(data, list):
+            raise TraktError(f"unexpected Trakt {path} response")
+        return data
+
+    async def recommendations(
+        self, client_id: str, access_token: str, media_type: MediaType, limit: int
+    ) -> list[TraktListItem]:
+        path = "/recommendations/movies" if media_type == "movie" else "/recommendations/shows"
+        items = [
+            _list_item(media_type, raw)
+            for raw in await self._get_list(path, client_id, access_token, limit)
+        ]
+        return [item for item in items if item is not None]
+
+    async def history(
+        self, client_id: str, access_token: str, limit: int
+    ) -> list[TraktHistoryItem]:
+        items = [
+            _history_item(raw) if isinstance(raw, dict) else None
+            for raw in await self._get_list("/sync/history", client_id, access_token, limit)
+        ]
+        return [item for item in items if item is not None]
+
+    async def add_to_history(
+        self,
+        client_id: str,
+        access_token: str,
+        *,
+        media_type: MediaType,
+        imdb_id: str,
+        season: int | None,
+        episode: int | None,
+    ) -> None:
+        ids = {"ids": {"imdb": imdb_id}}
+        payload: dict[str, Any]
+        if media_type == "movie":
+            payload = {"movies": [ids]}
+        elif season is not None and episode is not None:
+            payload = {
+                "shows": [
+                    {**ids, "seasons": [{"number": season, "episodes": [{"number": episode}]}]}
+                ]
+            }
+        else:
+            # The whole show: Trakt expands this to every episode.
+            payload = {"shows": [ids]}
+        resp = await self._post("/sync/history", payload, _headers(client_id, access_token))
+        if resp.status_code != 201:
+            raise TraktError(
+                f"Trakt history add failed (HTTP {resp.status_code})",
                 status=resp.status_code,
             )

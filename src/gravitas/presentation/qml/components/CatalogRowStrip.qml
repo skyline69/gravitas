@@ -33,8 +33,9 @@ Item {
 
         Text {
             id: seeAllLabel
-            // Continue Watching has no catalog to see all of.
-            visible: !root.continueWatching
+            // Synthetic rows (Continue Watching, Trakt) have no catalog to
+            // see all of.
+            visible: root.catalogId !== ""
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             text: "See All"

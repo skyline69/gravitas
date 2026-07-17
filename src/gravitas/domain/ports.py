@@ -19,6 +19,8 @@ from gravitas.domain.models import (
     SubtitleStyle,
     TraktAuth,
     TraktDeviceCode,
+    TraktHistoryItem,
+    TraktListItem,
     TraktPlayback,
     WatchlistEntry,
 )
@@ -154,6 +156,35 @@ class TraktApi(Protocol):
         """Delete one paused-playback row (already-gone is not an error)."""
         ...
 
+    async def recommendations(
+        self, client_id: str, access_token: str, media_type: MediaType, limit: int
+    ) -> list[TraktListItem]:
+        """Trakt's personalized recommendations for one media type."""
+        ...
+
+    async def history(
+        self, client_id: str, access_token: str, limit: int
+    ) -> list[TraktHistoryItem]:
+        """The user's watch history, newest play first — one item per play,
+        so the same title may repeat. Episode plays carry the show's imdb id
+        plus season/episode."""
+        ...
+
+    async def add_to_history(
+        self,
+        client_id: str,
+        access_token: str,
+        *,
+        media_type: MediaType,
+        imdb_id: str,
+        season: int | None,
+        episode: int | None,
+    ) -> None:
+        """Mark watched now. "movie" is the film `imdb_id`; "series" with
+        season/episode is one episode of that show, without them the whole
+        show (Trakt marks every episode)."""
+        ...
+
 
 @runtime_checkable
 class SettingsStore(Protocol):
@@ -184,6 +215,16 @@ class ProgressStore(Protocol):
     def save(self, entry: PlaybackProgress) -> None: ...
     def delete(self, media_id: str, video_id: str | None = None) -> None:
         """video_id None removes every entry for the media (a whole series)."""
+        ...
+
+    def load_forgotten(self) -> list[tuple[str, str, int]]:
+        """Every forget tombstone as (media_id, video_id, deleted_at).
+        video_id "*" marks a whole-media forget. Must never raise — missing
+        or corrupt data returns an empty list."""
+        ...
+
+    def save_forgotten(self, media_id: str, video_id: str, deleted_at: int) -> None:
+        """Record (or refresh) one forget tombstone."""
         ...
 
     def delete_many(self, keys: list[tuple[str, str]]) -> None:

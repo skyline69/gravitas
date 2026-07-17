@@ -10,10 +10,10 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 
 from gravitas.domain.errors import TraktError
-from gravitas.domain.models import TraktAuth
+from gravitas.domain.models import MediaType, TraktAuth
 from gravitas.domain.ports import TraktApi
 
 _log = logging.getLogger(__name__)
@@ -46,6 +46,11 @@ class TraktAccount:
         self.client_id: str | None = None
         self.client_secret: str | None = None
         self.auth: TraktAuth | None = None
+        # User policy: whether local forgets / mark-as-watched mirror into
+        # Trakt. Off silences only the outbound mirror — local state always
+        # wins locally regardless (the sync respects forget tombstones).
+        self.sync_forgets = True
+        self.sync_watched = True
         # Fired after any token change this class makes on its own (a refresh
         # mid-scrobble), so the new tokens reach the settings file — otherwise
         # the next launch would come up with the revoked pair.
@@ -164,13 +169,86 @@ class TraktAccount:
                         exc = retry_exc
             _log.warning("Trakt scrobble/%s failed: %s", action, exc)
 
+    async def mark_watched(self, context: Mapping[str, object]) -> None:
+        """Mirror a local mark-as-watched into Trakt's history.
+
+        Same contract as scrobble: never raises — the local mark already
+        happened and stands regardless of the network. `context` is the same
+        media context markWatched receives (mediaId/videoId/type); a series
+        context without an episode ref means the whole show, which Trakt
+        expands to every episode. Afterwards the matching paused-playback
+        rows are dropped, mirroring how a local mark clears the resume bar.
+        """
+        if not self.sync_watched:
+            return
+        token = await self.ensure_token()
+        if token is None or not self.client_id:
+            return
+        media_id = str(context.get("mediaId", ""))
+        if not media_id.startswith("tt"):
+            return
+        media_type: MediaType = "series" if context.get("type") == "series" else "movie"
+        video_id = str(context.get("videoId", ""))
+        season: int | None = None
+        episode: int | None = None
+        if media_type == "series" and video_id:
+            ref = _episode_ref(video_id)
+            if ref is None:
+                return
+            season, episode = ref
+        try:
+            await self._with_token_retry(
+                token,
+                lambda tok: self._api.add_to_history(
+                    self.client_id or "",
+                    tok,
+                    media_type=media_type,
+                    imdb_id=media_id,
+                    season=season,
+                    episode=episode,
+                ),
+            )
+        except TraktError as exc:
+            _log.warning("Trakt history add for %s failed: %s", media_id, exc)
+            return
+        # A watched title has nothing to resume. movie -> its one row,
+        # episode -> that row, whole show -> every row of the media. Straight
+        # to the ungated helper: this cleanup belongs to the watched mirror,
+        # not to the sync_forgets policy.
+        if media_type == "movie":
+            await self._drop_paused_rows(media_id, "")
+        elif video_id:
+            await self._drop_paused_rows(media_id, video_id)
+        else:
+            await self._drop_paused_rows(media_id, None)
+
+    async def _with_token_retry(self, token: str, call: Callable[[str], Awaitable[None]]) -> None:
+        """Run an authed call; on 401 refresh once and retry — the token can
+        die between ensure_token() and the request."""
+        try:
+            await call(token)
+        except TraktError as exc:
+            if exc.status != 401 or self.auth is None:
+                raise
+            await self._refresh()
+            retry = self.auth.access_token if self.auth is not None else None
+            if retry is None:
+                raise
+            await call(retry)
+
     async def remove_playback(self, media_id: str, video_id: str | None) -> None:
         """Drop the Trakt paused-playback rows matching a locally-forgotten
-        title, so the next sync cannot resurrect it.
+        title. No-op while sync_forgets is off — the local forget still
+        stands, because the pull sync honours the forget tombstone.
 
         `video_id` "" targets the movie row, "ttX:S:E" one episode, None every
         row of the media (a whole-series forget). Never raises — the local
         forget already happened and must stand regardless of the network."""
+        if not self.sync_forgets:
+            return
+        await self._drop_paused_rows(media_id, video_id)
+
+    async def _drop_paused_rows(self, media_id: str, video_id: str | None) -> None:
         token = await self.ensure_token()
         if token is None or not self.client_id:
             return
@@ -193,7 +271,9 @@ class TraktAccount:
 
     async def clear_playback(self) -> None:
         """Reset-all's Trakt half: drop every paused-playback row. Same
-        never-raises contract as remove_playback."""
+        never-raises contract (and sync_forgets gate) as remove_playback."""
+        if not self.sync_forgets:
+            return
         token = await self.ensure_token()
         if token is None or not self.client_id:
             return

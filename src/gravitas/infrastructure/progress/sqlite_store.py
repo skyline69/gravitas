@@ -38,6 +38,19 @@ CREATE TABLE IF NOT EXISTS progress (
 
 _COLUMNS = "media_id, video_id, type, name, poster, label, position, duration, watched, updated_at"
 
+# Forget tombstones: what the user deleted, and when — so an external sync
+# (Trakt) can tell "removed on purpose" from "never seen". video_id '*' marks
+# a whole-media forget. Additive CREATE IF NOT EXISTS, so existing databases
+# pick it up without a version branch.
+_CREATE_FORGOTTEN = """
+CREATE TABLE IF NOT EXISTS forgotten (
+  media_id   TEXT NOT NULL,
+  video_id   TEXT NOT NULL DEFAULT '',
+  deleted_at INTEGER NOT NULL,
+  PRIMARY KEY (media_id, video_id)
+) WITHOUT ROWID
+"""
+
 
 def default_progress_path() -> Path:
     base = os.environ.get("XDG_DATA_HOME", "")
@@ -88,6 +101,7 @@ class SqliteProgressStore:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=NORMAL")
             conn.execute(_CREATE)
+            conn.execute(_CREATE_FORGOTTEN)
             # Set unconditionally, which is fine while there is one version.
             # A real migration must read user_version FIRST and branch on it,
             # or this line stamps "current" onto a database it never upgraded.
@@ -156,6 +170,31 @@ class SqliteProgressStore:
             conn.commit()
         except (sqlite3.Error, OSError) as exc:
             _log.warning("failed to delete progress for %s: %s", media_id, exc)
+
+    def load_forgotten(self) -> list[tuple[str, str, int]]:
+        conn = self._connect()
+        if conn is None:
+            return []
+        try:
+            rows = conn.execute("SELECT media_id, video_id, deleted_at FROM forgotten").fetchall()
+        except (sqlite3.Error, OSError) as exc:
+            _log.warning("failed to read forget tombstones: %s", exc)
+            return []
+        return [(str(r[0]), str(r[1]), int(r[2])) for r in rows]
+
+    def save_forgotten(self, media_id: str, video_id: str, deleted_at: int) -> None:
+        conn = self._connect()
+        if conn is None:
+            return
+        try:
+            conn.execute(
+                "INSERT INTO forgotten (media_id, video_id, deleted_at) VALUES (?, ?, ?)"
+                " ON CONFLICT(media_id, video_id) DO UPDATE SET deleted_at=excluded.deleted_at",
+                (media_id, video_id, deleted_at),
+            )
+            conn.commit()
+        except (sqlite3.Error, OSError) as exc:
+            _log.warning("failed to save forget tombstone for %s: %s", media_id, exc)
 
     def delete_many(self, keys: list[tuple[str, str]]) -> None:
         conn = self._connect()

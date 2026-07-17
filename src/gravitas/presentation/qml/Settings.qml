@@ -366,6 +366,26 @@ Item {
                         }
                     }
                 }
+
+                // Mirror policy. Off never blocks the local action — the
+                // sync always prefers local forgets/marks either way; these
+                // only decide whether Trakt is told about them.
+                Row {
+                    visible: traktController && traktController.authenticated
+                    spacing: 24
+                    AppCheckBox {
+                        checked: traktController ? traktController.syncForgets : true
+                        label: "Sync forgets to Trakt"
+                        tooltip: "Forgetting progress here also clears it on your Trakt account"
+                        onToggled: (value) => traktController.setSyncForgets(value)
+                    }
+                    AppCheckBox {
+                        checked: traktController ? traktController.syncWatched : true
+                        label: "Sync watched to Trakt"
+                        tooltip: "Marking something watched here also adds it to your Trakt history"
+                        onToggled: (value) => traktController.setSyncWatched(value)
+                    }
+                }
             }
 
             SettingsCard {

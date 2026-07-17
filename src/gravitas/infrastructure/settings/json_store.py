@@ -79,6 +79,8 @@ class JsonSettingsStore:
             mdblist_key=mdb_key,
             subtitle_style=_style_from(data.get("subtitle_style")),
             trakt_auth=_trakt_auth_from(data.get("trakt")),
+            trakt_sync_forgets=bool(data.get("trakt_sync_forgets", True)),
+            trakt_sync_watched=bool(data.get("trakt_sync_watched", True)),
         )
 
     def save(self, settings: PersistedSettings) -> None:
@@ -103,6 +105,8 @@ class JsonSettingsStore:
                 "bold": style.bold,
             },
             "trakt": trakt,
+            "trakt_sync_forgets": settings.trakt_sync_forgets,
+            "trakt_sync_watched": settings.trakt_sync_watched,
         }
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)

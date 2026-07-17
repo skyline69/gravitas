@@ -266,6 +266,122 @@ async def test_forget_slots_forward_to_account(qapp: object) -> None:
     assert cleared == [None]
 
 
+async def test_watched_marked_forwards_to_account(qapp: object) -> None:
+    api = FakeApi()
+    controller, account, _, _opened = make_controller(api)
+    account.auth = AUTH
+    calls: list[object] = []
+
+    async def fake_mark(context: object) -> None:
+        calls.append(context)
+
+    account.mark_watched = fake_mark  # type: ignore[method-assign]
+    ctx = {"mediaId": "tt1", "videoId": "", "type": "movie"}
+    await controller.onWatchedMarked(ctx)
+    assert calls == [ctx]
+
+
+class FakeRows:
+    def __init__(self, rows: list[object] | None = None, fail: bool = False) -> None:
+        self.rows = rows if rows is not None else []
+        self.fail = fail
+        self.calls = 0
+
+    async def __call__(self) -> list[object]:
+        self.calls += 1
+        if self.fail:
+            raise TraktError("down", status=503)
+        return list(self.rows)
+
+
+def _rows_fixture() -> list[object]:
+    from gravitas.application.trakt_rows import TraktRow
+    from gravitas.domain.models import MediaItem
+
+    item = MediaItem(id="tt1", type="movie", name="Inception", poster=None)
+    return [TraktRow(title="Recommended Movies", type="movie", items=[item])]
+
+
+def make_rows_controller(rows: FakeRows):  # type: ignore[no-untyped-def]
+    from gravitas.presentation.controllers.trakt_controller import TraktController
+    from gravitas.presentation.models.catalog_rows_model import CatalogRowsModel
+
+    account = TraktAccount(FakeApi(), clock=lambda: 0)
+    account.client_id = "CID"
+    account.client_secret = "SEC"
+    model = CatalogRowsModel()
+    controller = TraktController(
+        account,
+        None,
+        None,
+        rows,
+        model,
+        sleep=_noop_sleep,  # type: ignore[arg-type]
+    )
+    return controller, account, model
+
+
+async def test_refresh_rows_populates_model(qapp: object) -> None:
+    controller, account, model = make_rows_controller(FakeRows(_rows_fixture()))
+    account.auth = AUTH
+    await controller.refresh_rows_quietly()
+    assert model.rowCount() == 1
+
+
+async def test_refresh_rows_disconnected_clears_model(qapp: object) -> None:
+    rows = FakeRows(_rows_fixture())
+    controller, account, model = make_rows_controller(rows)
+    account.auth = AUTH
+    await controller.refresh_rows_quietly()
+    assert model.rowCount() == 1
+    account.auth = None
+    await controller.refresh_rows_quietly()
+    assert model.rowCount() == 0
+    assert rows.calls == 1  # no fetch without a session
+
+
+async def test_refresh_rows_swallows_errors_and_keeps_rows(qapp: object) -> None:
+    rows = FakeRows(_rows_fixture())
+    controller, account, model = make_rows_controller(rows)
+    account.auth = AUTH
+    await controller.refresh_rows_quietly()
+    rows.fail = True
+    await controller.refresh_rows_quietly()  # must not raise
+    assert model.rowCount() == 1  # stale rows beat a blank Home
+
+
+async def test_logout_clears_trakt_rows(qapp: object) -> None:
+    controller, account, model = make_rows_controller(FakeRows(_rows_fixture()))
+    account.auth = AUTH
+    await controller.refresh_rows_quietly()
+    assert model.rowCount() == 1
+    await controller.logout()
+    assert model.rowCount() == 0
+
+
+async def test_sync_now_also_refreshes_rows(qapp: object) -> None:
+    from gravitas.presentation.controllers.trakt_controller import TraktController
+    from gravitas.presentation.models.catalog_rows_model import CatalogRowsModel
+
+    rows = FakeRows(_rows_fixture())
+    account = TraktAccount(FakeApi(), clock=lambda: 0)
+    account.client_id = "CID"
+    account.client_secret = "SEC"
+    account.auth = AUTH
+    model = CatalogRowsModel()
+    controller = TraktController(
+        account,
+        None,
+        FakeSync(applied=1),
+        rows,
+        model,
+        sleep=_noop_sleep,  # type: ignore[arg-type]
+    )
+    await controller.syncNow()
+    assert rows.calls == 1
+    assert model.rowCount() == 1
+
+
 async def test_scrobble_event_forwards_to_account(qapp: object) -> None:
     api = FakeApi()
     controller, account, _, _opened = make_controller(api)
@@ -278,3 +394,16 @@ async def test_scrobble_event_forwards_to_account(qapp: object) -> None:
     account.scrobble = fake_scrobble  # type: ignore[method-assign]
     await controller.onScrobbleEvent("pause", {"mediaId": "tt1"}, 30.0, 60.0)
     assert calls == [("pause", 30.0, 60.0)]
+
+
+async def test_sync_toggles_update_account_and_persist(qapp: object) -> None:
+    controller, account, persists, _opened = make_controller(FakeApi())
+    assert controller.syncForgets is True
+    assert controller.syncWatched is True
+    controller.setSyncForgets(False)
+    controller.setSyncWatched(False)
+    assert account.sync_forgets is False
+    assert account.sync_watched is False
+    assert controller.syncForgets is False
+    assert controller.syncWatched is False
+    assert len(persists) == 2  # each toggle reaches the settings file

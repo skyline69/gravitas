@@ -289,6 +289,154 @@ async def test_remove_playback_error_raises() -> None:
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_recommendations_parses_movies() -> None:
+    route = respx.get("https://api.trakt.tv/recommendations/movies").mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                {"title": "Inception", "year": 2010, "ids": {"imdb": "tt1375666"}},
+                {"title": "No Imdb", "ids": {"trakt": 99}},
+            ],
+        )
+    )
+    async with httpx.AsyncClient() as http:
+        items = await TraktClient(http).recommendations("CID", "TOKEN", "movie", 20)
+    assert route.calls[0].request.url.params["limit"] == "20"
+    assert route.calls[0].request.headers["Authorization"] == "Bearer TOKEN"
+    assert [(i.media_type, i.imdb_id, i.title) for i in items] == [
+        ("movie", "tt1375666", "Inception")
+    ]
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_recommendations_shows_hit_shows_endpoint() -> None:
+    route = respx.get("https://api.trakt.tv/recommendations/shows").mock(
+        return_value=httpx.Response(200, json=[{"title": "The Show", "ids": {"imdb": "tt2"}}])
+    )
+    async with httpx.AsyncClient() as http:
+        items = await TraktClient(http).recommendations("CID", "TOKEN", "series", 10)
+    assert route.called
+    assert items[0].media_type == "series"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_recommendations_error_raises() -> None:
+    respx.get("https://api.trakt.tv/recommendations/movies").mock(return_value=httpx.Response(401))
+    async with httpx.AsyncClient() as http:
+        with pytest.raises(TraktError) as excinfo:
+            await TraktClient(http).recommendations("CID", "TOKEN", "movie", 20)
+    assert excinfo.value.status == 401
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_history_parses_plays_with_episode_refs_and_timestamps() -> None:
+    respx.get("https://api.trakt.tv/sync/history").mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                {
+                    "type": "episode",
+                    "watched_at": "2026-07-17T02:24:30.000Z",
+                    "episode": {"season": 2, "number": 5, "title": "The Pilot"},
+                    "show": {"title": "The Show", "ids": {"imdb": "tt0898266"}},
+                },
+                {
+                    "type": "movie",
+                    "watched_at": "2026-07-16T20:00:00.000Z",
+                    "movie": {"title": "Inception", "ids": {"imdb": "tt1375666"}},
+                },
+                # Unaddressable: no imdb id.
+                {
+                    "type": "movie",
+                    "watched_at": "2026-07-15T10:00:00.000Z",
+                    "movie": {"title": "Obscure", "ids": {"trakt": 99}},
+                },
+                # No watched_at: cannot be ordered against local activity.
+                {"type": "movie", "movie": {"title": "Undated", "ids": {"imdb": "tt7"}}},
+            ],
+        )
+    )
+    async with httpx.AsyncClient() as http:
+        items = await TraktClient(http).history("CID", "TOKEN", 60)
+    assert len(items) == 2
+    episode, movie = items
+    # Episode plays carry the SHOW's imdb id and title.
+    assert episode.media_type == "series"
+    assert episode.imdb_id == "tt0898266"
+    assert episode.title == "The Show"
+    assert (episode.season, episode.episode) == (2, 5)
+    assert episode.episode_title == "The Pilot"
+    assert episode.watched_at > 0
+    assert movie.media_type == "movie"
+    assert movie.imdb_id == "tt1375666"
+    assert movie.season is None and movie.episode is None
+    assert movie.watched_at > 0
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_add_to_history_movie_payload() -> None:
+    route = respx.post("https://api.trakt.tv/sync/history").mock(
+        return_value=httpx.Response(201, json={})
+    )
+    async with httpx.AsyncClient() as http:
+        await TraktClient(http).add_to_history(
+            "CID", "TOKEN", media_type="movie", imdb_id="tt1375666", season=None, episode=None
+        )
+    assert _body(route) == {"movies": [{"ids": {"imdb": "tt1375666"}}]}
+    assert route.calls[0].request.headers["Authorization"] == "Bearer TOKEN"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_add_to_history_episode_payload() -> None:
+    route = respx.post("https://api.trakt.tv/sync/history").mock(
+        return_value=httpx.Response(201, json={})
+    )
+    async with httpx.AsyncClient() as http:
+        await TraktClient(http).add_to_history(
+            "CID", "TOKEN", media_type="series", imdb_id="tt0898266", season=2, episode=5
+        )
+    assert _body(route) == {
+        "shows": [
+            {
+                "ids": {"imdb": "tt0898266"},
+                "seasons": [{"number": 2, "episodes": [{"number": 5}]}],
+            }
+        ]
+    }
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_add_to_history_whole_show_payload() -> None:
+    route = respx.post("https://api.trakt.tv/sync/history").mock(
+        return_value=httpx.Response(201, json={})
+    )
+    async with httpx.AsyncClient() as http:
+        await TraktClient(http).add_to_history(
+            "CID", "TOKEN", media_type="series", imdb_id="tt0898266", season=None, episode=None
+        )
+    assert _body(route) == {"shows": [{"ids": {"imdb": "tt0898266"}}]}
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_add_to_history_error_raises_with_status() -> None:
+    respx.post("https://api.trakt.tv/sync/history").mock(return_value=httpx.Response(401))
+    async with httpx.AsyncClient() as http:
+        with pytest.raises(TraktError) as excinfo:
+            await TraktClient(http).add_to_history(
+                "CID", "TOKEN", media_type="movie", imdb_id="tt1", season=None, episode=None
+            )
+    assert excinfo.value.status == 401
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_transport_failure_wrapped_in_trakt_error() -> None:
     respx.post("https://api.trakt.tv/oauth/device/code").mock(
         side_effect=httpx.ConnectError("no route")
