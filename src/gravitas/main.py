@@ -419,6 +419,13 @@ def build_app(
             if trakt_account.authenticated:
                 await trakt_controller.sync_quietly()
                 await trakt_controller.refresh_rows_quietly()
+            # A settle beat before the reveal: the grid sits invisible in the
+            # scene, so this hands the event loop ~25 frames to incubate
+            # delegates and decode the first posters while the spinner still
+            # owns the screen. Dropping the gate on the same frame the data
+            # landed pushed all of that into the reveal fade, and the
+            # spinner's final moments visibly stuttered.
+            await asyncio.sleep(0.4)
         finally:
             # The gate must fall whatever happened above — a dead network
             # shows an empty grid with toasts, never an eternal spinner.

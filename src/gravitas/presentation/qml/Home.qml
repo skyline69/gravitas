@@ -19,7 +19,13 @@ Item {
 
     ListView {
         id: rowsView
-        visible: !home.watchlistMode && opacity > 0
+        // Stays in the scene (visible, opacity 0) through boot so delegates
+        // incubate and posters decode BEHIND the spinner — hiding it with
+        // `visible: false` would defer all of that to the reveal frame,
+        // which is exactly the burst that made the spinner's last moments
+        // stutter. enabled gates clicks on the still-invisible cards.
+        visible: !home.watchlistMode
+        enabled: !home.booting
         opacity: home.booting ? 0 : 1
         Behavior on opacity { NumberAnimation { duration: Theme.durMed * 2; easing.type: Easing.OutCubic } }
         maximumFlickVelocity: 12000
