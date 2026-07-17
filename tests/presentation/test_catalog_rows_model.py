@@ -444,3 +444,71 @@ def test_set_rows_with_identical_content_skips_the_reset(qapp: object) -> None:
     model.set_rows(_ROWS[:2])  # actual change still resets
     assert len(resets) == 1
     assert model.rowCount() == 2
+
+
+def test_identical_trakt_refresh_is_a_complete_noop(qapp: object) -> None:
+    """The revalidation pass usually confirms the boot snapshot; splicing the
+    same rows back in re-trickled every poster — the visible 'it loaded
+    again' two seconds after startup."""
+    model = CatalogRowsModel()
+    model.set_trakt_rows(_TRAKT_ROWS)  # type: ignore[arg-type]
+    posters = model.data(model.index(0, 0), CatalogRowsModel.PostersRole)
+    ops: list[str] = []
+    model.rowsAboutToBeRemoved.connect(lambda *_: ops.append("remove"))
+    model.rowsAboutToBeInserted.connect(lambda *_: ops.append("insert"))
+    model.set_trakt_rows(list(_TRAKT_ROWS))  # equal content, fresh list
+    assert ops == []
+    assert model.data(model.index(0, 0), CatalogRowsModel.PostersRole) is posters
+
+
+def test_trakt_refresh_with_moved_content_updates_strips_in_place(qapp: object) -> None:
+    from gravitas.application.trakt_rows import TraktRow
+
+    model = CatalogRowsModel()
+    model.set_trakt_rows(_TRAKT_ROWS)  # type: ignore[arg-type]
+    posters = model.data(model.index(0, 0), CatalogRowsModel.PostersRole)
+    changed = [
+        TraktRow(
+            title="Recommended Movies",
+            type="movie",
+            items=[
+                MediaItem(id="tt9", type="movie", name="T", poster=None),
+                MediaItem(id="tt10", type="movie", name="U", poster=None),
+            ],
+        ),
+        *_TRAKT_ROWS[1:],
+    ]
+    ops: list[str] = []
+    model.rowsAboutToBeRemoved.connect(lambda *_: ops.append("remove"))
+    model.set_trakt_rows(changed)  # type: ignore[arg-type]
+    assert ops == []
+    # Same poster model object, new contents.
+    same = model.data(model.index(0, 0), CatalogRowsModel.PostersRole)
+    assert same is posters
+    assert same.rowCount() == 2
+
+
+def test_catalog_refresh_with_shuffled_items_updates_strips_in_place(qapp: object) -> None:
+    model = CatalogRowsModel()
+    model.set_rows(_ROWS)
+    posters = model.data(model.index(0, 0), CatalogRowsModel.PostersRole)
+    resets: list[None] = []
+    model.modelAboutToBeReset.connect(lambda: resets.append(None))
+    shuffled = [
+        CatalogRow(
+            title="Popular Movies",
+            addon_id="a",
+            type="movie",
+            catalog_id="top",
+            items=[
+                MediaItem(id="tt2", type="movie", name="Y", poster=None),
+                MediaItem(id="tt1", type="movie", name="X", poster=None),
+            ],
+        ),
+        *_ROWS[1:],
+    ]
+    model.set_rows(shuffled)
+    assert resets == []
+    same = model.data(model.index(0, 0), CatalogRowsModel.PostersRole)
+    assert same is posters
+    assert same.rowCount() == 2

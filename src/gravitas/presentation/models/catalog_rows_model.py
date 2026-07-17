@@ -23,6 +23,11 @@ _ROOT_INDEX = QModelIndex()
 CONTINUE_WATCHING_TITLE = "Continue Watching"
 
 
+def _row_key(row: CatalogRow) -> tuple[str, str, str, str]:
+    """A catalog row's identity (everything but its items)."""
+    return (row.title, row.addon_id, row.type, row.catalog_id)
+
+
 class _Row(NamedTuple):
     """A row as QML sees it. The PosterGridModel reference is held here to keep
     it alive for the QML binding."""
@@ -55,8 +60,10 @@ class CatalogRowsModel(QAbstractListModel):
         self._filter = "all"
         # Trakt-served rows (recommendations, history) — like catalog rows
         # but with no addon behind them, and set on their own clock: a slow
-        # Trakt answer lands after the catalog painted.
+        # Trakt answer lands after the catalog painted. _trakt_source_rows is
+        # the as-given input, kept to recognize a no-op refresh.
         self._trakt_rows: list[_Row] = []
+        self._trakt_source_rows: list[TraktRow] = []
         # Continue Watching is held apart from the catalog rows because it is
         # rebuilt on a different clock: progress changes every few seconds
         # during playback, and folding it into set_rows() would make each
@@ -75,6 +82,15 @@ class CatalogRowsModel(QAbstractListModel):
             # the boot's revalidation pass over warm caches) — a reset here
             # would tear down and re-incubate every delegate to show the same
             # thing.
+            return
+        if [_row_key(r) for r in rows] == [_row_key(r) for r in self._source_rows]:
+            # Same rows, some with different items (a catalog shuffled): feed
+            # the changed strips' poster models in place. Only those strips
+            # rebuild their cards; every other delegate on the page survives.
+            for new, old, shown in zip(rows, self._source_rows, self._all_rows, strict=True):
+                if new.items != old.items:
+                    shown.posters.set_items(new.items)
+            self._source_rows = list(rows)
             return
         self._source_rows = list(rows)
         self.beginResetModel()
@@ -98,6 +114,25 @@ class CatalogRowsModel(QAbstractListModel):
         catalog painted (startup, sync, auth), and a reset at that moment
         would tear down and re-incubate every catalog row's delegates just to
         splice a few rows in above them."""
+        if rows == self._trakt_source_rows:
+            # The refresh confirmed what the boot snapshot already showed —
+            # the common warm-start case. Splicing identical rows back in
+            # would rebuild their delegates and re-trickle every poster: the
+            # page would visibly "load again" seconds after it appeared.
+            return
+        if [(r.title, r.type) for r in rows] == [
+            (r.title, r.type) for r in self._trakt_source_rows
+        ]:
+            # Same rows, some content moved: feed the changed strips' poster
+            # models in place, keep every delegate.
+            for new, old, shown in zip(
+                rows, self._trakt_source_rows, self._trakt_rows, strict=True
+            ):
+                if new.items != old.items:
+                    shown.posters.set_items(new.items)
+            self._trakt_source_rows = list(rows)
+            return
+        self._trakt_source_rows = list(rows)
         fresh = [
             _Row(
                 title=row.title,
