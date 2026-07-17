@@ -315,6 +315,9 @@ class TraktPlayback:
     title: str
     progress: float
     paused_at: int
+    # Trakt's own row id — what DELETE /sync/playback/{id} wants when a
+    # locally-forgotten title must stop coming back on the next sync.
+    playback_id: int = 0
     season: int | None = None
     episode: int | None = None
     episode_title: str | None = None

@@ -163,3 +163,43 @@ class TraktAccount:
                     except TraktError as retry_exc:
                         exc = retry_exc
             _log.warning("Trakt scrobble/%s failed: %s", action, exc)
+
+    async def remove_playback(self, media_id: str, video_id: str | None) -> None:
+        """Drop the Trakt paused-playback rows matching a locally-forgotten
+        title, so the next sync cannot resurrect it.
+
+        `video_id` "" targets the movie row, "ttX:S:E" one episode, None every
+        row of the media (a whole-series forget). Never raises — the local
+        forget already happened and must stand regardless of the network."""
+        token = await self.ensure_token()
+        if token is None or not self.client_id:
+            return
+        if not media_id.startswith("tt"):
+            return
+        episode_ref = _episode_ref(video_id) if video_id else None
+        try:
+            entries = await self._api.playback(self.client_id, token)
+            for entry in entries:
+                if entry.imdb_id != media_id or not entry.playback_id:
+                    continue
+                if video_id is not None:
+                    if video_id == "" and entry.media_type != "movie":
+                        continue
+                    if video_id != "" and (entry.season, entry.episode) != episode_ref:
+                        continue
+                await self._api.remove_playback(self.client_id, token, entry.playback_id)
+        except TraktError as exc:
+            _log.warning("Trakt playback removal for %s failed: %s", media_id, exc)
+
+    async def clear_playback(self) -> None:
+        """Reset-all's Trakt half: drop every paused-playback row. Same
+        never-raises contract as remove_playback."""
+        token = await self.ensure_token()
+        if token is None or not self.client_id:
+            return
+        try:
+            for entry in await self._api.playback(self.client_id, token):
+                if entry.playback_id:
+                    await self._api.remove_playback(self.client_id, token, entry.playback_id)
+        except TraktError as exc:
+            _log.warning("Trakt playback clear failed: %s", exc)

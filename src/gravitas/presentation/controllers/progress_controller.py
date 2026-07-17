@@ -11,6 +11,12 @@ from gravitas.presentation.models.watched_list_model import WatchedListModel
 
 class ProgressController(QObject):
     progressChanged = Signal()
+    # Forget events, for mirrors of this state elsewhere (Trakt's paused
+    # -playback list): one video / a whole media / everything. Emitted after
+    # the local mutation; with nothing connected they are inert.
+    progressForgotten = Signal(str, str)  # media_id, video_id ("" = movie row)
+    mediaForgotten = Signal(str)
+    allProgressReset = Signal()
 
     def __init__(self, progress: WatchProgressRepository, model: WatchedListModel) -> None:
         super().__init__()
@@ -54,11 +60,13 @@ class ProgressController(QObject):
     def forget(self, media_id: str, video_id: str) -> None:
         self._progress.forget(media_id, video_id)
         self._changed()
+        self.progressForgotten.emit(media_id, video_id)
 
     @Slot(str)
     def forgetMedia(self, media_id: str) -> None:
         self._progress.forget(media_id)
         self._changed()
+        self.mediaForgotten.emit(media_id)
 
     @Slot("QVariantMap")
     def markWatched(self, context: dict[str, object]) -> None:
@@ -81,6 +89,7 @@ class ProgressController(QObject):
     def resetAll(self) -> None:
         self._progress.reset_all()
         self._changed()
+        self.allProgressReset.emit()
 
     @Slot()
     def refreshWatched(self) -> None:

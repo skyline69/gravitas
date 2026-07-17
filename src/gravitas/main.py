@@ -336,6 +336,11 @@ def build_app(
     # A pull from Trakt mutates the progress repo behind ProgressController's
     # back — same staleness problem as the player's writes, same cure.
     trakt_controller.syncCompleted.connect(lambda _applied: progress_controller.notifyRecorded())
+    # Forgetting locally also drops Trakt's paused row, or the next sync
+    # would resurrect exactly what the user just deleted.
+    progress_controller.progressForgotten.connect(trakt_controller.onProgressForgotten)
+    progress_controller.mediaForgotten.connect(trakt_controller.onMediaForgotten)
+    progress_controller.allProgressReset.connect(trakt_controller.onAllProgressReset)
     # The final seconds of a session would otherwise die with the process.
     app.aboutToQuit.connect(player_controller.flushProgress)
 

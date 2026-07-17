@@ -73,6 +73,26 @@ def test_reset_all_delegates(qapp: object) -> None:
     assert controller.inProgressCount() == 0
 
 
+def test_forget_signals_carry_the_target(qapp: object) -> None:
+    """The Trakt mirror listens on these; without them a local forget comes
+    straight back on the next sync."""
+    controller, _, _ = build([entry("tt9", "tt9:1:1", type="series"), entry("tt1")])
+    forgotten: list[tuple[str, str]] = []
+    media: list[str] = []
+    reset: list[None] = []
+    controller.progressForgotten.connect(lambda m, v: forgotten.append((m, v)))
+    controller.mediaForgotten.connect(media.append)
+    controller.allProgressReset.connect(lambda: reset.append(None))
+
+    controller.forget("tt9", "tt9:1:1")
+    controller.forgetMedia("tt9")
+    controller.resetAll()
+
+    assert forgotten == [("tt9", "tt9:1:1")]
+    assert media == ["tt9"]
+    assert reset == [None]
+
+
 def test_revision_bumps_on_every_mutation(qapp: object) -> None:
     controller, _, _ = build([entry()])
     before = controller.revision

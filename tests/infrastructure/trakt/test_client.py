@@ -193,6 +193,7 @@ async def test_revoke_posts_token() -> None:
 
 _PLAYBACK_PAYLOAD = [
     {
+        "id": 13,
         "progress": 25.5,
         "paused_at": "2026-07-17T02:24:30.000Z",
         "type": "movie",
@@ -204,6 +205,7 @@ _PLAYBACK_PAYLOAD = [
         },
     },
     {
+        "id": 37,
         "progress": 65.0,
         "paused_at": "2026-07-16T20:00:00.000Z",
         "type": "episode",
@@ -237,6 +239,8 @@ async def test_playback_parses_movies_and_episodes() -> None:
     assert movie.progress == 25.5
     assert movie.runtime_minutes == 148
     assert movie.paused_at > 0
+    assert movie.playback_id == 13
+    assert episode.playback_id == 37
     assert episode.media_type == "series"
     assert episode.imdb_id == "tt0898266"
     assert (episode.season, episode.episode) == (2, 5)
@@ -252,6 +256,35 @@ async def test_playback_error_raises() -> None:
         with pytest.raises(TraktError) as excinfo:
             await TraktClient(http).playback("CID", "TOKEN")
     assert excinfo.value.status == 401
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_remove_playback_deletes_row() -> None:
+    route = respx.delete("https://api.trakt.tv/sync/playback/13").mock(
+        return_value=httpx.Response(204)
+    )
+    async with httpx.AsyncClient() as http:
+        await TraktClient(http).remove_playback("CID", "TOKEN", 13)
+    assert route.called
+    assert route.calls[0].request.headers["Authorization"] == "Bearer TOKEN"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_remove_playback_tolerates_already_gone() -> None:
+    respx.delete("https://api.trakt.tv/sync/playback/13").mock(return_value=httpx.Response(404))
+    async with httpx.AsyncClient() as http:
+        await TraktClient(http).remove_playback("CID", "TOKEN", 13)  # must not raise
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_remove_playback_error_raises() -> None:
+    respx.delete("https://api.trakt.tv/sync/playback/13").mock(return_value=httpx.Response(500))
+    async with httpx.AsyncClient() as http:
+        with pytest.raises(TraktError):
+            await TraktClient(http).remove_playback("CID", "TOKEN", 13)
 
 
 @pytest.mark.asyncio

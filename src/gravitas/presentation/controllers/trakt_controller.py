@@ -222,3 +222,19 @@ class TraktController(QObject):
         self, action: str, context: dict[str, object], position: float, duration: float
     ) -> None:
         await self._account.scrobble(action, context, position, duration)
+
+    # --- forget mirrors (wired to ProgressController's forget signals) ---
+    # A local forget must also drop Trakt's paused row, or the next sync
+    # resurrects exactly what the user just deleted.
+
+    @asyncSlot(str, str)  # type: ignore[untyped-decorator]
+    async def onProgressForgotten(self, media_id: str, video_id: str) -> None:
+        await self._account.remove_playback(media_id, video_id)
+
+    @asyncSlot(str)  # type: ignore[untyped-decorator]
+    async def onMediaForgotten(self, media_id: str) -> None:
+        await self._account.remove_playback(media_id, None)
+
+    @asyncSlot()  # type: ignore[untyped-decorator]
+    async def onAllProgressReset(self) -> None:
+        await self._account.clear_playback()

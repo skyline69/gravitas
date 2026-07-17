@@ -150,6 +150,10 @@ class TraktApi(Protocol):
         clients left unfinished."""
         ...
 
+    async def remove_playback(self, client_id: str, access_token: str, playback_id: int) -> None:
+        """Delete one paused-playback row (already-gone is not an error)."""
+        ...
+
 
 @runtime_checkable
 class SettingsStore(Protocol):

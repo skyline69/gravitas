@@ -97,6 +97,7 @@ def _playback_entry(raw: dict[str, Any]) -> TraktPlayback | None:
             title=str(movie.get("title") or ""),
             progress=float(progress),
             paused_at=_epoch(raw.get("paused_at")),
+            playback_id=_int_or_none(raw.get("id")) or 0,
             runtime_minutes=_int_or_none(movie.get("runtime")),
         )
     if kind == "episode":
@@ -119,6 +120,7 @@ def _playback_entry(raw: dict[str, Any]) -> TraktPlayback | None:
             title=str(show.get("title") or ""),
             progress=float(progress),
             paused_at=_epoch(raw.get("paused_at")),
+            playback_id=_int_or_none(raw.get("id")) or 0,
             season=season,
             episode=number,
             episode_title=str(episode.get("title")) if episode.get("title") else None,
@@ -284,3 +286,20 @@ class TraktClient:
         if skipped:
             _log.info("Trakt playback sync: skipped %d unaddressable entries", skipped)
         return entries
+
+    async def remove_playback(self, client_id: str, access_token: str, playback_id: int) -> None:
+        try:
+            resp = await self._client.delete(
+                f"{_API}/sync/playback/{playback_id}",
+                headers=_headers(client_id, access_token),
+                timeout=15.0,
+            )
+        except httpx.HTTPError as exc:
+            raise TraktError(f"Trakt request failed: {exc}") from exc
+        # 404 = already gone (another client beat us to it) — mission
+        # accomplished either way.
+        if resp.status_code not in (204, 404):
+            raise TraktError(
+                f"Trakt playback removal failed (HTTP {resp.status_code})",
+                status=resp.status_code,
+            )

@@ -241,6 +241,31 @@ async def test_sync_quietly_zero_applied_stays_silent(qapp: object) -> None:
     assert done == []  # nothing pulled, nothing to announce
 
 
+async def test_forget_slots_forward_to_account(qapp: object) -> None:
+    from gravitas.presentation.controllers.trakt_controller import TraktController
+
+    account = TraktAccount(FakeApi(), clock=lambda: 0)
+    controller = TraktController(account, None, sleep=_noop_sleep)
+    calls: list[tuple[str, str | None]] = []
+    cleared: list[None] = []
+
+    async def fake_remove(media_id: str, video_id: str | None) -> None:
+        calls.append((media_id, video_id))
+
+    async def fake_clear() -> None:
+        cleared.append(None)
+
+    account.remove_playback = fake_remove  # type: ignore[method-assign]
+    account.clear_playback = fake_clear  # type: ignore[method-assign]
+
+    await controller.onProgressForgotten("tt1", "")
+    await controller.onMediaForgotten("tt9")
+    await controller.onAllProgressReset()
+
+    assert calls == [("tt1", ""), ("tt9", None)]
+    assert cleared == [None]
+
+
 async def test_scrobble_event_forwards_to_account(qapp: object) -> None:
     api = FakeApi()
     controller, account, _, _opened = make_controller(api)
