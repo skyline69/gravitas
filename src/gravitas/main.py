@@ -144,16 +144,6 @@ def pending_link(argv: list[str]) -> str | None:
 def build_app(
     argv: list[str], default_addon_url: str
 ) -> tuple[QGuiApplication, QQmlApplicationEngine]:
-    # Render on a dedicated thread. PySide runs the scene graph on the GUI
-    # thread by default ("basic" render loop), which chains every animation
-    # to Python: any stretch of GUI-thread work over a frame budget — a
-    # qasync task, delegate incubation — visibly freezes even a pure
-    # Animator spinner (QSG_RENDER_TIMING showed clean 1-2ms frames with
-    # 60-130ms gaps between them). The threaded loop keeps animations
-    # ticking through those stalls. The mpv item is built for it: its render
-    # context is created on the render thread (QQuickFramebufferObject
-    # contract). setdefault, so the env var still overrides for debugging.
-    os.environ.setdefault("QSG_RENDER_LOOP", "threaded")
     instance = QGuiApplication.instance()
     app = instance if isinstance(instance, QGuiApplication) else QGuiApplication(argv)
 
