@@ -393,3 +393,37 @@ def test_continue_watching_membership_change_still_rebuilds(qapp: object) -> Non
     assert posters_after.rowCount() == 2
     model.set_continue_watching([])
     assert model.rowCount() == 0
+
+
+def test_set_trakt_rows_never_resets_and_keeps_catalog_rows_alive(qapp: object) -> None:
+    """Trakt rows land after the catalog painted; splicing them in must not
+    tear down the catalog rows' delegates (a reset would re-incubate every
+    card on the page — the boot spinner hitched on exactly that)."""
+    model = CatalogRowsModel()
+    model.set_rows(_ROWS)
+    catalog_posters = model.data(model.index(0, 0), CatalogRowsModel.PostersRole)
+    resets: list[None] = []
+    model.modelAboutToBeReset.connect(lambda: resets.append(None))
+    model.set_trakt_rows(_TRAKT_ROWS)  # type: ignore[arg-type]
+    assert resets == []
+    # Same poster model object, now shifted below the Trakt block.
+    assert model.data(model.index(3, 0), CatalogRowsModel.PostersRole) is catalog_posters
+    model.set_trakt_rows([])  # replace/clear paths are surgical too
+    assert resets == []
+    assert model.data(model.index(0, 0), CatalogRowsModel.PostersRole) is catalog_posters
+
+
+def test_set_trakt_rows_respects_continue_watching_offset(qapp: object) -> None:
+    model = CatalogRowsModel()
+    model.set_rows(_ROWS)
+    model.set_continue_watching([_progress("tt1")])
+    model.set_trakt_rows(_TRAKT_ROWS)  # type: ignore[arg-type]
+    assert _titles(model)[:4] == [
+        "Continue Watching",
+        "Recommended Movies",
+        "Recommended Series",
+        "Recently Watched",
+    ]
+    model.set_trakt_rows(_TRAKT_ROWS[:1])  # type: ignore[arg-type]
+    assert _titles(model)[:2] == ["Continue Watching", "Recommended Movies"]
+    assert _titles(model)[2] == "Popular Movies"

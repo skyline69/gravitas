@@ -52,16 +52,29 @@ Item {
         reuseItems: true
         ScrollBar.vertical: AppScrollBar {}
         model: catalogRowsModel
-        delegate: CatalogRowStrip {
+        // Each row loads through an ASYNC Loader: when a model change lands,
+        // the view would otherwise create every visible row's strip — and
+        // each strip its visible cards — in one synchronous chunk on the GUI
+        // thread, stalling the render sync (the boot spinner hitched on
+        // every such burst). The incubator spreads that creation over
+        // frames instead. The Loader carries the strip's fixed geometry
+        // (28px header + 8px gap + 300px cards) so row layout is stable
+        // before its content exists.
+        delegate: Loader {
             width: rowsView.width - 24
-            title: model.title
-            addonId: model.addonId
-            type: model.type
-            catalogId: model.catalogId
-            posters: model.posters
-            continueWatching: model.continueWatching
-            onOpenDetail: (t, id) => home.openDetail(t, id)
-            onSeeAll: (aid, t, cid) => home.seeAll(aid, t, cid)
+            height: 336
+            asynchronous: true
+            sourceComponent: CatalogRowStrip {
+                width: rowsView.width - 24
+                title: model.title
+                addonId: model.addonId
+                type: model.type
+                catalogId: model.catalogId
+                posters: model.posters
+                continueWatching: model.continueWatching
+                onOpenDetail: (t, id) => home.openDetail(t, id)
+                onSeeAll: (aid, t, cid) => home.seeAll(aid, t, cid)
+            }
         }
     }
 

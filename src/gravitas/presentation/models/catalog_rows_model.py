@@ -84,11 +84,12 @@ class CatalogRowsModel(QAbstractListModel):
         self.endResetModel()
 
     def set_trakt_rows(self, rows: list[TraktRow]) -> None:
-        """Replace the Trakt rows. A full reset is fine here: this runs on
-        startup/auth/sync — not the 5s playback tick that forbids resets in
-        set_continue_watching."""
-        self.beginResetModel()
-        self._trakt_rows = [
+        """Replace the Trakt rows surgically — remove the old block, insert
+        the new one — never with a model reset. The Trakt rows land AFTER the
+        catalog painted (startup, sync, auth), and a reset at that moment
+        would tear down and re-incubate every catalog row's delegates just to
+        splice a few rows in above them."""
+        fresh = [
             _Row(
                 title=row.title,
                 # No addon and no catalog stand behind these rows; QML hides
@@ -100,8 +101,21 @@ class CatalogRowsModel(QAbstractListModel):
             )
             for row in rows
         ]
-        self._rebuild()
-        self.endResetModel()
+        # The visible Trakt block sits contiguously between the (optional)
+        # Continue Watching row and the catalog rows.
+        start = 1 if self._cw_row is not None else 0
+        old_count = len(self._filtered_trakt())
+        if old_count:
+            self.beginRemoveRows(_ROOT_INDEX, start, start + old_count - 1)
+            del self._rows[start : start + old_count]
+            self._trakt_rows = []
+            self.endRemoveRows()
+        self._trakt_rows = fresh
+        visible = self._filtered_trakt()
+        if visible:
+            self.beginInsertRows(_ROOT_INDEX, start, start + len(visible) - 1)
+            self._rows[start:start] = visible
+            self.endInsertRows()
 
     def set_continue_watching(self, entries: list[PlaybackProgress]) -> None:
         """Replace the Continue Watching row. Network-free: every field a card
