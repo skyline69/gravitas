@@ -392,33 +392,43 @@ def build_app(
         # user's persisted addons, then bring the UI up to date
         # deterministically: load the catalog rows and prime the Settings
         # addon list before bootstrap() returns.
-        await install_addon(default_addon_url, protected=True)
-        for url in persisted.addon_urls:
-            try:
-                await install_addon(url)
-            except GravitasError as exc:
-                # A dead addon must not block startup; it stays in the settings
-                # file so a later successful launch restores it.
-                addon_controller.errorOccurred.emit(f"Could not restore addon: {exc}")
-        await catalog_controller.load_catalog()
-        settings_controller.refreshAddons()
-        # After load_catalog: set_rows() rebuilds the visible rows, so priming
-        # this first would be discarded. It is a dict read, not a fetch.
-        rows_model.set_continue_watching(continue_watching())
+        #
+        # Everything runs behind the boot gate: Home shows one full-page
+        # spinner until the grid — catalog, Continue Watching, Trakt rows —
+        # is complete, then reveals it once. Without the gate the page
+        # assembles itself in front of the user (catalog first, Trakt rows
+        # popping in later), which reads as jank rather than loading.
+        catalog_controller.set_booting(True)
+        try:
+            await install_addon(default_addon_url, protected=True)
+            for url in persisted.addon_urls:
+                try:
+                    await install_addon(url)
+                except GravitasError as exc:
+                    # A dead addon must not block startup; it stays in the
+                    # settings file so a later successful launch restores it.
+                    addon_controller.errorOccurred.emit(f"Could not restore addon: {exc}")
+            await catalog_controller.load_catalog()
+            settings_controller.refreshAddons()
+            # After load_catalog: set_rows() rebuilds the visible rows, so
+            # priming this first would be discarded. A dict read, not a fetch.
+            rows_model.set_continue_watching(continue_watching())
+            # Best-effort: pull what other Trakt clients watched or left
+            # unfinished, then the personalized rows, so the first reveal
+            # already carries them.
+            if trakt_account.authenticated:
+                await trakt_controller.sync_quietly()
+                await trakt_controller.refresh_rows_quietly()
+        finally:
+            # The gate must fall whatever happened above — a dead network
+            # shows an empty grid with toasts, never an eternal spinner.
+            catalog_controller.set_booting(False)
         # A link that launched the app is handled only now: installing into the
         # repository requires the repository to exist, and the confirmation
         # dialog needs a window to be centred on.
         link = pending_link(argv)
         if link is not None:
             await deep_link_controller.handleLink(link)
-        # Last, and best-effort: pull what other Trakt clients left unfinished
-        # so Continue Watching greets the user with it. After the catalog so a
-        # slow Trakt answer never delays first paint.
-        if trakt_account.authenticated:
-            await trakt_controller.sync_quietly()
-            # Then the personalized rows (recommendations, history) — same
-            # best-effort stance, after the catalog for the same reason.
-            await trakt_controller.refresh_rows_quietly()
 
     engine.load(str(_QML_DIR / "Main.qml"))
 

@@ -12,9 +12,16 @@ Item {
     property string catalogMode: "all"
     readonly property bool watchlistMode: catalogMode === "watchlist"
 
+    // One reveal, not a page assembling itself: rows stay hidden behind the
+    // boot spinner until the whole first load (catalog + Continue Watching +
+    // Trakt) has landed, then fade in together.
+    readonly property bool booting: catalogController && catalogController.booting
+
     ListView {
         id: rowsView
-        visible: !home.watchlistMode
+        visible: !home.watchlistMode && opacity > 0
+        opacity: home.booting ? 0 : 1
+        Behavior on opacity { NumberAnimation { duration: Theme.durMed * 2; easing.type: Easing.OutCubic } }
         maximumFlickVelocity: 12000
         flickDeceleration: 8000
         anchors.fill: parent
@@ -28,6 +35,11 @@ Item {
         topMargin: 80
         spacing: 28
         clip: true
+        // Pre-build rows well below the fold so their posters are fetched
+        // and decoded before the user scrolls to them — scrolling should
+        // reveal finished cards, not loading spinners. Delegate creation is
+        // spread over frames by the view, so this does not stall the reveal.
+        cacheBuffer: 6000
         ScrollBar.vertical: AppScrollBar {}
         model: catalogRowsModel
         delegate: CatalogRowStrip {
@@ -253,10 +265,31 @@ Item {
         }
     }
 
+    // Boot overlay: one big spinner while the first load assembles the page.
+    Column {
+        anchors.centerIn: parent
+        spacing: 16
+        visible: home.booting && !home.watchlistMode
+        AppSpinner {
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: 44; height: 44
+            running: home.booting
+        }
+        Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: "Loading your library…"
+            color: Theme.textDim
+            font.pixelSize: Theme.fontBody
+        }
+    }
+
     AppSpinner {
         id: busy
         anchors.centerIn: parent
+        // The boot overlay owns startup; this one covers later refreshes
+        // (installing an addon re-runs the catalog load).
         running: false
+        visible: running && !home.booting
         Connections {
             target: catalogController
             function onLoadingChanged(loading) { busy.running = loading }

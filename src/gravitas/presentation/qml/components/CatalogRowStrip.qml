@@ -62,6 +62,10 @@ Item {
         orientation: ListView.Horizontal
         spacing: 16
         clip: true
+        // Build every card in the row up front (a row is ~20 posters, well
+        // inside this), so sideways scrolling reveals loaded art instead of
+        // per-card spinners.
+        cacheBuffer: 8000
         // inset the content from the clip edges so the first/last card has
         // room to grow on hover without being clipped
         leftMargin: 10

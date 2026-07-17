@@ -61,3 +61,16 @@ async def test_set_filter_narrows_rows(qapp: object) -> None:
     assert model.rowCount() == 0  # FakeBrowse yields a single movie row
     controller.setFilter("movie")
     assert model.rowCount() == 1
+
+
+async def test_booting_toggles_and_notifies(qapp: object) -> None:
+    controller = CatalogController(FakeBrowse(), CatalogRowsModel())  # type: ignore[arg-type]
+    assert controller.booting is False
+    changes: list[None] = []
+    controller.bootingChanged.connect(lambda: changes.append(None))
+    controller.set_booting(True)
+    assert controller.booting is True
+    controller.set_booting(True)  # idempotent: no duplicate signal
+    controller.set_booting(False)
+    assert controller.booting is False
+    assert len(changes) == 2
