@@ -1,5 +1,4 @@
 import QtQuick
-import Qt5Compat.GraphicalEffects
 import "."
 
 // One episode in the Detail page's episode list: 16:9 thumbnail, number +
@@ -129,15 +128,25 @@ Rectangle {
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
                 cache: true
-                visible: false
-            }
-            Rectangle { id: thumbMask; anchors.fill: parent; radius: Theme.radiusSmall; visible: false }
-            OpacityMask {
-                anchors.fill: parent
-                source: img
-                maskSource: thumbMask
-                opacity: img.status === Image.Ready ? 1.0 : 0.0
+                opacity: status === Image.Ready ? 1.0 : 0.0
                 Behavior on opacity { NumberAnimation { duration: Theme.durMed } }
+            }
+            // Rounded-corner window instead of an OpacityMask: a border ring
+            // in the row's own colour, drawn over the still's edges. Its
+            // inner edge is the rounded corner; outside its own rounded
+            // outer edge the row background shows anyway, so nothing
+            // mismatches — and the colour binding follows hover/active
+            // tints. Rectangles batch; a per-row ShaderEffect does not, and
+            // a long season paid one per episode.
+            Rectangle {
+                anchors.fill: parent
+                anchors.margins: -6
+                radius: Theme.radiusSmall + 6
+                color: "transparent"
+                border.width: 6
+                // Tracks root.color directly — that binding already animates
+                // through the row's own colour Behavior.
+                border.color: root.color
             }
         }
 

@@ -74,6 +74,11 @@ Item {
         model: root.posters
         delegate: PosterCard {
             height: strip.height
+            // Trickle the row's posters left to right: ~30ms apart their
+            // decoded textures upload across many frames instead of as one
+            // burst. Applies once per created delegate; recycled ones load
+            // instantly.
+            loadDelay: Math.min(index, 20) * 30
             title: model.name
             posterUrl: model.poster ? model.poster : ""
             posterShape: model.posterShape

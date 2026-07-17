@@ -20,6 +20,19 @@ Item {
     // "landscape" (16:9) or "square". Cropping landscape art into a portrait
     // box is what happens when this is ignored.
     property string posterShape: "poster"
+    // Milliseconds to hold off the poster fetch after creation. Rows stagger
+    // this by index so a freshly-built strip's images finish one after
+    // another instead of landing as one batch of texture uploads (a single
+    // >100ms frame on the one-thread render loop). 0 = load immediately;
+    // once released it stays released, so a recycled delegate rebinding to a
+    // new row loads with no artificial wait.
+    property int loadDelay: 0
+    property bool _loadReleased: loadDelay <= 0
+    Timer {
+        interval: root.loadDelay
+        running: !root._loadReleased
+        onTriggered: root._loadReleased = true
+    }
     readonly property real coverWidth: 160
     readonly property real coverHeight: root.posterShape === "landscape"
         ? Math.round(root.coverWidth * 9 / 16)
@@ -124,7 +137,10 @@ Item {
                 radius: 14
                 color: Theme.surface
                 clip: true
+                // Also covers the pre-release window of a staggered load, so
+                // a delayed card shows the same skeleton as a loading one.
                 visible: img.status === Image.Loading
+                    || (root.posterUrl.length > 0 && !root._loadReleased)
 
                 Rectangle {
                     id: shimmer
@@ -163,7 +179,9 @@ Item {
                 anchors.fill: parent
                 // Request/decode a poster sized for this card (in device
                 // pixels, so retina stays sharp), not full-res art.
-                source: Img.sized(root.posterUrl, Math.round(root.coverWidth * Screen.devicePixelRatio))
+                source: root._loadReleased
+                    ? Img.sized(root.posterUrl, Math.round(root.coverWidth * Screen.devicePixelRatio))
+                    : ""
                 sourceSize.width: Math.round(root.coverWidth * Screen.devicePixelRatio)
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
