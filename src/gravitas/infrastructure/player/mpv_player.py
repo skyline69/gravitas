@@ -18,6 +18,7 @@ from typing import Any
 
 from gravitas.domain.errors import PlaybackFailed
 from gravitas.domain.models import SubtitleStyle
+from gravitas.logging_setup import abbreviate_url
 
 _log = logging.getLogger(__name__)
 
@@ -345,7 +346,7 @@ class MpvPlayer:
     ) -> None:
         _log.info(
             "loading %s (start=%.0fs, %d custom headers)",
-            url,
+            abbreviate_url(url),
             start,
             len(headers),
         )

@@ -29,6 +29,7 @@ from gravitas.domain.models import (
 from gravitas.infrastructure.addons import parsing
 from gravitas.infrastructure.cache.json_disk_cache import JsonDiskCache
 from gravitas.infrastructure.cache.ttl_cache import TtlCache
+from gravitas.logging_setup import abbreviate_url
 
 _log = logging.getLogger(__name__)
 
@@ -103,7 +104,7 @@ class AddonClient:
             raise AddonUnreachable(f"GET {url} failed: {exc}") from exc
         _log.info(
             "GET %s -> %d (%.0f ms, %.1f kB)",
-            url,
+            abbreviate_url(url),
             response.status_code,
             (time.monotonic() - started) * 1000,
             len(response.content) / 1024,

@@ -12,6 +12,7 @@ from gravitas.application.watch_progress import WatchProgressRepository
 from gravitas.domain.errors import PlaybackFailed
 from gravitas.domain.models import MediaType, SubtitleStyle
 from gravitas.domain.ports import MediaPlayer
+from gravitas.logging_setup import abbreviate_url
 
 _log = logging.getLogger(__name__)
 
@@ -160,7 +161,7 @@ class PlayerController(QObject):
         player), not a media file -- mpv cannot do anything with it.
         """
         if url:
-            _log.info("opening external stream in browser: %s", url)
+            _log.info("opening external stream in browser: %s", abbreviate_url(url))
             QDesktopServices.openUrl(QUrl(url))
 
     @Slot()

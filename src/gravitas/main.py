@@ -18,7 +18,7 @@ from PySide6.QtCore import (
     QtMsgType,
     qInstallMessageHandler,
 )
-from PySide6.QtGui import QFont, QFontDatabase, QGuiApplication, QIcon
+from PySide6.QtGui import QFont, QFontDatabase, QGuiApplication, QIcon, QSurfaceFormat
 from PySide6.QtQml import QQmlApplicationEngine, qmlRegisterType
 from PySide6.QtQuick import QQuickWindow, QSGRendererInterface
 from PySide6.QtQuickControls2 import QQuickStyle
@@ -535,6 +535,21 @@ def main() -> int:
 
     configure_logging()
     _install_qt_log_filter()
+
+    # macOS hands out a legacy OpenGL 2.1 compatibility context unless a core
+    # profile is requested explicitly, and mpv's GPU renderer then degrades:
+    # lanczos/hermite scalers disabled ("GLSL version too old") and the
+    # videotoolbox hwdec interop path refused ("need >= OpenGL 3.0 for core
+    # rectangle texture support"). 3.2 core is the floor of what macOS offers
+    # beyond 2.1 and Qt Quick's RHI is core-profile safe. Must be set before
+    # the QGuiApplication exists. Left untouched elsewhere: Linux/Windows
+    # already get modern compatibility contexts where none of this bites.
+    if sys.platform == "darwin":
+        fmt = QSurfaceFormat()
+        fmt.setVersion(3, 2)
+        fmt.setProfile(QSurfaceFormat.OpenGLContextProfile.CoreProfile)
+        QSurfaceFormat.setDefaultFormat(fmt)
+
     app = QGuiApplication(sys.argv)
 
     # Before anything is built: a browser launching `gravitas stremio://...`

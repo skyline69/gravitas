@@ -3,7 +3,12 @@
 import io
 import logging
 
-from gravitas.logging_setup import ColorFormatter, _wants_color, configure_logging
+from gravitas.logging_setup import (
+    ColorFormatter,
+    _wants_color,
+    abbreviate_url,
+    configure_logging,
+)
 
 
 def _record(level: int, msg: str) -> logging.LogRecord:
@@ -41,6 +46,20 @@ def test_exception_appended() -> None:
         record.exc_info = sys.exc_info()
     line = ColorFormatter(color=False).format(record)
     assert "failed" in line and "ValueError: boom" in line
+
+
+def test_abbreviate_url_identity_when_short() -> None:
+    url = "https://v3-cinemeta.strem.io/catalog/movie/top.json"
+    assert abbreviate_url(url) == url
+
+
+def test_abbreviate_url_keeps_host_and_tail() -> None:
+    url = "https://aiostreams.example.com/playback/" + "x" * 1200 + "/final-segment"
+    short = abbreviate_url(url)
+    assert len(short) < 160
+    assert short.startswith("https://aiostreams.example.com/playback/")
+    assert "…" in short
+    assert short.endswith(f"/final-segment ({len(url)} chars)")
 
 
 def test_no_color_env_disables(monkeypatch) -> None:  # type: ignore[no-untyped-def]

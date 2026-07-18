@@ -45,6 +45,21 @@ class ColorFormatter(logging.Formatter):
         return f"{when} {level} {record.name} {message}"
 
 
+def abbreviate_url(url: str, limit: int = 120) -> str:
+    """Shorten a URL for log lines; identity for anything within `limit`.
+
+    Proxied stream URLs (debrid, AIOStreams) run to a thousand-plus characters
+    of token, drowning the line that carries them. Keep the head (scheme, host,
+    start of path — the part that identifies the service) and the tail (often
+    the filename), and say how much was elided.
+    """
+    if len(url) <= limit:
+        return url
+    keep_tail = 15
+    head = url[: limit - keep_tail - 1]
+    return f"{head}…{url[-keep_tail:]} ({len(url)} chars)"
+
+
 def _wants_color(stream: IO[str]) -> bool:
     # https://no-color.org/ -- any non-empty value disables color; a dumb
     # terminal or a pipe never gets escape codes.
