@@ -252,9 +252,11 @@ Item {
         enabled: player.hotkeysOn
         sequence: "Escape"
         autoRepeat: false
+        // Window.window is an Item-attached property; on a Shortcut it is
+        // null, so going through the root item's function is the only way.
         onActivated: {
             if (player.isFullscreen)
-                Window.window.visibility = Window.Windowed
+                player.toggleFullscreen()
             else
                 player.leave()
         }
