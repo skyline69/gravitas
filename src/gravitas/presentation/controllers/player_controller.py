@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 
 from PySide6.QtCore import Property, QObject, QTimer, QUrl, Signal, Slot
@@ -11,6 +12,8 @@ from gravitas.application.watch_progress import WatchProgressRepository
 from gravitas.domain.errors import PlaybackFailed
 from gravitas.domain.models import MediaType, SubtitleStyle
 from gravitas.domain.ports import MediaPlayer
+
+_log = logging.getLogger(__name__)
 
 
 class PlayerController(QObject):
@@ -118,6 +121,14 @@ class PlayerController(QObject):
         if player is None:
             return
         start = self._resume_position()
+        title = self._context.get("name") or "?"
+        label = self._context.get("label") or ""
+        _log.info(
+            "playing %s%s%s",
+            title,
+            f" — {label}" if label else "",
+            f" (resuming at {start:.0f}s)" if start > 0 else "",
+        )
         try:
             # behaviorHints.proxyHeaders.request from the chosen stream: some
             # addons 403 without their Referer/User-Agent.
@@ -149,11 +160,18 @@ class PlayerController(QObject):
         player), not a media file -- mpv cannot do anything with it.
         """
         if url:
+            _log.info("opening external stream in browser: %s", url)
             QDesktopServices.openUrl(QUrl(url))
 
     @Slot()
     def stop(self) -> None:
         if self._player is not None:
+            _log.info(
+                "stopped %s at %.0f/%.0fs",
+                self._context.get("name") or "?",
+                self._player.position(),
+                self._player.duration(),
+            )
             self._record()
             # Before player.stop(): position dies with the playback.
             self._emit_scrobble("stop")
@@ -163,6 +181,7 @@ class PlayerController(QObject):
     @Slot()
     def pause(self) -> None:
         if self._player is not None:
+            _log.debug("paused at %.0fs", self._player.position())
             self._player.pause()
             self._record()
             self._emit_scrobble("pause")
@@ -170,6 +189,7 @@ class PlayerController(QObject):
     @Slot()
     def resume(self) -> None:
         if self._player is not None:
+            _log.debug("resumed at %.0fs", self._player.position())
             self._player.resume()
             self._emit_scrobble("start")
 
@@ -189,6 +209,7 @@ class PlayerController(QObject):
     def seek(self, seconds: float) -> None:
         if self._player is None:
             return
+        _log.debug("seek to %.0fs", seconds)
         self._player.seek(seconds)
 
     @Slot(float)

@@ -58,6 +58,7 @@ from gravitas.infrastructure.settings.json_store import JsonSettingsStore
 from gravitas.infrastructure.trakt import app_credentials as trakt_app
 from gravitas.infrastructure.trakt.client import TraktClient
 from gravitas.infrastructure.watchlist.sqlite_store import SqliteWatchlistStore
+from gravitas.logging_setup import configure_logging
 from gravitas.presentation.controllers.addon_controller import AddonController
 from gravitas.presentation.controllers.catalog_controller import CatalogController
 from gravitas.presentation.controllers.deep_link_controller import DeepLinkController
@@ -120,22 +121,29 @@ _MUTED_QT_WARNINGS = (
 
 
 def _install_qt_log_filter() -> None:
-    """Drop known-benign Qt warnings, forward everything else to stderr.
+    """Drop known-benign Qt warnings, forward everything else into logging.
 
     Qt routes *all* its output -- including QML runtime warnings like the image
     loader's -- through one message handler, so this is the only place that can
-    filter them. Non-muted lines are re-emitted in Qt's own `category: message`
-    shape so the console looks unchanged apart from the muted ones.
+    filter them. Non-muted lines are re-emitted through the `qt` logger (its
+    category as a child logger), so Qt output shares the app's colored format
+    instead of landing as bare stderr prints.
     """
+    qt_levels = {
+        QtMsgType.QtDebugMsg: logging.DEBUG,
+        QtMsgType.QtInfoMsg: logging.INFO,
+        QtMsgType.QtWarningMsg: logging.WARNING,
+        QtMsgType.QtCriticalMsg: logging.ERROR,
+        QtMsgType.QtFatalMsg: logging.CRITICAL,
+    }
 
     def handler(mode: QtMsgType, context: QMessageLogContext, message: str) -> None:
         if mode == QtMsgType.QtWarningMsg and any(
             needle in message for needle in _MUTED_QT_WARNINGS
         ):
             return
-        category = context.category or "default"
-        line = message if category == "default" else f"{category}: {message}"
-        print(line, file=sys.stderr)
+        name = "qt" if context.category in (None, "default") else f"qt.{context.category}"
+        logging.getLogger(name).log(qt_levels.get(mode, logging.INFO), "%s", message)
 
     qInstallMessageHandler(handler)
 
@@ -525,6 +533,7 @@ def main() -> int:
     # that dead-end probe; rendering is unaffected. A user-set value wins.
     os.environ.setdefault("EGL_LOG_LEVEL", "fatal")
 
+    configure_logging()
     _install_qt_log_filter()
     app = QGuiApplication(sys.argv)
 

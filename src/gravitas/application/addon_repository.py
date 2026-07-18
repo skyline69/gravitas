@@ -49,6 +49,13 @@ class AddonRepository:
         self._urls[manifest.id] = url
         if protected:
             self._protected.add(manifest.id)
+        _log.info(
+            "installed addon %s v%s (%d catalogs%s)",
+            manifest.id,
+            manifest.version,
+            len(manifest.catalogs),
+            ", protected" if protected else "",
+        )
         return manifest
 
     def installed(self) -> list[AddonManifest]:
@@ -196,6 +203,7 @@ class AddonRepository:
             except GravitasError as exc:
                 _log.warning("stream fetch failed for %s: %s", manifest.id, exc)
                 continue
+            _log.debug("%s returned %d streams for %s", manifest.id, len(fetched), id)
             for stream in fetched:
                 key = stream.playable_url or stream.external_url or stream.info_hash
                 if key is not None:

@@ -93,6 +93,27 @@ def _ensure_bundled_ytdlp_on_path(environ: MutableMapping[str, str] = os.environ
         environ["PATH"] = meipass + os.pathsep + environ.get("PATH", "")
 
 
+# mpv's own message levels -> logging levels. Everything below `info`
+# ("status", "v", "debug", "trace") maps to DEBUG: it only surfaces on a
+# GRAVITAS_LOG_LEVEL=DEBUG run anyway.
+_MPV_LOG_LEVELS = {
+    "fatal": logging.CRITICAL,
+    "error": logging.ERROR,
+    "warn": logging.WARNING,
+    "info": logging.INFO,
+}
+
+
+def _mpv_log_handler(level: str, prefix: str, text: str) -> None:
+    """Route libmpv's terminal output (demuxer/ffmpeg/network errors, VO/AO
+    setup lines) into our logging tree as `mpv.<component>`. Fires on mpv's
+    own thread; the logging module is thread-safe, and no Qt object is
+    touched here."""
+    logging.getLogger(f"mpv.{prefix}").log(
+        _MPV_LOG_LEVELS.get(level, logging.DEBUG), "%s", text.rstrip()
+    )
+
+
 def _default_factory() -> Any:
     # libmpv needs the C numeric locale; Qt may have changed it. Must run
     # right before mpv.MPV() construction (after QGuiApplication init),
@@ -120,6 +141,11 @@ def _default_factory() -> Any:
         osc=False,
         input_default_bindings=False,
         keep_open="yes",  # hold the last frame instead of tearing the surface down
+        # `info` excludes mpv's per-frame status line but keeps the useful
+        # one-shot lines: chosen VO/AO, video format, and — crucial for
+        # streaming — demuxer/ffmpeg HTTP errors with their real cause.
+        log_handler=_mpv_log_handler,
+        loglevel="info",
     )
 
 
@@ -317,6 +343,12 @@ class MpvPlayer:
         start: float = 0.0,
         headers: Sequence[tuple[str, str]] = (),
     ) -> None:
+        _log.info(
+            "loading %s (start=%.0fs, %d custom headers)",
+            url,
+            start,
+            len(headers),
+        )
         try:
             # `start` is applied by mpv when the file loads, so resuming needs
             # no seek-after-file-loaded race. Always assign it: mpv keeps the

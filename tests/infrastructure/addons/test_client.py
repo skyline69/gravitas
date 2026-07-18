@@ -371,3 +371,29 @@ async def test_network_response_lands_on_disk(tmp_path) -> None:  # type: ignore
         await client.fetch_catalog(_manifest(), ref)
     hit = disk.get(_CATALOG_URL)
     assert hit is not None and hit[0] == _CATALOG_JSON
+
+
+@respx.mock
+async def test_network_fetch_and_cache_hit_are_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    respx.get("https://cin.strem.io/manifest.json").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": "c",
+                "name": "C",
+                "version": "1",
+                "types": ["movie"],
+                "resources": ["catalog"],
+                "catalogs": [],
+            },
+        )
+    )
+    async with httpx.AsyncClient() as http:
+        client = AddonClient(http)
+        with caplog.at_level("DEBUG", logger="gravitas.infrastructure.addons.client"):
+            await client.fetch_manifest("https://cin.strem.io/manifest.json")
+            await client.fetch_manifest("https://cin.strem.io/manifest.json")
+    assert "GET https://cin.strem.io/manifest.json -> 200" in caplog.text
+    assert "cache hit (memory): https://cin.strem.io/manifest.json" in caplog.text

@@ -10,6 +10,7 @@ wherever a spinner or transition is running while fetches land.
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from collections.abc import Callable
 from typing import Any
@@ -28,6 +29,8 @@ from gravitas.domain.models import (
 from gravitas.infrastructure.addons import parsing
 from gravitas.infrastructure.cache.json_disk_cache import JsonDiskCache
 from gravitas.infrastructure.cache.ttl_cache import TtlCache
+
+_log = logging.getLogger(__name__)
 
 _MANIFEST_SUFFIX = "manifest.json"
 
@@ -78,6 +81,7 @@ class AddonClient:
     async def _get_json(self, url: str, *, cache_for: float = 0.0) -> dict[str, Any]:
         cached = self._cache.get(url) if cache_for > 0 else None
         if cached is not None:
+            _log.debug("cache hit (memory): %s", url)
             return cached
         if self._disk is not None and cache_for > 0:
             hit = await asyncio.to_thread(self._disk.get, url)
@@ -86,14 +90,24 @@ class AddonClient:
                 if age <= min(cache_for, _DISK_FRESH_CAP):
                     # Fresh enough: promote for the freshness it has left.
                     self._cache.put(url, data, ttl=cache_for - age)
+                    _log.debug("cache hit (disk, %.0fs old): %s", age, url)
                     return data
                 if self.serve_stale:
+                    _log.debug("serving stale disk entry (%.0fs old): %s", age, url)
                     return data
+        started = time.monotonic()
         try:
             response = await self._client.get(url, follow_redirects=True, timeout=15.0)
             response.raise_for_status()
         except httpx.HTTPError as exc:
             raise AddonUnreachable(f"GET {url} failed: {exc}") from exc
+        _log.info(
+            "GET %s -> %d (%.0f ms, %.1f kB)",
+            url,
+            response.status_code,
+            (time.monotonic() - started) * 1000,
+            len(response.content) / 1024,
+        )
         try:
             data = await asyncio.to_thread(response.json)
         except ValueError as exc:

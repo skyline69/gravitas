@@ -130,6 +130,32 @@ async def test_resolve_stream_raises_when_no_direct() -> None:
         await ResolveStream(repo)("movie", "tt1")
 
 
+async def test_resolve_stream_logs_counts(caplog: pytest.LogCaptureFixture) -> None:
+    repo = await _repo()
+    with caplog.at_level("INFO", logger="gravitas.application.resolve_stream"):
+        await ResolveStream(repo)("movie", "tt1")
+    assert "resolved 1 playable streams for movie tt1 (1 dropped as not direct)" in caplog.text
+
+
+async def test_resolve_stream_warns_when_torrent_only(caplog: pytest.LogCaptureFixture) -> None:
+    class NoDirect(FakeSource):
+        async def fetch_streams(self, manifest, type, id):  # type: ignore[no-untyped-def]
+            return [Stream(name="x", title="t", url=None, info_hash="h", file_idx=0)]
+
+    repo = AddonRepository(NoDirect())
+    await repo.install("https://a/")
+    with caplog.at_level("WARNING"), pytest.raises(NoStreams):
+        await ResolveStream(repo)("movie", "tt1")
+    assert "no playable streams for movie tt1 (1 torrent/external-only dropped)" in caplog.text
+
+
+async def test_install_logs_addon_identity(caplog: pytest.LogCaptureFixture) -> None:
+    repo = AddonRepository(FakeSource())
+    with caplog.at_level("INFO"):
+        await repo.install("https://a/", protected=True)
+    assert "installed addon fake v1 (1 catalogs, protected)" in caplog.text
+
+
 async def test_uninstall_addon_removes() -> None:
     from .test_addon_repository import FakeSource
 
