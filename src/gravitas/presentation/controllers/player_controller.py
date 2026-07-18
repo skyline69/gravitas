@@ -21,6 +21,7 @@ class PlayerController(QObject):
     errorOccurred = Signal(str)
     subtitleTracksChanged = Signal()
     stateChanged = Signal()
+    mediaContextChanged = Signal()
     resumed = Signal(float)
     progressRecorded = Signal()
     # One playback lifecycle event: action ("start" | "pause" | "stop"), the
@@ -85,6 +86,18 @@ class PlayerController(QObject):
     @Property(bool, notify=stateChanged)
     def muted(self) -> bool:
         return self._player.is_muted() if self._player is not None else False
+
+    @Property(str, notify=mediaContextChanged)
+    def mediaTitle(self) -> str:
+        """What is playing, for the player's own chrome. Empty for playback
+        with no identity (trailers), which hides the overlay."""
+        return self._context.get("name", "")
+
+    @Property(str, notify=mediaContextChanged)
+    def mediaLabel(self) -> str:
+        """The episode line under the title ("S1E3 · Red Tide"); empty for
+        movies."""
+        return self._context.get("label", "")
 
     @Slot(result=float)
     def position(self) -> float:
@@ -249,6 +262,7 @@ class PlayerController(QObject):
         self._context = {
             str(key): "" if value is None else str(value) for key, value in context.items()
         }
+        self.mediaContextChanged.emit()
 
     @Slot()
     def flushProgress(self) -> None:

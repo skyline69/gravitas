@@ -349,6 +349,19 @@ def test_play_from_scratch_does_not_emit_resumed(qapp: object) -> None:
     assert player.start == 0.0
 
 
+def test_media_title_and_label_follow_context(qapp: object) -> None:
+    controller = PlayerController(lambda: FakePlayer())
+    changes: list[bool] = []
+    controller.mediaContextChanged.connect(lambda: changes.append(True))
+    controller.setMediaContext(CONTEXT)
+    assert controller.mediaTitle == CONTEXT["name"]
+    assert controller.mediaLabel == CONTEXT["label"]
+    controller.setMediaContext({})
+    assert controller.mediaTitle == ""
+    assert controller.mediaLabel == ""
+    assert len(changes) == 2
+
+
 def test_cleared_context_neither_resumes_nor_records(qapp: object) -> None:
     """The trailer path: playback of something that is NOT the title. After
     setMediaContext({}) the previous title's saved position must not leak in

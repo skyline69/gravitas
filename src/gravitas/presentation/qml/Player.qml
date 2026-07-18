@@ -428,6 +428,57 @@ Item {
         }
     }
 
+    // ---- top title overlay ----
+    // Fades with the controls, like the bottom bar. Hidden entirely when the
+    // context carries no name (trailers play without an identity).
+    Rectangle {
+        z: 10
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        height: 108
+        // Truthiness, not .length: the composition test loads this page with
+        // a stub controller where mediaTitle is undefined.
+        opacity: player.controlsVisible
+            && playerController && playerController.mediaTitle ? 1 : 0
+        visible: opacity > 0
+        Behavior on opacity { NumberAnimation { duration: Theme.durMed } }
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 0.88) }
+            GradientStop { position: 0.45; color: Qt.rgba(0, 0, 0, 0.72) }
+            GradientStop { position: 1.0; color: "transparent" }
+        }
+
+        Column {
+            // Clear of the back button on both sides so a long title stays
+            // centered instead of sliding under it.
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.top: parent.top
+            anchors.topMargin: 20
+            width: parent.width - 176
+            spacing: 2
+
+            Text {
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                elide: Text.ElideRight
+                text: (playerController && playerController.mediaTitle) || ""
+                color: Theme.text
+                font.pixelSize: Theme.fontTitle
+                font.bold: true
+            }
+            Text {
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                elide: Text.ElideRight
+                visible: !!(playerController && playerController.mediaLabel)
+                text: (playerController && playerController.mediaLabel) || ""
+                color: Theme.textDim
+                font.pixelSize: Theme.fontSmall
+            }
+        }
+    }
+
     // ---- top-left back button ----
     BackButton {
         z: 10
