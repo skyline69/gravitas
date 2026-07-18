@@ -74,6 +74,23 @@ Item {
         model: root.posters
         delegate: PosterCard {
             height: strip.height
+            // Edge dissolve: cards fade out as they approach a scrolled
+            // edge, which says "more this way" over ANY background — a
+            // bg-coloured gradient painted on top (the previous approach)
+            // showed as a dark slab once the ambient glow made the
+            // background non-flat. Continuous in contentX, so cards ghost
+            // in and out smoothly while the strip moves.
+            opacity: {
+                var fadeZone = 140
+                var left = x - strip.contentX + width / 2
+                var right = strip.width - left
+                var f = 1.0
+                if (!strip.atXBeginning)
+                    f = Math.min(f, Math.max(0.15, left / fadeZone))
+                if (!strip.atXEnd)
+                    f = Math.min(f, Math.max(0.15, right / fadeZone))
+                return f
+            }
             // Trickle the row's posters left to right: ~30ms apart their
             // decoded textures upload across many frames instead of as one
             // burst. Applies once per created delegate; recycled ones load
@@ -126,41 +143,4 @@ Item {
     // fades away with the cards. Plain Rectangles with no pointer handlers,
     // so hover and clicks pass straight through to the cards beneath; each
     // side appears only while something is actually hidden behind it.
-    // A 2-stop linear ramp reads as a block: its onset is a visible straight
-    // edge on top of a poster. Intermediate stops approximate a smooth
-    // ease-in curve instead — no start line, no end line — over a wider run.
-    Rectangle {
-        anchors.left: strip.left
-        anchors.top: strip.top
-        anchors.bottom: strip.bottom
-        width: 96
-        opacity: strip.contentWidth > strip.width && !strip.atXBeginning ? 1 : 0
-        visible: opacity > 0
-        gradient: Gradient {
-            orientation: Gradient.Horizontal
-            GradientStop { position: 0.00; color: Theme.bg }
-            GradientStop { position: 0.25; color: Qt.rgba(Theme.bg.r, Theme.bg.g, Theme.bg.b, 0.86) }
-            GradientStop { position: 0.50; color: Qt.rgba(Theme.bg.r, Theme.bg.g, Theme.bg.b, 0.55) }
-            GradientStop { position: 0.75; color: Qt.rgba(Theme.bg.r, Theme.bg.g, Theme.bg.b, 0.22) }
-            GradientStop { position: 1.00; color: Qt.rgba(Theme.bg.r, Theme.bg.g, Theme.bg.b, 0) }
-        }
-        Behavior on opacity { NumberAnimation { duration: Theme.durMed } }
-    }
-    Rectangle {
-        anchors.right: strip.right
-        anchors.top: strip.top
-        anchors.bottom: strip.bottom
-        width: 96
-        opacity: strip.contentWidth > strip.width && !strip.atXEnd ? 1 : 0
-        visible: opacity > 0
-        gradient: Gradient {
-            orientation: Gradient.Horizontal
-            GradientStop { position: 0.00; color: Qt.rgba(Theme.bg.r, Theme.bg.g, Theme.bg.b, 0) }
-            GradientStop { position: 0.25; color: Qt.rgba(Theme.bg.r, Theme.bg.g, Theme.bg.b, 0.22) }
-            GradientStop { position: 0.50; color: Qt.rgba(Theme.bg.r, Theme.bg.g, Theme.bg.b, 0.55) }
-            GradientStop { position: 0.75; color: Qt.rgba(Theme.bg.r, Theme.bg.g, Theme.bg.b, 0.86) }
-            GradientStop { position: 1.00; color: Theme.bg }
-        }
-        Behavior on opacity { NumberAnimation { duration: Theme.durMed } }
-    }
 }

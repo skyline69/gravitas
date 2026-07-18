@@ -168,12 +168,13 @@ Item {
                 }
             }
 
-            // The poster. Corners are rounded by the frame overlay below, NOT
-            // by an OpacityMask: a mask is a per-card ShaderEffect, and a
-            // grid keeps hundreds of cards alive — each one broke scene-graph
-            // batching into its own draw call, which is what made scrolling
-            // stutter. The frame is one shared texture, so every card
-            // batches.
+            // The poster decoder. Hidden — the ShaderEffect below draws it
+            // with true rounded-corner alpha, which stays correct over ANY
+            // background (the previous bg-coloured corner-notch overlay
+            // turned visible the moment the ambient glow made the background
+            // non-flat). Unlike the OpacityMask this replaced further back,
+            // the effect samples the Image's texture directly
+            // (supportsAtlasTextures) — no per-card FBO indirection.
             Image {
                 id: img
                 anchors.fill: parent
@@ -186,22 +187,19 @@ Item {
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
                 cache: true
-                // fade the poster in once it has decoded
-                opacity: status === Image.Ready ? 1.0 : 0.0
-                Behavior on opacity { NumberAnimation { duration: Theme.durMed } }
+                visible: false
             }
-            // Rounded-corner illusion: a BorderImage whose corners are filled
-            // with the page background and whose centre/edges are transparent.
-            // Cards sit on the flat window background everywhere (opaque bars
-            // cover the ones scrolling beneath them), so painting bg-coloured
-            // notches over the poster's corners is indistinguishable from a
-            // real mask. The asset bakes Theme.bg — regenerate with
-            // scripts/gen_corner_frame.py if that colour ever changes.
-            BorderImage {
+            ShaderEffect {
                 anchors.fill: parent
-                source: "../assets/corner-frame.png"
-                border { left: 14; right: 14; top: 14; bottom: 14 }
-                visible: img.status === Image.Ready
+                property variant source: img
+                property vector2d itemSize: Qt.vector2d(width, height)
+                property real radius: 14
+                supportsAtlasTextures: true
+                vertexShader: Qt.resolvedUrl("../shaders/poster.vert.qsb")
+                fragmentShader: Qt.resolvedUrl("../shaders/poster.frag.qsb")
+                // fade the poster in once it has decoded
+                opacity: img.status === Image.Ready ? 1.0 : 0.0
+                Behavior on opacity { NumberAnimation { duration: Theme.durMed } }
             }
 
             // rounded white frame — only on the active (hovered) poster
