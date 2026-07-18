@@ -17,6 +17,15 @@ ApplicationWindow {
     // catalog rows for the watchlist grid; every other mode filters the rows.
     property string catalogMode: "all"
 
+    // Ambient drift behind every page. Hidden under the player — a movie
+    // must not share the frame budget with a background nobody can see —
+    // and paused with the app (inside the component).
+    AmbientBackground {
+        anchors.fill: parent
+        visible: stack.currentItem === null
+            || stack.currentItem.objectName !== "playerPage"
+    }
+
     // Neutral focus sink OUTSIDE the StackView's focus scope. Moving active
     // focus here truly blurs a focused field; forcing focus onto the StackView
     // (itself a FocusScope) would just re-delegate focus back to the field.

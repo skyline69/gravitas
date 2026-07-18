@@ -6,6 +6,8 @@ import "components"
 
 Item {
     id: player
+    // Main hides the ambient background under this page (see Main.qml).
+    objectName: "playerPage"
     property string url
     // behaviorHints.proxyHeaders.request of the chosen stream.
     property var headers: ({})
