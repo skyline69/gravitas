@@ -10,6 +10,7 @@ filtered and inserted in sorted position automatically.
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 
 from PySide6.QtCore import (
     Property,
@@ -28,25 +29,39 @@ SORT_KEYS = ("default", "name", "year", "rating")
 _YEAR_RE = re.compile(r"\d{4}")
 
 
-def _first_year(value: object) -> float | None:
-    """Parse '1999' or '2010-2015' style year strings to a sortable number."""
-    if not isinstance(value, str):
-        return None
+@lru_cache(maxsize=4096)
+def _year_of(value: str) -> float | None:
     match = _YEAR_RE.search(value)
     return float(match.group()) if match else None
+
+
+def _first_year(value: object) -> float | None:
+    """Parse '1999' or '2010-2015' style year strings to a sortable number.
+
+    A comparison sort calls this O(n log n) times over the same handful of
+    distinct year strings, so the regex result is memoised by input value.
+    """
+    return _year_of(value) if isinstance(value, str) else None
 
 
 _RATING_RE = re.compile(r"\d+(?:[.,]\d+)?")
 
 
-def _rating(value: object) -> float | None:
-    """Parse '8.1', '8,1', '8.1/10', 'IMDb 8.1' — addons format ratings loosely."""
-    if not isinstance(value, str):
-        return None
+@lru_cache(maxsize=4096)
+def _rating_of(value: str) -> float | None:
     match = _RATING_RE.search(value)
     if match is None:
         return None
     return float(match.group().replace(",", "."))
+
+
+def _rating(value: object) -> float | None:
+    """Parse '8.1', '8,1', '8.1/10', 'IMDb 8.1' — addons format ratings loosely.
+
+    Memoised like _first_year: the same rating strings recur across every
+    pairwise comparison in a sort.
+    """
+    return _rating_of(value) if isinstance(value, str) else None
 
 
 class PosterGridProxy(QSortFilterProxyModel):

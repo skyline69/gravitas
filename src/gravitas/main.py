@@ -197,7 +197,9 @@ def build_app(
     if families:
         app.setFont(QFont(families[0]))
 
-    http = httpx.AsyncClient()
+    # HTTP/2 so the cross-addon catalog fan-out multiplexes its many parallel
+    # GETs over one connection per host instead of racing the keepalive pool.
+    http = httpx.AsyncClient(http2=True)
     # Persistent JSON cache under the in-memory one: a warm launch paints the
     # grid from disk instead of refetching every catalog. Pruned here (a
     # bounded delete) so the file cannot grow forever.

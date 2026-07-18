@@ -79,11 +79,15 @@ class StreamListModel(QAbstractListModel):
         super().__init__()
         self._streams: list[Stream] = []
         self._display: list[StreamDisplay] = []
+        self._headers: list[dict[str, str]] = []
 
     def set_streams(self, streams: list[Stream]) -> None:
         self.beginResetModel()
         self._streams = list(streams)
         self._display = [parse_stream_display(s.name, s.title) for s in self._streams]
+        # proxy_headers is a frozen tuple-of-tuples; materialise the dict once
+        # per set rather than rebuilding it on every HeadersRole data() fetch.
+        self._headers = [dict(s.proxy_headers) for s in self._streams]
         self.endResetModel()
 
     def stream_at(self, row: int) -> Stream:
@@ -111,7 +115,7 @@ class StreamListModel(QAbstractListModel):
                 # fine through mpv's ytdl_hook.
                 return stream.playable_url
             case StreamListModel.HeadersRole:
-                return dict(stream.proxy_headers)
+                return self._headers[index.row()]
             case StreamListModel.ExternalRole:
                 # Only for streams with nothing playable in-app; a stream
                 # offering both is played, not handed to a browser.
