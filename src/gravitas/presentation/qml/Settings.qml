@@ -13,6 +13,10 @@ Item {
         contentHeight: column.height + 104
         // Content rests below the floating top bar but scrolls under it.
         topMargin: 80
+        // A Flickable does not move contentY when a topMargin is set on it:
+        // it stays at 0, which is 80px INTO the content — the page opened
+        // pre-scrolled past the title row. The rest position is -topMargin.
+        Component.onCompleted: contentY = -topMargin
         clip: true
         ScrollBar.vertical: AppScrollBar {}
 
