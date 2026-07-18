@@ -27,6 +27,11 @@ Item {
     // once released it stays released, so a recycled delegate rebinding to a
     // new row loads with no artificial wait.
     property int loadDelay: 0
+    // Where the surrounding view's clip slices this card, in item x
+    // coordinates — the poster feathers to nothing approaching them instead
+    // of ending in a hard cut. Defaults park them far away (no feather).
+    property real edgeClipLeft: -100000
+    property real edgeClipRight: 100000
     property bool _loadReleased: loadDelay <= 0
     Timer {
         interval: root.loadDelay
@@ -194,6 +199,12 @@ Item {
                 property variant source: img
                 property vector2d itemSize: Qt.vector2d(width, height)
                 property real radius: 14
+                // Root coords -> this cover's coords (the cover is inset in
+                // the centred, hover-scaled column; a small offset is fine —
+                // the feather is soft).
+                property real clipLeft: root.edgeClipLeft
+                property real clipRight: root.edgeClipRight
+                property real fadeWidth: 64
                 supportsAtlasTextures: true
                 vertexShader: Qt.resolvedUrl("../shaders/poster.vert.qsb")
                 fragmentShader: Qt.resolvedUrl("../shaders/poster.frag.qsb")

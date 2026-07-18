@@ -91,6 +91,11 @@ Item {
                     f = Math.min(f, Math.max(0.15, right / fadeZone))
                 return f
             }
+            // Feather the actual cut: the poster's pixels dissolve into the
+            // clip edge instead of being sliced by it. Positions of the
+            // strip's visible bounds, in this card's coordinate space.
+            edgeClipLeft: strip.atXBeginning ? -100000 : strip.contentX - x
+            edgeClipRight: strip.atXEnd ? 100000 : strip.contentX + strip.width - x
             // Trickle the row's posters left to right: ~30ms apart their
             // decoded textures upload across many frames instead of as one
             // burst. Applies once per created delegate; recycled ones load

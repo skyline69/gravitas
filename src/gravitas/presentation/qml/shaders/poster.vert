@@ -2,7 +2,7 @@
 // Rounded-poster pair (with poster.frag): forwards the source texture
 // coordinate untouched (required for supportsAtlasTextures) and hands the
 // fragment stage the position in ITEM pixels, which is what the rounded
-// corner is defined in.
+// corner and the edge feather are defined in.
 
 layout(location = 0) in vec4 qt_Vertex;
 layout(location = 1) in vec2 qt_MultiTexCoord0;
@@ -14,6 +14,9 @@ layout(std140, binding = 0) uniform buf {
     float qt_Opacity;
     vec2 itemSize;
     float radius;
+    float clipLeft;
+    float clipRight;
+    float fadeWidth;
 };
 
 void main() {
