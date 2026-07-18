@@ -27,11 +27,17 @@ Item {
     // once released it stays released, so a recycled delegate rebinding to a
     // new row loads with no artificial wait.
     property int loadDelay: 0
-    // Where the surrounding view's clip slices this card, in item x
+    // Where the surrounding views' clips slice this card, in item
     // coordinates — the poster feathers to nothing approaching them instead
     // of ending in a hard cut. Defaults park them far away (no feather).
+    // The horizontal feathers are additionally gated by their strength
+    // (0..1, animatable) so a row can FADE its edge dissolve in and out.
     property real edgeClipLeft: -100000
     property real edgeClipRight: 100000
+    property real edgeClipTop: -100000
+    property real edgeClipBottom: 100000
+    property real edgeFadeLeftStrength: 0
+    property real edgeFadeRightStrength: 0
     property bool _loadReleased: loadDelay <= 0
     Timer {
         interval: root.loadDelay
@@ -199,11 +205,14 @@ Item {
                 property variant source: img
                 property vector2d itemSize: Qt.vector2d(width, height)
                 property real radius: 14
-                // Root coords -> this cover's coords (the cover is inset in
-                // the centred, hover-scaled column; a small offset is fine —
-                // the feather is soft).
-                property real clipLeft: root.edgeClipLeft
-                property real clipRight: root.edgeClipRight
+                // Root coords -> this cover's coords (ignoring the hover
+                // scale; the feather is soft enough not to care).
+                property real clipLeft: root.edgeClipLeft - (content.x + cover.x)
+                property real clipRight: root.edgeClipRight - (content.x + cover.x)
+                property real clipTop: root.edgeClipTop - (content.y + cover.y)
+                property real clipBottom: root.edgeClipBottom - (content.y + cover.y)
+                property real strengthLeft: root.edgeFadeLeftStrength
+                property real strengthRight: root.edgeFadeRightStrength
                 property real fadeWidth: 64
                 supportsAtlasTextures: true
                 vertexShader: Qt.resolvedUrl("../shaders/poster.vert.qsb")

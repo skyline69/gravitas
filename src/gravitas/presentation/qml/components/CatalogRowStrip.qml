@@ -10,6 +10,11 @@ Item {
     // The synthetic Continue Watching row: no addon or catalog stands behind
     // it, and its cards name the episode they would resume into.
     property bool continueWatching: false
+    // Where the OUTER (vertical) view's clip cuts this row, in this row's
+    // coordinates — forwarded to every card so posters feather into the
+    // page's top/bottom edges. Defaults park them far away.
+    property real viewClipTop: -100000
+    property real viewClipBottom: 100000
     signal openDetail(string type, string id)
     signal seeAll(string addonId, string type, string catalogId)
 
@@ -91,11 +96,25 @@ Item {
                     f = Math.min(f, Math.max(0.15, right / fadeZone))
                 return f
             }
-            // Feather the actual cut: the poster's pixels dissolve into the
-            // clip edge instead of being sliced by it. Positions of the
-            // strip's visible bounds, in this card's coordinate space.
-            edgeClipLeft: strip.atXBeginning ? -100000 : strip.contentX - x
-            edgeClipRight: strip.atXEnd ? 100000 : strip.contentX + strip.width - x
+            // Eases the dissolve's appearance when scrolling starts/stops —
+            // the atXBeginning/atXEnd flips above are instant otherwise.
+            Behavior on opacity { NumberAnimation { duration: Theme.durMed * 2 } }
+            // Feather the actual cuts: the poster's pixels dissolve into
+            // the clip edges instead of being sliced by them. Horizontal
+            // edges always carry the true geometry; their visibility is a
+            // separate animated strength, so the feather fades in place
+            // rather than popping (or sweeping, if the position animated).
+            edgeClipLeft: strip.contentX - x
+            edgeClipRight: strip.contentX + strip.width - x
+            edgeFadeLeftStrength: strip.atXBeginning ? 0 : 1
+            edgeFadeRightStrength: strip.atXEnd ? 0 : 1
+            Behavior on edgeFadeLeftStrength { NumberAnimation { duration: Theme.durMed * 2 } }
+            Behavior on edgeFadeRightStrength { NumberAnimation { duration: Theme.durMed * 2 } }
+            // Vertical: the page view's edges, handed down by Home. No
+            // gate needed — a fully visible card's clip edge lies beyond
+            // the feather zone by construction.
+            edgeClipTop: root.viewClipTop - strip.y
+            edgeClipBottom: root.viewClipBottom - strip.y
             // Trickle the row's posters left to right: ~30ms apart their
             // decoded textures upload across many frames instead of as one
             // burst. Applies once per created delegate; recycled ones load

@@ -61,11 +61,17 @@ Item {
         // (28px header + 8px gap + 300px cards) so row layout is stable
         // before its content exists.
         delegate: Loader {
+            id: rowLoader
             width: rowsView.width - 24
             height: 336
             asynchronous: true
             sourceComponent: CatalogRowStrip {
                 width: rowsView.width - 24
+                // The page view's visible bounds in this row's coordinates,
+                // so cards feather into the window's top/bottom edges
+                // instead of being sliced by the view's clip.
+                viewClipTop: rowsView.contentY - rowLoader.y
+                viewClipBottom: rowsView.contentY + rowsView.height - rowLoader.y
                 title: model.title
                 addonId: model.addonId
                 type: model.type
