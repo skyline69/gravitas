@@ -13,13 +13,15 @@ ShaderEffect {
     property real time: 0
     readonly property real aspect: width / Math.max(1, height)
 
-    // 0 → 200π over ~20 minutes. Every angular rate inside the shader is a
-    // multiple of 0.01, so the whole range is full cycles for each of them
-    // and the loop wraps without a visible jump.
+    // 0 → 200π over 4 minutes: glow orbits take ~50-80s, the breathing
+    // pulses ~10-15s — visibly alive without demanding attention. Every
+    // angular rate inside the shader is a multiple of 0.01, so the whole
+    // range is full cycles for each of them and the loop wraps without a
+    // visible jump.
     NumberAnimation on time {
         from: 0
         to: 628.3185307179587
-        duration: 1200000
+        duration: 240000
         loops: Animation.Infinite
         running: root.visible && Qt.application.state === Qt.ApplicationActive
     }
