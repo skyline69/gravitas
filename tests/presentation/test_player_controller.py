@@ -349,6 +349,25 @@ def test_play_from_scratch_does_not_emit_resumed(qapp: object) -> None:
     assert player.start == 0.0
 
 
+def test_cleared_context_neither_resumes_nor_records(qapp: object) -> None:
+    """The trailer path: playback of something that is NOT the title. After
+    setMediaContext({}) the previous title's saved position must not leak in
+    as a resume, and nothing may be recorded over that title's progress."""
+    player = FakePlayer()
+    progress = FakeProgress(resume=588.0)
+    controller = PlayerController(lambda: player, None, progress)
+    controller.setMediaContext(CONTEXT)
+    controller.setMediaContext({})
+    seen: list[float] = []
+    controller.resumed.connect(seen.append)
+    controller.play("http://yt/trailer")
+    qapp.processEvents()
+    assert player.start == 0.0
+    assert seen == []
+    controller.flushProgress()
+    assert progress.records == []
+
+
 def test_records_context_on_flush(qapp: object) -> None:
     player = FakePlayer()
     progress = FakeProgress()

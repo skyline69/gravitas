@@ -318,7 +318,15 @@ Item {
                 visible: detailController && detailController.trailerUrl.length > 0
                 text: "Play trailer"
                 ghost: true
-                onClicked: detail.playUrl(detailController.trailerUrl, ({}))
+                // A trailer is not the title: without clearing the media
+                // context, the controller resumes the trailer from wherever
+                // the LAST watched thing stopped, records the trailer's
+                // position over that title's progress every 5s, and
+                // scrobbles the trailer to Trakt as that title.
+                onClicked: {
+                    playerController.setMediaContext({})
+                    detail.playUrl(detailController.trailerUrl, ({}))
+                }
             }
 
             // episodes (series with videos only)
