@@ -385,3 +385,70 @@ def test_catalog_row_strip_instantiates_without_warnings(qml_warnings: list[str]
         """
     )
     assert qml_warnings == []
+
+
+def test_stream_row_grows_with_its_content(qapp: object) -> None:
+    """The row must size itself to its badges, not to a hardcoded height.
+
+    It used to be `height: 64` against a 62px content stack -- two pixels of
+    slack, and the content was verticalCenter-anchored, so the moment a larger
+    font or one more chip row pushed it past 64 the badges escaped through
+    *both* edges and drew on top of the neighbouring rows.
+    """
+    from PySide6.QtTest import QTest
+
+    engine = QQmlEngine()
+    engine.addImportPath(str(_QML_DIR))
+    component = QQmlComponent(engine)
+    component.setData(
+        b"""
+        import QtQuick
+        import QtQuick.Window
+        import "."
+
+        Window {
+            width: 900; height: 400; visible: true
+            property real plainHeight: plain.height
+            property real plainImplicit: plain.implicitHeight
+            property real chippedHeight: chipped.height
+            property real chippedImplicit: chipped.implicitHeight
+
+            StreamRow {
+                id: plain
+                width: 900
+                name: "Some.Release.2026.1080p"
+                subtitle: "a single dim line"
+            }
+            StreamRow {
+                id: chipped
+                y: 200
+                width: 900
+                name: "Obsession"
+                subtitle: "Obsession (2026) HEVC DV HDR10 Atmos TrueHD 7.1"
+                detailText: "\\u27e8Remux\\u27e9"
+                resolution: "4K"
+                instant: true
+                stars: 5
+                tags: ["Bluray", "HDR10", "DV", "Atmos", "TrueHD", "Remux",
+                       "EN", "DE", "FR", "ES", "IT", "NL", "PL", "PT"]
+            }
+        }
+        """,
+        _COMPONENTS_DIR.as_uri() + "/probe.qml",
+    )
+    assert not component.isError(), component.errorString()
+    win = component.create()
+    assert win is not None, component.errorString()
+    QTest.qWait(200)  # window exposure, so the positioners settle
+
+    plain_h = win.property("plainHeight")
+    chipped_h = win.property("chippedHeight")
+    # Nothing may be taller than the rect that is supposed to contain it.
+    assert plain_h >= win.property("plainImplicit")
+    assert chipped_h >= win.property("chippedImplicit")
+    # A plain row keeps the established 64px look...
+    assert plain_h == 64
+    # ...while chips that wrap onto a second line grow the row instead of
+    # spilling out of it.
+    assert chipped_h > plain_h, f"row did not grow for wrapped chips: {chipped_h} <= {plain_h}"
+    win.deleteLater()
