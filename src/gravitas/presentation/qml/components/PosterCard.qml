@@ -9,13 +9,20 @@ Item {
     // released to the reuse pool by a REMOVAL (filter narrowed, board shrank)
     // is not hidden by the view — it keeps painting at its old slot while the
     // model says it's gone (the "0 / 46 but cards everywhere" filter bug).
-    // Hide on pool, show on reuse. Only visibility here: opacity is left
-    // alone because strip delegates bind it (edge dissolve) and an imperative
-    // write would sever that binding.
-    GridView.onPooled: visible = false
-    GridView.onReused: visible = true
-    ListView.onPooled: visible = false
-    ListView.onReused: visible = true
+    //
+    // Derived from the view's own bookkeeping rather than toggled in
+    // onPooled/onReused: a view sets a delegate's index to -1 while it sits in
+    // the pool and back to a real row when it is handed out again. Two
+    // imperative writes racing on one property can settle on the wrong one —
+    // pool, reuse and pool again inside a frame and the card stays invisible
+    // for the rest of the session, showing an empty page for rows the model
+    // still holds. A binding cannot get stuck: it is recomputed from the
+    // index, whatever order the events arrive in.
+    //
+    // Only visibility is derived here. Opacity is left alone because strip
+    // delegates bind it (edge dissolve) and a write would sever that binding.
+    readonly property int viewIndex: typeof index !== "undefined" ? index : 0
+    visible: viewIndex >= 0
 
     property string title
     property string posterUrl

@@ -452,3 +452,87 @@ def test_stream_row_grows_with_its_content(qapp: object) -> None:
     # spilling out of it.
     assert chipped_h > plain_h, f"row did not grow for wrapped chips: {chipped_h} <= {plain_h}"
     win.deleteLater()
+
+
+def test_a_recycled_card_is_hidden_while_pooled_and_shown_when_handed_back(
+    qapp: object, app_font: None
+) -> None:
+    """The blank-page bug, at delegate level.
+
+    A view keeps recycled delegates around after their rows are gone; Qt does
+    not hide them, so a card released by a removal keeps painting where it sat.
+    Hiding it in onPooled and unhiding it in onReused is two imperative writes
+    to one property, and tab switches fire both faster than frames arrive:
+    settle on the wrong one and the card stays invisible for good, leaving an
+    empty page over a model that still holds the rows. Visibility is derived
+    from the index instead -- -1 while pooled -- which cannot land out of order.
+
+    The model here shrinks (pooling delegates) and grows again (handing them
+    back), while a timer watches every delegate on every frame.
+    """
+    from PySide6.QtTest import QTest
+
+    engine = QQmlEngine()
+    engine.addImportPath(str(_QML_DIR))
+    component = QQmlComponent(engine)
+    component.setData(
+        b"""
+        import QtQuick
+        import "."
+
+        Window {
+            width: 900; height: 400
+            visible: true
+            property int rows: 12
+            // Highest number of delegates ever caught disagreeing with their
+            // own index -- sampled every frame, so a single bad frame counts.
+            property int worstMismatch: 0
+            ListView {
+                id: list
+                anchors.fill: parent
+                orientation: ListView.Horizontal
+                reuseItems: true
+                model: parent.rows
+                delegate: PosterCard {
+                    required property int index
+                    title: "card " + index
+                    posterUrl: ""
+                }
+            }
+            Timer {
+                interval: 16; running: true; repeat: true
+                onTriggered: {
+                    var bad = 0
+                    var kids = list.contentItem.children
+                    for (var i = 0; i < kids.length; i++) {
+                        var item = kids[i]
+                        if (item.viewIndex === undefined)
+                            continue
+                        if ((item.viewIndex >= 0) !== item.visible)
+                            bad++
+                    }
+                    if (bad > worstMismatch)
+                        worstMismatch = bad
+                }
+            }
+        }
+        """,
+        _COMPONENTS_DIR.as_uri() + "/probe.qml",
+    )
+    assert not component.isError(), component.errorString()
+    win = component.create()
+    assert win is not None, component.errorString()
+    QTest.qWait(200)
+
+    # Shrink and grow repeatedly: every shrink pools delegates, every grow
+    # hands them back, and the switches land faster than the view repaints.
+    for rows in (2, 12, 1, 12, 3, 12, 2, 12):
+        win.setProperty("rows", rows)
+        QTest.qWait(40)
+    QTest.qWait(200)
+
+    assert win.property("worstMismatch") == 0, (
+        "a delegate's visibility disagreed with its index: a pooled card was "
+        "still painting, or an attached one stayed hidden"
+    )
+    win.deleteLater()

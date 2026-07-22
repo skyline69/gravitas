@@ -64,11 +64,18 @@ Item {
         topMargin: 80
         spacing: 28
         clip: true
-        // Pre-build rows well below the fold so their posters are fetched
-        // and decoded before the user scrolls to them — scrolling should
-        // reveal finished cards, not loading spinners. Delegate creation is
-        // spread over frames by the view, so this does not stall the reveal.
-        cacheBuffer: 6000
+        // Pre-build rows below the fold so their posters are fetched and
+        // decoded before the user scrolls to them — scrolling should reveal
+        // finished cards, not loading spinners. Delegate creation is spread
+        // over frames by the view, so this does not stall the reveal.
+        //
+        // Ten rows' worth, not the sixteen this used to hold: each row keeps
+        // a strip of decoded posters alive, and on a Retina panel every one
+        // of those textures is four times the pixels. Measured on Linux at
+        // 1x, trimming it took the process from 272 MB to 244 MB with the
+        // same rows on screen; a 2x display pays that difference several
+        // times over, in texture uploads as well as memory.
+        cacheBuffer: 3600
         // Recycle row delegates that do scroll out instead of destroying and
         // re-instantiating them — creation cost is the other half of scroll
         // stutter.
@@ -89,11 +96,17 @@ Item {
             width: rowsView.width - 24
             height: 336
             asynchronous: true
-            // Same recycled-delegate hygiene as PosterCard: a row strip
-            // released to the pool by a tab switch's row REMOVAL keeps
-            // painting at its old slot until reused. Hide it while pooled.
-            ListView.onPooled: visible = false
-            ListView.onReused: visible = true
+            // Same recycled-delegate hygiene as PosterCard, and derived the
+            // same way: the view sets index to -1 while a row sits in the
+            // pool. Tab switches are what pool rows here, and they arrive as
+            // fast as the user can click, so this must not depend on two
+            // imperative writes landing in the right order — a row left
+            // hidden while attached is a blank home page.
+            // NOT a `required property int index`: declaring one switches the
+            // delegate to required-properties mode, and `model` stops being
+            // injected — every model.title below turns into a ReferenceError.
+            readonly property int rowIndex: typeof index !== "undefined" ? index : 0
+            visible: rowIndex >= 0
             sourceComponent: CatalogRowStrip {
                 width: rowsView.width - 24
                 // The page view's visible bounds in this row's coordinates,
