@@ -13,8 +13,7 @@ import contextlib
 import logging
 from collections.abc import Awaitable, Callable
 
-from PySide6.QtCore import Property, QObject, QUrl, Signal, Slot
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import Property, QObject, Signal, Slot
 from qasync import asyncSlot  # type: ignore[import-untyped]
 
 from gravitas.application.trakt_account import TraktAccount
@@ -22,13 +21,14 @@ from gravitas.application.trakt_rows import TraktRow, TraktRows
 from gravitas.application.trakt_sync import TraktSync
 from gravitas.domain.errors import TraktError
 from gravitas.domain.models import TraktAuth
+from gravitas.presentation.external_url import open_in_browser
 from gravitas.presentation.models.catalog_rows_model import CatalogRowsModel
 
 _log = logging.getLogger(__name__)
 
 
 def _open_in_browser(url: str) -> None:
-    QDesktopServices.openUrl(QUrl(url))
+    open_in_browser(url)
 
 
 class TraktController(QObject):

@@ -6,23 +6,72 @@
   <name>Gravitas</name>
   <summary>Minimal, no-nonsense alternative to Stremio</summary>
   <developer id="dev.skyline">
-    <name>skyline</name>
+    <name>skyline69</name>
   </developer>
   <url type="homepage">https://github.com/skyline69/gravitas</url>
+  <url type="bugtracker">https://github.com/skyline69/gravitas/issues</url>
+  <url type="vcs-browser">https://github.com/skyline69/gravitas</url>
   <description>
     <p>
-      A minimal, no-nonsense alternative to Stremio that consumes Stremio addons.
-      Browse catalogs, open details, and play direct HTTP/HLS streams via libmpv.
+      Gravitas is a minimal, no-nonsense media center that speaks the Stremio
+      addon protocol. Install any Stremio addon by pasting its manifest URL,
+      browse its catalogs, and play direct HTTP/HLS streams through an
+      embedded libmpv player.
     </p>
+    <ul>
+      <li>Stremio addon support — Cinemeta metadata out of the box, one-click stremio:// installs from addon sites</li>
+      <li>Embedded mpv playback with subtitle styling, track selection and resume</li>
+      <li>Cross-addon search, watchlist, continue watching and watched-progress everywhere</li>
+      <li>Trakt sync for progress, history and personalized rows</li>
+      <li>Fast: aggressive caching, HTTP/2 fan-out, instant warm starts</li>
+    </ul>
   </description>
   <launchable type="desktop-id">dev.skyline.Gravitas.desktop</launchable>
+  <provides>
+    <binary>gravitas</binary>
+  </provides>
   <categories>
     <category>AudioVideo</category>
     <category>Video</category>
     <category>Player</category>
   </categories>
+  <keywords>
+    <keyword>stremio</keyword>
+    <keyword>streaming</keyword>
+    <keyword>movies</keyword>
+    <keyword>series</keyword>
+    <keyword>mpv</keyword>
+    <keyword>media center</keyword>
+  </keywords>
+  <branding>
+    <color type="primary" scheme_preference="light">#8B5CF6</color>
+    <color type="primary" scheme_preference="dark">#141414</color>
+  </branding>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://github.com/user-attachments/assets/b040651c-272e-47e1-8f58-09d8fd2a2faa</image>
+      <caption>Home: catalog rows with Continue Watching</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://github.com/user-attachments/assets/87b18ffb-bb31-4cc5-aa25-0fb48844928c</image>
+      <caption>Title page with streams and episodes</caption>
+    </screenshot>
+  </screenshots>
+  <requires>
+    <display_length compare="ge">720</display_length>
+    <internet>always</internet>
+  </requires>
+  <recommends>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </recommends>
   <content_rating type="oars-1.1" />
   <releases>
-    <release version="0.1.0" date="2026-07-16" />
+    <release version="0.1.0" date="2026-07-16">
+      <description>
+        <p>First public build: addon installs, catalog browsing, embedded mpv
+        playback, watchlist, continue watching, Trakt sync and search.</p>
+      </description>
+    </release>
   </releases>
 </component>

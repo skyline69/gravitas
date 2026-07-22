@@ -5,14 +5,14 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
-from PySide6.QtCore import Property, QObject, QTimer, QUrl, Signal, Slot
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
 from gravitas.application.watch_progress import WatchProgressRepository
 from gravitas.domain.errors import PlaybackFailed
 from gravitas.domain.models import MediaType, SubtitleStyle
 from gravitas.domain.ports import MediaPlayer
 from gravitas.logging_setup import abbreviate_url
+from gravitas.presentation.external_url import open_in_browser
 
 _log = logging.getLogger(__name__)
 
@@ -175,7 +175,7 @@ class PlayerController(QObject):
         """
         if url:
             _log.info("opening external stream in browser: %s", abbreviate_url(url))
-            QDesktopServices.openUrl(QUrl(url))
+            open_in_browser(url)
 
     @Slot()
     def stop(self) -> None:

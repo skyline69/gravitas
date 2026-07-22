@@ -21,8 +21,11 @@ sdk: org.freedesktop.Sdk
 command: gravitas
 
 # The Sdk 24.08 ships AppStream 1.0 (appstreamcli compose), not the legacy
-# `appstream-compose` binary flatpak-builder tries to run. We install the
-# metainfo manually below, so skip the compose step rather than fail on it.
+# `appstream-compose` binary flatpak-builder tries to run — so the built-in
+# step is disabled and the catalog is composed EXPLICITLY in build-commands
+# below. Without a composed catalog under /app/share/app-info, software
+# centers show the bare desktop entry: "Unknown author", "Unknown license",
+# no description — exactly what Discover displayed for the sideloaded bundle.
 appstream-compose: false
 
 finish-args:
@@ -49,6 +52,14 @@ modules:
           /app/share/icons/hicolor/256x256/apps/dev.skyline.Gravitas.png
       - install -Dm644 dev.skyline.Gravitas.metainfo.xml
           /app/share/metainfo/dev.skyline.Gravitas.metainfo.xml
+      # Compose the AppStream catalog the app-store UIs actually read (the
+      # replacement for the disabled appstream-compose step above). Must run
+      # after the desktop file, icon and metainfo are all installed.
+      # --prefix=/ because the unit dir (/app) is joined with the prefix when
+      # locating share/ — /app + /app would scan /app/app/share and fail.
+      - appstreamcli compose --origin=dev.skyline.Gravitas --prefix=/
+          --result-root=/app --data-dir=/app/share/app-info/xmls
+          --icons-dir=/app/share/app-info/icons/flatpak /app
     sources:
       # dist/ holds the PyInstaller output (Gravitas/); build the bundle first.
       - type: dir

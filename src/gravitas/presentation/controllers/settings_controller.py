@@ -13,6 +13,7 @@ from gravitas.application.uninstall_addon import UninstallAddon
 from gravitas.domain.errors import GravitasError
 from gravitas.domain.models import PersistedSettings, SubtitleStyle, TraktAuth
 from gravitas.domain.ports import SettingsStore
+from gravitas.presentation.external_url import open_in_browser
 from gravitas.presentation.models.addon_list_model import AddonListModel
 
 
@@ -103,6 +104,13 @@ class SettingsController(QObject):
             self._mdblist_key_holder.key = key.strip() or None
             self.mdblistKeyChanged.emit()
         self.persist()
+
+    @Slot(str)
+    def openLink(self, url: str) -> None:
+        """External links from the Settings page. Routed through
+        open_in_browser: QML's Qt.openUrlExternally spawns the browser under
+        the frozen bundle's LD_LIBRARY_PATH, where it dies silently."""
+        open_in_browser(url)
 
     @Slot()
     def persist(self) -> None:

@@ -11,14 +11,14 @@ from __future__ import annotations
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import QObject, QUrl, Signal, Slot
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import QObject, Signal, Slot
 from qasync import asyncSlot  # type: ignore[import-untyped]
 
 from gravitas.application.deep_link import parse_deep_link
 from gravitas.application.preview_addon import PreviewAddon
 from gravitas.domain.errors import GravitasError
 from gravitas.domain.models import AddonManifest
+from gravitas.presentation.external_url import open_in_browser
 
 
 class _InstallsAddon(Protocol):
@@ -96,5 +96,4 @@ class DeepLinkController(QObject):
     def openConfigure(self, url: str) -> None:
         """Send the user to the addon's own configuration page."""
         self._pending = None
-        if url:
-            QDesktopServices.openUrl(QUrl(url))
+        open_in_browser(url)

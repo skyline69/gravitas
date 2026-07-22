@@ -186,6 +186,19 @@ async def test_subtitle_style_updates_persist_and_notify(qapp: object) -> None:
     assert styles.style == SubtitleStyle()
 
 
+async def test_open_link_routes_through_env_scrubbed_browser_helper(qapp: object) -> None:
+    """Settings' external links must go through open_in_browser, not
+    Qt.openUrlExternally — the QML path inherits the frozen bundle's
+    LD_LIBRARY_PATH and the spawned browser dies against bundled libs."""
+    from unittest.mock import patch
+
+    repo = AddonRepository(FakeSource())
+    c = SettingsController(UninstallAddon(repo), repo, AddonListModel(), FakeCatalogController())
+    with patch("gravitas.presentation.controllers.settings_controller.open_in_browser") as opened:
+        c.openLink("https://github.com/skyline69/gravitas")
+    opened.assert_called_once_with("https://github.com/skyline69/gravitas")
+
+
 class _OnboardingHolder:
     done: bool = False
 

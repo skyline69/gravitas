@@ -733,7 +733,10 @@ Item {
                     font.underline: linkHover.hovered
                     HoverHandler { id: linkHover; cursorShape: Qt.PointingHandCursor }
                     TapHandler {
-                        onTapped: Qt.openUrlExternally("https://github.com/skyline69/gravitas")
+                        // Through the controller, not Qt.openUrlExternally:
+                        // the QML path spawns the browser under the frozen
+                        // bundle's library path, where it dies silently.
+                        onTapped: settingsController.openLink("https://github.com/skyline69/gravitas")
                     }
                 }
             }

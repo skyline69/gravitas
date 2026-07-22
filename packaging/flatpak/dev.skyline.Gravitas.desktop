@@ -1,8 +1,13 @@
 [Desktop Entry]
 Name=Gravitas
+GenericName=Media Center
 Comment=Minimal, no-nonsense alternative to Stremio
 Exec=gravitas %u
 Icon=dev.skyline.Gravitas
 Type=Application
+Terminal=false
+StartupNotify=true
+SingleMainWindow=true
 Categories=AudioVideo;Video;Player;
+Keywords=stremio;streaming;movies;series;mpv;media;
 MimeType=x-scheme-handler/stremio;

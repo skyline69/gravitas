@@ -14,22 +14,25 @@ rm -rf "$APPDIR"
 mkdir -p "$APPDIR/usr"
 cp -a "$DIST" "$APPDIR/usr/app"
 
-# MimeType + `%u` register Gravitas as the stremio:// handler, so an addon
-# site's "Install" link opens here. The desktop entry only takes effect once
-# the AppImage is integrated (appimaged, Gear Lever, or copying this file to
+# One desktop entry + metainfo, shared with the Flatpak (packaging/flatpak/)
+# so store metadata never drifts between the two builds. MimeType + `%u`
+# register Gravitas as the stremio:// handler once the AppImage is integrated
+# (appimaged, Gear Lever, or copying the desktop file to
 # ~/.local/share/applications and running update-desktop-database) — an
 # un-integrated AppImage registers nothing.
-cat > "$APPDIR/gravitas.desktop" <<'EOF'
-[Desktop Entry]
-Name=Gravitas
-Comment=Minimal, no-nonsense alternative to Stremio
-Exec=gravitas %u
-Icon=gravitas
-Type=Application
-Categories=AudioVideo;Video;Player;
-MimeType=x-scheme-handler/stremio;
-EOF
-cp "$ROOT/packaging/gravitas.png" "$APPDIR/gravitas.png"
+APP_ID="dev.skyline.Gravitas"
+cp "$ROOT/packaging/flatpak/$APP_ID.desktop" "$APPDIR/$APP_ID.desktop"
+cp "$ROOT/packaging/gravitas.png" "$APPDIR/$APP_ID.png"
+# Store-facing metadata: appimagetool embeds usr/share/metainfo, and tools
+# like AppImageHub/Gear Lever read it for name/author/license. The desktop
+# file is ALSO installed under usr/share/applications — appstream tooling
+# resolves the metainfo's <launchable> against that path, not the top level.
+install -Dm644 "$ROOT/packaging/flatpak/$APP_ID.metainfo.xml" \
+    "$APPDIR/usr/share/metainfo/$APP_ID.appdata.xml"
+install -Dm644 "$ROOT/packaging/flatpak/$APP_ID.desktop" \
+    "$APPDIR/usr/share/applications/$APP_ID.desktop"
+install -Dm644 "$ROOT/packaging/gravitas.png" \
+    "$APPDIR/usr/share/icons/hicolor/256x256/apps/$APP_ID.png"
 
 cat > "$APPDIR/AppRun" <<'EOF'
 #!/bin/sh
@@ -49,5 +52,9 @@ fi
 # APPIMAGE_EXTRACT_AND_RUN lets it (itself an AppImage) run where FUSE is
 # unavailable — CI containers, sandboxes — instead of erroring on mount.
 export ARCH APPIMAGE_EXTRACT_AND_RUN=1
-"$TOOL" "$APPDIR" "$ROOT/dist/Gravitas-${ARCH}.AppImage"
+# --no-appstream: appimagetool's appstreamcli check fetches every <url> in the
+# metainfo and fails on warnings — with the repo private those URLs 404 and
+# abort the build. The metainfo is validated structurally in-repo instead:
+#   appstreamcli validate --no-net packaging/flatpak/dev.skyline.Gravitas.metainfo.xml
+"$TOOL" --no-appstream "$APPDIR" "$ROOT/dist/Gravitas-${ARCH}.AppImage"
 echo "built dist/Gravitas-${ARCH}.AppImage"
