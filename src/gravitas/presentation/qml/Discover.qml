@@ -21,7 +21,10 @@ Item {
         // count insisting otherwise). Snap to the top of the new board.
         // Explicit contentY, not positionViewAtBeginning(): the latter
         // ignores topMargin and parks the first row under the floating bar.
-        function onBoardReplaced() { grid.contentY = grid.originY - grid.topMargin }
+        function onBoardReplaced() {
+            grid.contentY = grid.originY - grid.topMargin
+            boardFade.restart()
+        }
     }
 
     // The proxy is shared across Discover visits (a context property), but
@@ -238,24 +241,27 @@ Item {
         reuseItems: true
         ScrollBar.vertical: AppScrollBar {}
         model: discoverProxy
-        // Pure fades, deliberately no y motion and no displaced glide: with a
-        // grid this dense the position animations read as the whole page
-        // "falling" whenever the filter or the board changes. Survivors snap
-        // to their slots; entering cards fade in.
-        add: Transition {
-            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durMed; easing.type: Easing.OutCubic }
-        }
-        // Initial page load and filter-driven model resets fade in the same
-        // way (`add` doesn't run on a model reset).
-        populate: Transition {
-            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durMed * 2; easing.type: Easing.OutCubic }
+        // The board dissolves in as ONE item, not as N animated delegates.
+        // Per-card add/populate transitions animate each delegate's own
+        // opacity, and a switch that lands mid-fade (any dropdown change, and
+        // they come in bursts) stops those animations wherever they happened
+        // to be: cards left at 0.4 that no later transition ever touches
+        // again, since transitions don't re-run for reused items. Fading the
+        // view itself has one animation and one terminal value — the last
+        // restart always finishes at 1, whatever it interrupted. Still no y
+        // motion: with a grid this dense, position animations read as the
+        // whole page falling.
+        opacity: 1
+        NumberAnimation {
+            id: boardFade
+            target: grid
+            property: "opacity"
+            from: 0.25
+            to: 1
+            duration: Theme.durMed * 2
+            easing.type: Easing.OutCubic
         }
         delegate: PosterCard {
-            // A pooled delegate keeps whatever opacity an interrupted
-            // add/populate fade left on it — reused without this it renders
-            // as a permanently faded "ghost" card (transitions never re-run
-            // for reused items).
-            GridView.onReused: opacity = 1
             // fill the whole cell and centre the poster inside it, so the
             // hover scale-up grows into the cell's slack instead of past the
             // grid's clip edge (fixes edge-column/row clipping)
