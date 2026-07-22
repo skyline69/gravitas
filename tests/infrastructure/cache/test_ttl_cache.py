@@ -1,4 +1,4 @@
-from gravitas.infrastructure.cache.ttl_cache import TtlCache
+from gravitas.infrastructure.cache.ttl_cache import TtlCache, json_size
 
 
 class FakeClock:
@@ -98,3 +98,65 @@ def test_uses_a_monotonic_clock_by_default() -> None:
 
     cache: TtlCache[str] = TtlCache()
     assert cache._clock is time.monotonic
+
+
+def test_json_size_counts_nested_containers_and_strings() -> None:
+    """The budget is only as good as the measurement: sys.getsizeof on a dict
+    reports the table, not the megabytes of strings hanging off it."""
+    import sys
+
+    payload = {"a": "x" * 100_000}
+    assert sys.getsizeof(payload) < 1_000  # what a naive measurement would say
+    assert json_size(payload) > 100_000
+    assert json_size({"a": "x"}) < 1_000
+
+
+def test_json_size_counts_a_shared_object_once() -> None:
+    shared = {"payload": "y" * 10_000}
+    twice = json_size({"a": shared, "b": shared})
+    once = json_size({"a": shared})
+    assert twice < once + 10_000
+
+
+def test_evicts_least_recently_used_once_over_the_byte_budget() -> None:
+    cache: TtlCache[dict[str, str]] = TtlCache(max_bytes=json_size({"v": "x" * 4_000}) * 2)
+    cache.put("a", {"v": "x" * 4_000}, ttl=60)
+    cache.put("b", {"v": "y" * 4_000}, ttl=60)
+    cache.get("a")  # 'b' is now the least recently used
+    cache.put("c", {"v": "z" * 4_000}, ttl=60)
+    assert cache.get("a") is not None
+    assert cache.get("b") is None
+    assert cache.get("c") is not None
+
+
+def test_a_single_entry_larger_than_the_budget_is_not_stored() -> None:
+    """Storing it would blow the budget on its own and evict everything else
+    for a value that cannot fit."""
+    cache: TtlCache[dict[str, str]] = TtlCache(max_bytes=1_000)
+    cache.put("huge", {"v": "x" * 50_000}, ttl=60)
+    assert cache.get("huge") is None
+    assert len(cache) == 0
+
+
+def test_replacing_a_key_replaces_its_cost_too() -> None:
+    cache: TtlCache[dict[str, str]] = TtlCache(max_bytes=json_size({"v": "x" * 4_000}) * 2)
+    for _ in range(5):
+        cache.put("k", {"v": "x" * 4_000}, ttl=60)
+    cache.put("other", {"v": "y" * 4_000}, ttl=60)
+    # Five writes of the same key must not have consumed five entries' worth.
+    assert cache.get("k") is not None
+    assert cache.get("other") is not None
+
+
+def test_expiry_frees_the_bytes_it_was_holding() -> None:
+    clock = FakeClock()
+    cache: TtlCache[dict[str, str]] = TtlCache(
+        clock=clock, max_bytes=json_size({"v": "x" * 4_000}) * 2
+    )
+    cache.put("a", {"v": "x" * 4_000}, ttl=10)
+    clock.now = 11
+    assert cache.get("a") is None  # expired, and its cost released with it
+    cache.put("b", {"v": "y" * 4_000}, ttl=60)
+    cache.put("c", {"v": "z" * 4_000}, ttl=60)
+    assert cache.get("b") is not None
+    assert cache.get("c") is not None

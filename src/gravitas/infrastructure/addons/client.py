@@ -28,7 +28,7 @@ from gravitas.domain.models import (
 )
 from gravitas.infrastructure.addons import parsing
 from gravitas.infrastructure.cache.json_disk_cache import JsonDiskCache
-from gravitas.infrastructure.cache.ttl_cache import TtlCache
+from gravitas.infrastructure.cache.ttl_cache import TtlCache, json_size
 from gravitas.logging_setup import abbreviate_url
 
 _log = logging.getLogger(__name__)
@@ -41,6 +41,13 @@ _MANIFEST_SUFFIX = "manifest.json"
 # entries persist, or an upgraded addon would never be seen again. A day
 # bounds every kind without touching the in-memory policy.
 _DISK_FRESH_CAP = 24 * 60 * 60.0
+
+
+def _parse_and_size(response: httpx.Response) -> tuple[Any, int]:
+    """Decode a response and measure what it will cost to cache, together, so
+    both run on the worker thread instead of the event loop."""
+    data = response.json()
+    return data, json_size(data)
 
 
 class AddonClient:
@@ -114,14 +121,18 @@ class AddonClient:
             len(response.content) / 1024,
         )
         try:
-            data = await asyncio.to_thread(response.json)
+            # Sized on the worker thread, not the loop: the memory cache is
+            # bounded in bytes and measuring a parsed tree walks all of it
+            # (~4 ms for a catalog page), which is a visible hitch if it lands
+            # between two frames.
+            data, cost = await asyncio.to_thread(_parse_and_size, response)
         except ValueError as exc:
             raise InvalidResponse(f"non-JSON response from {url}") from exc
         if not isinstance(data, dict):
             raise InvalidResponse(f"expected JSON object from {url}")
         # Only a good response is cached: a dead addon must not poison the
         # cache for the next quarter of an hour.
-        self._cache.put(url, data, ttl=cache_for)
+        self._cache.put(url, data, ttl=cache_for, cost=cost)
         if self._disk is not None and cache_for > 0:
             await asyncio.to_thread(self._disk.put, url, data)
         return data
