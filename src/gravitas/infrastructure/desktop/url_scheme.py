@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 import os
 
-from PySide6.QtCore import QCoreApplication, QEvent, QObject, Signal
+from PySide6.QtCore import QCoreApplication, QEvent, QEventLoop, QObject, QTimer, Signal
 from PySide6.QtGui import QFileOpenEvent
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
@@ -34,7 +34,6 @@ _log = logging.getLogger(__name__)
 # Enough that a second process fails fast rather than hanging the click, and
 # generous enough to survive a busy machine.
 _CONNECT_TIMEOUT_MS = 500
-_WRITE_TIMEOUT_MS = 1000
 # How long the forwarder waits for the instance to read and hang up. See
 # forward_to_running_instance: on Windows this wait is what keeps the payload
 # alive, so it must outlast a GUI thread that is briefly busy.
@@ -75,6 +74,10 @@ def forward_to_running_instance(payload: str, *, name: str | None = None) -> boo
     and bytes still unread when the writing end closes are *discarded*. Writing
     and hanging up immediately -- which is enough on a Unix socket, where the
     kernel keeps the buffer -- silently dropped every link there.
+
+    The wait turns a local event loop rather than blocking in waitFor*: that is
+    what actually drives a QLocalSocket's I/O, and it is also the only way the
+    round-trip works when both ends share a thread, as they do in the tests.
     """
     socket = QLocalSocket()
     socket.connectToServer(name or socket_name())
@@ -82,22 +85,40 @@ def forward_to_running_instance(payload: str, *, name: str | None = None) -> boo
         return False
     try:
         socket.write(payload.encode("utf-8"))
-        # flush() then wait: this runs before any event loop exists (the GUI is
-        # not built yet), so nothing else will ever push these bytes out.
         socket.flush()
-        if not socket.waitForBytesWritten(_WRITE_TIMEOUT_MS):
-            # Still True: the connect proved an instance is alive and holding
-            # the databases. Dropping one link beats booting a second copy.
-            _log.warning("connected to the running instance but could not send %s", payload)
-            return True
-        if not socket.waitForDisconnected(_HANDOVER_TIMEOUT_MS):
-            # It never acknowledged. On Unix the payload is in the socket
-            # buffer regardless; on Windows it may be lost. Either way a second
-            # instance is the worse answer, so this still reports handover.
+        if not _wait_for_handover(socket):
+            # It never acknowledged. Still True: the connect proved an instance
+            # is alive and holding the databases, and dropping one link beats
+            # booting a second copy over the same SQLite files.
             _log.warning("the running instance did not acknowledge %s", payload)
         return True
     finally:
         socket.disconnectFromServer()
+
+
+def _wait_for_handover(socket: QLocalSocket, timeout_ms: int = _HANDOVER_TIMEOUT_MS) -> bool:
+    """Spin until the peer hangs up, or the timeout. True if it hung up.
+
+    Without a QCoreApplication there is no loop to turn -- a caller that far
+    off the normal path gets the blocking wait, which is correct on Unix and
+    the best available answer anywhere else.
+    """
+    if QCoreApplication.instance() is None:
+        return bool(socket.waitForDisconnected(timeout_ms))
+    if socket.state() == QLocalSocket.LocalSocketState.UnconnectedState:
+        return True
+    loop = QEventLoop()
+    hung_up = False
+
+    def _quit() -> None:
+        nonlocal hung_up
+        hung_up = True
+        loop.quit()
+
+    socket.disconnected.connect(_quit)
+    QTimer.singleShot(timeout_ms, loop.quit)
+    loop.exec()
+    return hung_up
 
 
 class DeepLinkListener(QObject):

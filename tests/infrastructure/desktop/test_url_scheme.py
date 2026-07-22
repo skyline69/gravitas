@@ -4,11 +4,10 @@ point of the module, and a fake socket would only prove the fake works."""
 from __future__ import annotations
 
 import os
-from collections.abc import Callable, Iterator
-from concurrent.futures import Future, ThreadPoolExecutor
+from collections.abc import Iterator
 
 import pytest
-from PySide6.QtCore import QCoreApplication, QEventLoop, QTimer
+from PySide6.QtCore import QCoreApplication
 from PySide6.QtNetwork import QLocalServer
 
 from gravitas.infrastructure.desktop.url_scheme import (
@@ -30,86 +29,39 @@ def name() -> Iterator[str]:
     QLocalServer.removeServer(unique)
 
 
-@pytest.fixture
-def forward() -> Iterator[Callable[[str, str], Future[bool]]]:
-    """Run the forwarder off this thread and hand back its pending result.
-
-    In production the forwarder IS another process: it blocks until the running
-    instance reads and hangs up, and that instance's event loop is its own.
-    Here both ends share one thread, so calling it inline would block the very
-    loop that has to accept the connection -- the handover would time out and
-    prove nothing. A worker thread restores the production shape.
-    """
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        yield lambda payload, name: pool.submit(forward_to_running_instance, payload, name=name)
-
-
-def _spin(predicate: object, timeout_ms: int = 2000) -> None:
-    """Turn the event loop until `predicate()` or the timeout.
-
-    Condition-based, not a fixed sleep: the socket is genuinely asynchronous,
-    and a sleep long enough to be reliable is long enough to slow the suite.
-    """
-    loop = QEventLoop()
-    timer = QTimer()
-    timer.setInterval(10)
-    deadline = QTimer()
-    deadline.setSingleShot(True)
-
-    def check() -> None:
-        if predicate():  # type: ignore[operator]
-            loop.quit()
-
-    timer.timeout.connect(check)
-    deadline.timeout.connect(loop.quit)
-    timer.start()
-    deadline.start(timeout_ms)
-    loop.exec()
-    timer.stop()
-
-
 def test_forward_returns_false_when_nothing_is_listening(qapp: object, name: str) -> None:
     # The primary launch path: no instance running, so the caller must start
     # normally rather than exit thinking it forwarded.
     assert forward_to_running_instance(_LINK, name=name) is False
 
 
-def test_listener_receives_a_forwarded_link(
-    qapp: object, name: str, forward: Callable[[str, str], Future[bool]]
-) -> None:
+def test_listener_receives_a_forwarded_link(qapp: object, name: str) -> None:
     received: list[str] = []
     listener = DeepLinkListener(name=name)
     assert listener.listen() is True
     listener.linkReceived.connect(received.append)
 
-    pending = forward(_LINK, name)
-    _spin(lambda: received)
+    # The forwarder turns an event loop until the listener hangs up on it --
+    # which is what keeps the payload alive on a Windows named pipe -- and that
+    # same loop is what lets the listener, here in the same thread, run at all.
+    assert forward_to_running_instance(_LINK, name=name) is True
 
     assert received == [_LINK]
-    # The forwarder only returns once the listener hangs up on it, which is
-    # what keeps the payload alive on a Windows named pipe.
-    assert pending.result(timeout=5) is True
 
 
-def test_listener_receives_several_links_in_one_session(
-    qapp: object, name: str, forward: Callable[[str, str], Future[bool]]
-) -> None:
+def test_listener_receives_several_links_in_one_session(qapp: object, name: str) -> None:
     received: list[str] = []
     listener = DeepLinkListener(name=name)
     assert listener.listen() is True
     listener.linkReceived.connect(received.append)
 
     for i in range(3):
-        pending = forward(f"{_LINK}?n={i}", name)
-        _spin(lambda i=i: len(received) > i)  # type: ignore[misc]
-        assert pending.result(timeout=5) is True
+        assert forward_to_running_instance(f"{_LINK}?n={i}", name=name) is True
 
     assert received == [f"{_LINK}?n={i}" for i in range(3)]
 
 
-def test_listen_reclaims_a_socket_left_by_a_crash(
-    qapp: object, name: str, forward: Callable[[str, str], Future[bool]]
-) -> None:
+def test_listen_reclaims_a_socket_left_by_a_crash(qapp: object, name: str) -> None:
     # A crashed instance leaves the socket file behind on Linux. Without
     # removeServer() every later launch fails to listen and silently stops
     # handling links -- with no crash to point at.
@@ -122,14 +74,12 @@ def test_listen_reclaims_a_socket_left_by_a_crash(
 
     received: list[str] = []
     listener.linkReceived.connect(received.append)
-    pending = forward(_LINK, name)
-    _spin(lambda: received)
+    assert forward_to_running_instance(_LINK, name=name) is True
     assert received == [_LINK]
-    assert pending.result(timeout=5) is True
 
 
 def test_second_launch_without_a_link_asks_the_running_one_to_surface(
-    qapp: object, name: str, forward: Callable[[str, str], Future[bool]]
+    qapp: object, name: str
 ) -> None:
     # The single-instance path: a plain `gravitas` with an instance already up
     # must not open a second window, it must raise the first one.
@@ -140,11 +90,9 @@ def test_second_launch_without_a_link_asks_the_running_one_to_surface(
     listener.activateRequested.connect(lambda: activations.append(1))
     listener.linkReceived.connect(links.append)
 
-    pending = forward(ACTIVATE, name)
-    _spin(lambda: activations)
+    assert forward_to_running_instance(ACTIVATE, name=name) is True
 
     assert activations == [1]
-    assert pending.result(timeout=5) is True
     # ACTIVATE is not a URL; routing it as one would hand the deep-link
     # controller garbage to resolve.
     assert links == []
