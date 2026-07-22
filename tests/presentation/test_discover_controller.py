@@ -23,6 +23,19 @@ class FakeRepo:
         ]
 
 
+class TwoCatalogRepo:
+    """Two catalogs of the SAME type — the only kind of switch Discover offers
+    now that a board's type is fixed by the row it was opened from."""
+
+    def catalog_options(self) -> list[CatalogOption]:
+        return [
+            CatalogOption(
+                addon_id="a", type="movie", catalog_id="top", label="Top", genres=("Action",)
+            ),
+            CatalogOption(addon_id="a", type="movie", catalog_id="new", label="New", genres=()),
+        ]
+
+
 class FakeBrowse:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, str, str | None, int]] = []
@@ -39,7 +52,10 @@ async def test_open_loads_first_page_and_options(qapp: object) -> None:
     ctl = DiscoverController(browse, FakeRepo(), model)  # type: ignore[arg-type]
     await ctl.open("a", "movie", "top")
     assert model.rowCount() == 100
-    assert list(ctl.typeOptions) == ["movie", "series"]
+    # Only the opened board's type: the segmented control is a locked label,
+    # not a switch that could strand the user on an unrelated catalog.
+    assert list(ctl.typeOptions) == ["movie"]
+    assert ctl.typeIndex == 0
     assert list(ctl.catalogOptions) == ["Top"]
     assert list(ctl.genreOptions) == ["All genres", "Action"]
     assert browse.calls[-1] == ("a", "movie", "top", None, 0)
@@ -107,25 +123,26 @@ async def test_error_emits_and_clears_loading(qapp: object) -> None:
 
 
 async def test_page_replacement_emits_board_replaced(qapp: object) -> None:
-    """Every non-append load (open, type/catalog/genre switch) must announce
+    """Every non-append load (open, catalog/genre switch) must announce
     itself: the grid keeps its scroll offset across a model reset, so without
     this signal a switch left the view parked mid-list — often past the new
-    content's end, where a near-empty band of delegates is all that renders."""
+    content's end, where a near-empty band of delegates is all that renders.
+    The page also fades on this cue, so a missed emit leaves a stale board."""
     model = PosterGridModel()
     browse = FakeBrowse()
-    ctl = DiscoverController(browse, FakeRepo(), model)  # type: ignore[arg-type]
+    ctl = DiscoverController(browse, TwoCatalogRepo(), model)  # type: ignore[arg-type]
     fired: list[None] = []
     ctl.boardReplaced.connect(lambda: fired.append(None))
 
     await ctl.open("a", "movie", "top")
     assert len(fired) == 1
-    await ctl.selectType(1)
+    await ctl.selectCatalog(1)
     assert len(fired) == 2
     await ctl.selectGenre(0)
     assert len(fired) == 3
 
     # Pagination extends the same board — the scroll position must survive.
-    await ctl.selectType(0)
+    await ctl.selectCatalog(0)
     assert len(fired) == 4
     await ctl.loadMore()
     assert len(fired) == 4

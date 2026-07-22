@@ -10,6 +10,10 @@ Item {
     property int currentIndex: 0
     signal activated(int index)
 
+    // A single segment has nothing to switch to: drop the pointer cursor and
+    // the tap target so it reads as the label it is, not a dead button.
+    readonly property bool locked: control.model.length < 2
+
     implicitHeight: Theme.controlHeight
     implicitWidth: row.implicitWidth + pad * 2
     readonly property int pad: 4
@@ -77,8 +81,12 @@ Item {
                     font.pixelSize: Theme.fontBody
                     Behavior on color { ColorAnimation { duration: Theme.durFast } }
                 }
-                HoverHandler { cursorShape: Qt.PointingHandCursor }
+                HoverHandler {
+                    enabled: !control.locked
+                    cursorShape: Qt.PointingHandCursor
+                }
                 TapHandler {
+                    enabled: !control.locked
                     onTapped: {
                         if (index !== control.currentIndex)
                             control.activated(index)

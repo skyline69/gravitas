@@ -87,10 +87,11 @@ Item {
                 onClicked: root.back()
             }
 
+            // The board's type, not a switch: Discover always opens on one
+            // catalog row, so the controller offers that single segment.
             SegmentedControl {
                 model: discoverController ? discoverController.typeOptions : []
                 currentIndex: discoverController ? discoverController.typeIndex : 0
-                onActivated: (index) => { if (discoverController) discoverController.selectType(index) }
             }
 
             AppComboBox {

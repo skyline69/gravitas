@@ -36,13 +36,6 @@ class DiscoverController(QObject):
         self._has_more = False
         self._loading = False
 
-    def _types(self) -> list[str]:
-        seen: list[str] = []
-        for opt in self._options:
-            if opt.type not in seen:
-                seen.append(opt.type)
-        return seen
-
     def _catalogs_for_type(self) -> list[CatalogOption]:
         return [opt for opt in self._options if opt.type == self._type]
 
@@ -76,7 +69,14 @@ class DiscoverController(QObject):
 
     @Property("QVariantList", notify=optionsChanged)  # type: ignore[arg-type]
     def typeOptions(self) -> list[str]:
-        return self._types()
+        """Just the board's own type — a one-segment, locked pill.
+
+        Discover is always entered through a single catalog row's "See all",
+        so the board's type comes with it. Offering the other type turned
+        "Popular series" into an unrelated movie catalog on one tap, with no
+        way back to the row the user came from.
+        """
+        return [self._type]
 
     @Property("QVariantList", notify=optionsChanged)  # type: ignore[arg-type]
     def catalogOptions(self) -> list[str]:
@@ -88,8 +88,7 @@ class DiscoverController(QObject):
 
     @Property(int, notify=optionsChanged)
     def typeIndex(self) -> int:
-        types = self._types()
-        return types.index(self._type) if self._type in types else 0
+        return 0
 
     @Property(int, notify=optionsChanged)
     def catalogIndex(self) -> int:
@@ -115,17 +114,6 @@ class DiscoverController(QObject):
             ),
             0,
         )
-        self._genre = self._default_genre()
-        self.optionsChanged.emit()
-        await self._reload()
-
-    @asyncSlot(int)  # type: ignore[untyped-decorator]
-    async def selectType(self, index: int) -> None:
-        types = self._types()
-        if not 0 <= index < len(types):
-            return
-        self._type = "series" if types[index] == "series" else "movie"
-        self._catalog_idx = 0
         self._genre = self._default_genre()
         self.optionsChanged.emit()
         await self._reload()
