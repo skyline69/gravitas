@@ -89,6 +89,11 @@ Item {
             width: rowsView.width - 24
             height: 336
             asynchronous: true
+            // Same recycled-delegate hygiene as PosterCard: a row strip
+            // released to the pool by a tab switch's row REMOVAL keeps
+            // painting at its old slot until reused. Hide it while pooled.
+            ListView.onPooled: visible = false
+            ListView.onReused: visible = true
             sourceComponent: CatalogRowStrip {
                 width: rowsView.width - 24
                 // The page view's visible bounds in this row's coordinates,

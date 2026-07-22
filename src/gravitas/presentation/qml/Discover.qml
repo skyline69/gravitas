@@ -237,22 +237,24 @@ Item {
         reuseItems: true
         ScrollBar.vertical: AppScrollBar {}
         model: discoverProxy
-        // Filtering reads as movement, not a repaint: entering items fade in
-        // with a slight rise, survivors glide to their new slots.
+        // Pure fades, deliberately no y motion and no displaced glide: with a
+        // grid this dense the position animations read as the whole page
+        // "falling" whenever the filter or the board changes. Survivors snap
+        // to their slots; entering cards fade in.
         add: Transition {
             NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durMed; easing.type: Easing.OutCubic }
-            NumberAnimation { property: "y"; from: 12; duration: Theme.durMed; easing.type: Easing.OutCubic }
         }
         // Initial page load and filter-driven model resets fade in the same
         // way (`add` doesn't run on a model reset).
         populate: Transition {
             NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durMed * 2; easing.type: Easing.OutCubic }
-            NumberAnimation { property: "y"; from: 16; duration: Theme.durMed * 2; easing.type: Easing.OutCubic }
-        }
-        displaced: Transition {
-            NumberAnimation { properties: "x,y"; duration: Theme.durMed; easing.type: Easing.OutCubic }
         }
         delegate: PosterCard {
+            // A pooled delegate keeps whatever opacity an interrupted
+            // add/populate fade left on it — reused without this it renders
+            // as a permanently faded "ghost" card (transitions never re-run
+            // for reused items).
+            GridView.onReused: opacity = 1
             // fill the whole cell and centre the poster inside it, so the
             // hover scale-up grows into the cell's slack instead of past the
             // grid's clip edge (fixes edge-column/row clipping)

@@ -4,6 +4,19 @@ import "."
 
 Item {
     id: root
+
+    // Recycled-delegate hygiene, for every view this card sits in. A delegate
+    // released to the reuse pool by a REMOVAL (filter narrowed, board shrank)
+    // is not hidden by the view — it keeps painting at its old slot while the
+    // model says it's gone (the "0 / 46 but cards everywhere" filter bug).
+    // Hide on pool, show on reuse. Only visibility here: opacity is left
+    // alone because strip delegates bind it (edge dissolve) and an imperative
+    // write would sever that binding.
+    GridView.onPooled: visible = false
+    GridView.onReused: visible = true
+    ListView.onPooled: visible = false
+    ListView.onReused: visible = true
+
     property string title
     property string posterUrl
     property string mediaType: "" // "movie" | "series" — picks the filler icon
