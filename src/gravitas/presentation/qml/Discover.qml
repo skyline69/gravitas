@@ -15,6 +15,22 @@ Item {
     Connections {
         target: discoverController
         function onLoadingChanged(l) { root.loading = l }
+        // New contents under the same grid: the view keeps its scroll offset
+        // across the model reset, which parked a switched board mid-list
+        // (often past the shorter list's end — a near-empty screen with the
+        // count insisting otherwise). Snap to the top of the new board.
+        // Explicit contentY, not positionViewAtBeginning(): the latter
+        // ignores topMargin and parks the first row under the floating bar.
+        function onBoardReplaced() { grid.contentY = grid.originY - grid.topMargin }
+    }
+
+    // The proxy is shared across Discover visits (a context property), but
+    // every push builds a fresh page whose filter field and sort combo start
+    // at their defaults — clear any filter/sort a previous visit left behind
+    // so the UI and the proxy agree.
+    Component.onCompleted: {
+        discoverProxy.setFilterText("")
+        discoverProxy.setSortKey("default")
     }
 
     readonly property var sortKeys: ["default", "name", "year", "rating"]

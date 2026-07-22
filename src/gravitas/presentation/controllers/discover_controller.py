@@ -16,6 +16,12 @@ class DiscoverController(QObject):
     errorOccurred = Signal(str)
     loadingChanged = Signal(bool)
     optionsChanged = Signal()
+    # A non-append load replaced the board's contents (open, or a type /
+    # catalog / genre switch). The grid keeps its scroll offset across a model
+    # reset, so without this cue a switch leaves the view parked mid-list —
+    # often past the new content's end, rendering an almost-empty band.
+    # Pagination (loadMore) extends the same board and must NOT fire it.
+    boardReplaced = Signal()
 
     def __init__(self, browse: BrowseBoard, repo: AddonRepository, model: PosterGridModel) -> None:
         super().__init__()
@@ -163,6 +169,7 @@ class DiscoverController(QObject):
         if not cats:
             self._model.set_items([])
             self._has_more = False
+            self.boardReplaced.emit()
             return
         await self._fetch(cats[self._catalog_idx], append=False)
 
@@ -182,6 +189,7 @@ class DiscoverController(QObject):
             else:
                 self._model.set_items(page.items)
                 self._has_more = page.has_more
+                self.boardReplaced.emit()
         except GravitasError as exc:
             self._has_more = False
             self.errorOccurred.emit(str(exc))
