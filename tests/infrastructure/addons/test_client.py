@@ -55,6 +55,25 @@ async def test_fetch_catalog_builds_path() -> None:
     assert items[0].id == "tt1"
 
 
+async def test_relative_url_becomes_addon_unreachable() -> None:
+    # A user pastes "/dasdsas" into an Add field. With cookies in the shared
+    # jar (any earlier response can set one), httpx raises a plain ValueError
+    # while BUILDING the request — from urllib inside its cookie-header
+    # compat, before its own URL validation — which is not an httpx.HTTPError:
+    # unmapped, it escapes the asyncSlot as a crash at quit.
+    async with httpx.AsyncClient(cookies={"session": "x"}) as http:
+        client = AddonClient(http)
+        with pytest.raises(AddonUnreachable):
+            await client.fetch_manifest("/dasdsas")
+
+
+async def test_garbage_url_becomes_addon_unreachable() -> None:
+    async with httpx.AsyncClient() as http:
+        client = AddonClient(http)
+        with pytest.raises(AddonUnreachable):
+            await client.fetch_manifest("not a url at all")
+
+
 @respx.mock
 async def test_transport_error_becomes_addon_unreachable() -> None:
     respx.get("https://down/manifest.json").mock(side_effect=httpx.ConnectError("nope"))

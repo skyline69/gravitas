@@ -184,3 +184,24 @@ async def test_subtitle_style_updates_persist_and_notify(qapp: object) -> None:
 
     c.resetSubtitleStyle()
     assert styles.style == SubtitleStyle()
+
+
+class _OnboardingHolder:
+    done: bool = False
+
+
+async def test_persist_includes_onboarding_flag(qapp: object) -> None:
+    repo = AddonRepository(FakeSource())
+    store = _FakeStore()
+    onboarding = _OnboardingHolder()
+    onboarding.done = True
+    c = SettingsController(
+        UninstallAddon(repo),
+        repo,
+        AddonListModel(),
+        FakeCatalogController(),
+        store=store,
+        onboarding_holder=onboarding,
+    )
+    c.persist()
+    assert store.saved[-1].onboarding_done is True  # type: ignore[attr-defined]

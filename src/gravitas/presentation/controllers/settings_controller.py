@@ -28,6 +28,10 @@ class _StyleHolder(Protocol):
     style: SubtitleStyle
 
 
+class _OnboardingHolder(Protocol):
+    done: bool
+
+
 class _TraktHolder(Protocol):
     """What persist() reads off the Trakt account (TraktAccount satisfies it).
     Only the granted session and the user's mirror policy — app credentials
@@ -56,6 +60,7 @@ class SettingsController(QObject):
         style_holder: _StyleHolder | None = None,
         mdblist_key_holder: _KeyHolder | None = None,
         trakt_holder: _TraktHolder | None = None,
+        onboarding_holder: _OnboardingHolder | None = None,
     ) -> None:
         super().__init__()
         self._uninstall = uninstall
@@ -67,6 +72,7 @@ class SettingsController(QObject):
         self._style_holder = style_holder
         self._mdblist_key_holder = mdblist_key_holder
         self._trakt_holder = trakt_holder
+        self._onboarding_holder = onboarding_holder
         # True until bootstrap primes the list: opening Settings mid-startup
         # shows a spinner instead of an empty card that pops full moments
         # later. The first refreshAddons() clears it.
@@ -116,6 +122,11 @@ class SettingsController(QObject):
                 trakt_auth=trakt.auth if trakt is not None else None,
                 trakt_sync_forgets=trakt.sync_forgets if trakt is not None else True,
                 trakt_sync_watched=trakt.sync_watched if trakt is not None else True,
+                # False when unwired: a mid-onboarding persist (e.g. an addon
+                # install) must not mark the wizard finished.
+                onboarding_done=(
+                    self._onboarding_holder.done if self._onboarding_holder is not None else False
+                ),
             )
         )
 

@@ -64,6 +64,7 @@ from gravitas.presentation.controllers.catalog_controller import CatalogControll
 from gravitas.presentation.controllers.deep_link_controller import DeepLinkController
 from gravitas.presentation.controllers.detail_controller import DetailController
 from gravitas.presentation.controllers.discover_controller import DiscoverController
+from gravitas.presentation.controllers.onboarding_controller import OnboardingController
 from gravitas.presentation.controllers.player_controller import PlayerController
 from gravitas.presentation.controllers.progress_controller import ProgressController
 from gravitas.presentation.controllers.search_controller import SearchController
@@ -268,6 +269,13 @@ def build_app(
     addon_controller = AddonController(install_addon, catalog_controller)
     deep_link_controller = DeepLinkController(PreviewAddon(source), addon_controller)
     addon_list_model = AddonListModel()
+
+    class _OnboardingHolder:
+        done: bool = False
+
+    onboarding = _OnboardingHolder()
+    onboarding.done = persisted.onboarding_done
+
     settings_controller = SettingsController(
         UninstallAddon(repo),
         repo,
@@ -278,7 +286,9 @@ def build_app(
         sub_style,
         mdblist_key,
         trakt_account,
+        onboarding,
     )
+    onboarding_controller = OnboardingController(onboarding, settings_controller.persist)
     trakt_sync = TraktSync(trakt_account, progress_repo, GetDetail(repo))
     trakt_controller = TraktController(
         trakt_account,
@@ -409,6 +419,7 @@ def build_app(
     ctx.setContextProperty("watchlistMoviesModel", watchlist_movies_model)
     ctx.setContextProperty("watchlistSeriesModel", watchlist_series_model)
     ctx.setContextProperty("deepLinkController", deep_link_controller)
+    ctx.setContextProperty("onboardingController", onboarding_controller)
 
     # One listener owns both delivery paths: forwarded links from a second
     # process (Linux) and QFileOpenEvent (macOS). It is created even when
@@ -516,6 +527,7 @@ def build_app(
         watchlist_movies_model,
         watchlist_series_model,
         deep_link_controller,
+        onboarding_controller,
     )
     # Same rule as the context properties: nothing else holds this, and a
     # collected listener means links silently stop arriving.

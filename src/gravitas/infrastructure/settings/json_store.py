@@ -81,6 +81,10 @@ class JsonSettingsStore:
             trakt_auth=_trakt_auth_from(data.get("trakt")),
             trakt_sync_forgets=bool(data.get("trakt_sync_forgets", True)),
             trakt_sync_watched=bool(data.get("trakt_sync_watched", True)),
+            # Default True: a settings file written before onboarding existed
+            # belongs to an established user. Fresh installs have no file at
+            # all and take the dataclass default (False) above.
+            onboarding_done=bool(data.get("onboarding_done", True)),
         )
 
     def save(self, settings: PersistedSettings) -> None:
@@ -107,6 +111,7 @@ class JsonSettingsStore:
             "trakt": trakt,
             "trakt_sync_forgets": settings.trakt_sync_forgets,
             "trakt_sync_watched": settings.trakt_sync_watched,
+            "onboarding_done": settings.onboarding_done,
         }
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)

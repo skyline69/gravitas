@@ -245,4 +245,17 @@ ApplicationWindow {
     }
 
     Toast { id: toast }
+
+    // First-run wizard, above everything including the toast. Active only on
+    // a fresh install; the wizard runs its exit fade BEFORE complete() flips
+    // active, so the Loader only unloads once the overlay is invisible.
+    Loader {
+        anchors.fill: parent
+        z: 100
+        // Null-guarded: context properties go null at engine teardown and
+        // every live binding re-evaluates on the way down.
+        active: onboardingController !== null && onboardingController.active
+        source: "Onboarding.qml"
+        onLoaded: item.forceActiveFocus()
+    }
 }

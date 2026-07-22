@@ -368,6 +368,10 @@ class PersistedSettings:
     # Off never blocks the local action — Trakt just isn't told.
     trakt_sync_forgets: bool = True
     trakt_sync_watched: bool = True
+    # False only on a fresh install that has not finished the first-run
+    # wizard. The store treats a pre-onboarding settings file as done, so
+    # upgrades never re-run it.
+    onboarding_done: bool = False
 
 
 @dataclass(frozen=True, slots=True)

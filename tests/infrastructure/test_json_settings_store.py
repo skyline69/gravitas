@@ -30,7 +30,9 @@ def test_wrong_shape_returns_defaults(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     path.write_text('{"addon_urls": "not-a-list", "tmdb_key": 5}')
     store = JsonSettingsStore(path)
-    assert store.load() == PersistedSettings()
+    # onboarding_done=True: any parseable settings file predates this launch,
+    # so its owner is an established user who must not see the wizard.
+    assert store.load() == PersistedSettings(onboarding_done=True)
 
 
 def test_save_creates_parent_dirs(tmp_path: Path) -> None:

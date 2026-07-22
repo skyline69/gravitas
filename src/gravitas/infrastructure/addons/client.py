@@ -100,7 +100,11 @@ class AddonClient:
         try:
             response = await self._client.get(url, follow_redirects=True, timeout=15.0)
             response.raise_for_status()
-        except httpx.HTTPError as exc:
+        # ValueError: a malformed URL (e.g. a pasted "/dasdsas") can surface as
+        # a plain ValueError from request BUILDING — urllib inside httpx's
+        # cookie-header compat rejects it before httpx's own URL validation —
+        # which is not an httpx.HTTPError and would otherwise escape as a crash.
+        except (httpx.HTTPError, httpx.InvalidURL, ValueError) as exc:
             raise AddonUnreachable(f"GET {url} failed: {exc}") from exc
         _log.info(
             "GET %s -> %d (%.0f ms, %.1f kB)",

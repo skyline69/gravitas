@@ -173,6 +173,40 @@ def test_settings_qml_loads(qapp: object) -> None:
     assert obj is not None, f"Settings.qml failed to load: {component.errorString()}"
 
 
+def test_onboarding_qml_loads(qapp: object) -> None:
+    from pathlib import Path
+
+    from PySide6.QtCore import QObject, QtMsgType, qInstallMessageHandler
+    from PySide6.QtQml import QQmlComponent, QQmlEngine
+
+    import gravitas.main as gmain
+
+    engine = QQmlEngine()
+    onboarding_stub = QObject()
+    addon_stub = QObject()
+    engine.rootContext().setContextProperty("onboardingController", onboarding_stub)
+    engine.rootContext().setContextProperty("addonController", addon_stub)
+    qml = Path(gmain.__file__).parent / "presentation" / "qml" / "Onboarding.qml"
+    component = QQmlComponent(engine, str(qml))
+    # Main.qml only loads this page for fresh installs, so the always-run
+    # composition test never parses it — verify it standalone, and fail on
+    # creation-time TypeErrors/ReferenceErrors like the Player test does.
+    warnings: list[str] = []
+
+    def handler(mode: QtMsgType, _context: object, message: str) -> None:
+        if mode in (QtMsgType.QtWarningMsg, QtMsgType.QtCriticalMsg):
+            warnings.append(message)
+
+    previous = qInstallMessageHandler(handler)
+    try:
+        obj = component.create()
+    finally:
+        qInstallMessageHandler(previous)
+    assert obj is not None, f"Onboarding.qml failed to load: {component.errorString()}"
+    errors = [w for w in warnings if "TypeError" in w or "ReferenceError" in w]
+    assert errors == [], f"Onboarding.qml loaded with runtime errors: {errors}"
+
+
 def test_search_context_properties_present(qapp: object) -> None:
     from gravitas.main import DEFAULT_ADDON, build_app
 
@@ -318,6 +352,28 @@ def test_build_app_wires_trakt(qapp: object) -> None:
     player_controller = ctx.contextProperty("playerController")
     receivers = player_controller.receivers("2scrobbleEvent(QString,QVariantMap,double,double)")
     assert receivers >= 1
+
+
+def test_build_app_wires_onboarding(qapp: object, tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    from gravitas.infrastructure.settings.json_store import JsonSettingsStore
+    from gravitas.main import DEFAULT_ADDON, build_app
+
+    # A pristine config dir: this launch is a fresh install.
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    _, engine = build_app([], DEFAULT_ADDON)
+    assert engine.rootObjects(), "Main.qml failed to load (QML parse/type error)"
+    ctx = engine.rootContext()
+    controller = ctx.contextProperty("onboardingController")
+    assert controller is not None
+    names = {type(ref).__name__ for ref in engine._gravitas_refs}
+    assert "OnboardingController" in names
+
+    assert controller.active is True
+    controller.complete()
+    assert controller.active is False
+    # complete() must route through SettingsController.persist with the
+    # onboarding holder wired, or the next launch shows the wizard again.
+    assert JsonSettingsStore().load().onboarding_done is True
 
 
 def test_deep_link_controller_is_wired_into_qml(qapp: object) -> None:
