@@ -36,7 +36,48 @@ install -Dm644 "$ROOT/packaging/gravitas.png" \
 
 cat > "$APPDIR/AppRun" <<'EOF'
 #!/bin/sh
+# Driver loaders (libgbm, libva*, libvdpau) are shipped in _internal/fallback/
+# rather than on the library path — see the note in packaging/gravitas.spec.
+# The host's copies are the only ones that can load the host's drivers, so
+# they must win; but libmpv links all three with DT_NEEDED, so a host without
+# them can't load the player at all. Bridge exactly that gap: symlink the
+# sonames the host is missing into a per-user directory and append it to the
+# search path, after the host's own directories.
 HERE="$(dirname "$(readlink -f "$0")")"
+FALLBACK="$HERE/usr/app/_internal/fallback"
+
+host_has() {
+    # ldconfig's cache is authoritative and covers distro-specific libdirs.
+    if command -v ldconfig >/dev/null 2>&1; then
+        ldconfig -p 2>/dev/null | grep -q "^[[:space:]]*$1 " && return 0
+    fi
+    # No ldconfig (or an empty cache): check the usual places by hand.
+    for dir in /lib64 /usr/lib64 /lib /usr/lib \
+               /lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu \
+               /lib/aarch64-linux-gnu /usr/lib/aarch64-linux-gnu; do
+        [ -e "$dir/$1" ] && return 0
+    done
+    return 1
+}
+
+if [ -d "$FALLBACK" ]; then
+    SHIM="${XDG_RUNTIME_DIR:-/tmp}/gravitas-fallback-$(id -u)"
+    rm -rf "$SHIM"
+    for lib in "$FALLBACK"/*.so*; do
+        [ -e "$lib" ] || continue
+        soname="${lib##*/}"
+        host_has "$soname" && continue
+        mkdir -p "$SHIM"
+        ln -sf "$lib" "$SHIM/$soname"
+    done
+    # Only exists if something was actually missing — the common case adds
+    # nothing to the environment at all.
+    if [ -d "$SHIM" ]; then
+        LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$SHIM"
+        export LD_LIBRARY_PATH
+    fi
+fi
+
 exec "$HERE/usr/app/gravitas" "$@"
 EOF
 chmod +x "$APPDIR/AppRun"

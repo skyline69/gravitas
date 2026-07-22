@@ -86,26 +86,40 @@ a = Analysis(
     hiddenimports=["mpv", "qasync", "gravitas.presentation.video.mpv_item"],
 )
 
-# Graphics/driver libs must come from the HOST, never the build machine.
-# They are thin loaders that dlopen the real driver out of a path compiled in
-# at build time: Ubuntu's libgbm looks in /usr/lib/x86_64-linux-gnu/dri, libva
-# in the same triplet dir. Bundled, they win over the host's via
-# LD_LIBRARY_PATH and then find nothing on a Fedora/Arch/SUSE box — the
-# "MESA-LOADER: failed to open ... wrong ELF class: ELFCLASS32" spam is that
-# search falling through to /usr/lib/dri, which on multilib Fedora holds the
-# 32-bit drivers. Result: no mesa GL and no VA-API hwdec on any distro whose
-# driver dir differs from the builder's. Dropping them costs nothing — every
-# desktop with a GPU has its own copy, matched to its own kernel driver.
-_HOST_GRAPHICS = re.compile(
+# Driver loaders move off the library path into _internal/fallback/.
+#
+# Each of these is a thin loader that dlopens the real driver out of a
+# directory compiled in when IT was built: Ubuntu's libgbm looks under
+# /usr/lib/x86_64-linux-gnu/dri, libva the same. Bundled on the library path
+# they beat the host's copies and then find nothing on a Fedora/Arch/SUSE box
+# — the "MESA-LOADER: failed to open ... wrong ELF class: ELFCLASS32" spam is
+# that search falling through to /usr/lib/dri, which on multilib Fedora holds
+# the 32-bit drivers. The host's own copies are the only ones that match the
+# host's kernel driver, so they must win.
+#
+# They are still shipped, just somewhere ld.so won't look: libmpv links libva,
+# libvdpau and libgbm with DT_NEEDED, so a host lacking them can't load libmpv
+# at all and playback dies. AppRun symlinks exactly the missing ones onto the
+# path at launch — host drivers when the host has them, a working player when
+# it doesn't. A one-dir build run directly (no AppRun) skips that step and
+# needs the host to provide them.
+FALLBACK_DIR = "fallback"
+_HOST_DRIVERS = re.compile(
     r"^lib(gbm|drm|EGL|GL|GLX|GLdispatch|OpenGL|GLESv2|GLU|glut|glapi"
     r"|va|va-drm|va-x11|va-wayland|va-glx|vdpau)\.so"
 )
-_dropped = [name for name, *_ in a.binaries if _HOST_GRAPHICS.match(Path(name).name)]
-if _dropped:
-    print(f"excluding host graphics libs from the bundle: {', '.join(sorted(_dropped))}")
-a.binaries = [
-    entry for entry in a.binaries if not _HOST_GRAPHICS.match(Path(entry[0]).name)
-]
+_moved = []
+_binaries = []
+for _entry in a.binaries:
+    _name, *_rest = _entry
+    if _HOST_DRIVERS.match(Path(_name).name):
+        _moved.append(Path(_name).name)
+        _binaries.append((f"{FALLBACK_DIR}/{Path(_name).name}", *_rest))
+    else:
+        _binaries.append(_entry)
+if _moved:
+    print(f"host driver libs moved to {FALLBACK_DIR}/: {', '.join(sorted(_moved))}")
+a.binaries = _binaries
 
 pyz = PYZ(a.pure)
 
