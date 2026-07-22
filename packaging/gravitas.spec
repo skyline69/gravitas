@@ -7,6 +7,7 @@ import os
 import platform
 import re
 import stat
+import subprocess
 import sys
 import urllib.request
 from pathlib import Path
@@ -64,6 +65,49 @@ def find_libmpv() -> str | None:
         if candidate.exists():
             return str(candidate.resolve())
     return None
+
+
+def precompile_qml() -> list[tuple[str, str]]:
+    """Compile every .qml to bytecode and ship the .qmlc beside its source.
+
+    Qt caches compiled QML per user, keyed by a hash of the file's PATH. An
+    AppImage mounts itself at a fresh /tmp/.mount_GravitXXXXXX on every launch,
+    so that key never repeats: measured here, three launches compiled all 39
+    units three times and left 117 files behind in ~/.cache/Gravitas, growing
+    without bound. A .qmlc next to the .qml is found by path, not by hash, so
+    it survives the moving mount point — engine.load(Main.qml) drops from
+    ~365ms to ~273ms, and nothing accumulates in the user's cache.
+
+    Compiled by the PySide6 wheel's own qmlcachegen, so the bytecode matches
+    the Qt that will read it; a mismatch is not fatal, Qt just recompiles.
+    """
+    import PySide6
+
+    tool = Path(PySide6.__file__).parent / "Qt" / "libexec" / "qmlcachegen"
+    qml_dir = SRC / "gravitas" / "presentation" / "qml"
+    if not tool.exists():
+        print(f"qmlcachegen not found at {tool} — shipping QML uncompiled")
+        return []
+    out_root = ROOT / "packaging" / ".cache" / "qmlc"
+    compiled: list[tuple[str, str]] = []
+    for source in sorted(qml_dir.rglob("*.qml")):
+        relative = source.relative_to(qml_dir)
+        target = out_root / relative.with_suffix(".qmlc")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        result = subprocess.run(
+            [str(tool), "--only-bytecode", "-I", str(qml_dir), "-o", str(target), str(source)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            # Not fatal: without the .qmlc Qt compiles that file at startup,
+            # exactly as it does today.
+            print(f"qmlcachegen failed for {relative}: {result.stderr.strip()}")
+            continue
+        destination = Path("gravitas/presentation/qml") / relative.parent
+        compiled.append((str(target), str(destination)))
+    print(f"precompiled {len(compiled)} QML files to bytecode")
+    return compiled
 
 
 libmpv = find_libmpv()
@@ -128,10 +172,16 @@ a = Analysis(
     binaries=binaries,
     datas=[
         (str(SRC / "gravitas" / "presentation" / "qml"), "gravitas/presentation/qml"),
+        *precompile_qml(),
     ],
     # Lazy imports PyInstaller's scanner can miss.
     hiddenimports=["mpv", "qasync", "gravitas.presentation.video.mpv_item"],
     excludes=PYSIDE_UNUSED,
+    # -OO: strip asserts and docstrings from every bundled module. Worth ~5ms
+    # of import time (noise) but a real cut in bundle size and resident
+    # memory, since PySide6's docstrings are large. The codebase's one assert
+    # is a type-narrowing guard, not a runtime check.
+    optimize=2,
 )
 
 # `excludes` above stops the ANALYSER; the PySide6 hook still copies Qt's own
