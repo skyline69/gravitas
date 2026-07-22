@@ -59,6 +59,9 @@ Item {
 
     ListView {
         id: strip
+        // Sideways wheel/trackpad scrolling that doesn't eat the click after
+        // it (see the component).
+        WheelScroller { flick: strip; horizontal: true }
         anchors.top: header.bottom
         anchors.topMargin: 8
         anchors.left: parent.left

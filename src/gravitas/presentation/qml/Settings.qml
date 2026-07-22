@@ -9,6 +9,8 @@ Item {
 
     Flickable {
         id: page
+        // Wheel scrolling that doesn't eat the click after it (see the component).
+        WheelScroller { flick: page }
         anchors.fill: parent
         contentHeight: column.height + 104
         // Content rests below the floating top bar but scrolls under it.
@@ -108,6 +110,9 @@ Item {
                 }
 
                 ListView {
+                    id: addonList
+                    // Wheel scrolling that doesn't eat the click after it (see the component).
+                    WheelScroller { flick: addonList }
                     width: parent.width
                     height: Math.min(contentHeight, 320)
                     model: addonListModel
@@ -570,6 +575,8 @@ Item {
 
                 ListView {
                     id: watchedList
+                    // Wheel scrolling that doesn't eat the click after it (see the component).
+                    WheelScroller { flick: watchedList }
                     width: parent.width
                     height: Math.min(contentHeight, 320)
                     visible: count > 0

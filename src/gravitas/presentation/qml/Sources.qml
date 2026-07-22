@@ -73,6 +73,8 @@ Item {
 
     ListView {
         id: list
+        // Wheel scrolling that doesn't eat the click after it (see the component).
+        WheelScroller { flick: list }
         anchors.top: header.bottom
         anchors.topMargin: 16
         anchors.left: parent.left

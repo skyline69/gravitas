@@ -44,6 +44,8 @@ Item {
 
     Flickable {
         id: flick
+        // Wheel scrolling that doesn't eat the click after it (see the component).
+        WheelScroller { flick: flick }
         anchors.fill: parent
         contentWidth: width
         contentHeight: content.implicitHeight + 48

@@ -148,6 +148,8 @@ Item {
 
             ListView {
                 id: list
+                // Wheel scrolling that doesn't eat the click after it (see the component).
+                WheelScroller { flick: list }
                 width: parent.width
                 height: Math.min(contentHeight, 360)
                 model: searchResultsModel

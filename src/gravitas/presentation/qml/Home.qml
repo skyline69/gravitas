@@ -42,6 +42,8 @@ Item {
 
     ListView {
         id: rowsView
+        // Wheel scrolling that doesn't eat the click after it (see the component).
+        WheelScroller { flick: rowsView }
         // Stays in the scene (visible, opacity 0) through boot so delegates
         // incubate and posters decode BEHIND the spinner — hiding it with
         // `visible: false` would defer all of that to the reveal frame,
@@ -148,6 +150,8 @@ Item {
     // both sections scroll as one page.
     Flickable {
         id: watchlistFlick
+        // Wheel scrolling that doesn't eat the click after it (see the component).
+        WheelScroller { flick: watchlistFlick }
         visible: home.watchlistMode && moviesRep.count + seriesRep.count > 0
         maximumFlickVelocity: 12000
         flickDeceleration: 8000

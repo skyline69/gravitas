@@ -224,6 +224,8 @@ Item {
 
     GridView {
         id: grid
+        // Wheel scrolling that doesn't eat the click after it (see the component).
+        WheelScroller { flick: grid }
         maximumFlickVelocity: 12000
         flickDeceleration: 8000
         anchors.fill: parent
