@@ -75,6 +75,53 @@ ytdlp = fetch_ytdlp()
 if ytdlp is not None:
     binaries.append((ytdlp, "."))
 
+# PySide6 ships every Qt module in one wheel and PyInstaller's hook collects
+# the lot. Gravitas imports exactly seven of them (QtCore, QtGui, QtNetwork,
+# QtOpenGL, QtQml, QtQuick, QtQuickControls2) plus QtWidgets, which qasync
+# needs for QApplication; the QML side adds only QtQuick.Controls,
+# QtQuick.Layouts, QtQuick.Window and Qt5Compat.GraphicalEffects. Naming the
+# rest here keeps the analyser from following them at all.
+PYSIDE_UNUSED = [
+    "PySide6.QtWebEngineCore",
+    "PySide6.QtWebEngineWidgets",
+    "PySide6.QtWebEngineQuick",
+    "PySide6.QtWebChannel",
+    "PySide6.QtWebSockets",
+    "PySide6.QtWebView",
+    "PySide6.QtPdf",
+    "PySide6.QtPdfWidgets",
+    "PySide6.QtQuick3D",
+    "PySide6.QtCharts",
+    "PySide6.QtDataVisualization",
+    "PySide6.QtGraphs",
+    "PySide6.QtGraphsWidgets",
+    "PySide6.QtMultimedia",
+    "PySide6.QtMultimediaWidgets",
+    "PySide6.QtSpatialAudio",
+    "PySide6.QtBluetooth",
+    "PySide6.QtNfc",
+    "PySide6.QtSerialPort",
+    "PySide6.QtSerialBus",
+    "PySide6.QtSql",
+    "PySide6.QtTest",
+    "PySide6.QtDesigner",
+    "PySide6.QtUiTools",
+    "PySide6.QtHelp",
+    "PySide6.QtScxml",
+    "PySide6.QtStateMachine",
+    "PySide6.QtRemoteObjects",
+    "PySide6.QtTextToSpeech",
+    "PySide6.QtPositioning",
+    "PySide6.QtLocation",
+    "PySide6.QtSensors",
+    "PySide6.Qt3DCore",
+    "PySide6.Qt3DRender",
+    "PySide6.Qt3DInput",
+    "PySide6.Qt3DLogic",
+    "PySide6.Qt3DAnimation",
+    "PySide6.Qt3DExtras",
+]
+
 a = Analysis(
     [str(ROOT / "packaging" / "entry.py")],
     pathex=[str(SRC)],
@@ -84,7 +131,61 @@ a = Analysis(
     ],
     # Lazy imports PyInstaller's scanner can miss.
     hiddenimports=["mpv", "qasync", "gravitas.presentation.video.mpv_item"],
+    excludes=PYSIDE_UNUSED,
 )
+
+# `excludes` above stops the ANALYSER; the PySide6 hook still copies Qt's own
+# lib/qml/plugin trees wholesale, so the payload has to be filtered too.
+# QtWebEngineCore alone is 194 MB — a whole Chromium — in an app with no web
+# view. Everything named here is unreachable: no Python import, no QML import,
+# no plugin we load. Translations go as well (the UI is English-only), as do
+# the QML tooling plugins, which only serve the remote debugger.
+QT_UNUSED = re.compile(
+    r"""(?x)
+    libQt6(WebEngine\w* | WebChannel\w* | WebSockets | WebView\w* | Pdf\w*
+        | Quick3D\w* | Graphs\w* | Charts\w* | DataVisualization\w*
+        | Multimedia\w* | SpatialAudio | Sensors\w* | Positioning\w* | Location
+        | Bluetooth | Nfc | SerialPort | SerialBus | Sql | Test | QuickTest
+        | Designer\w* | UiTools | Help | Scxml | StateMachine | RemoteObjects\w*
+        | TextToSpeech | VirtualKeyboard\w* | QmlCompiler | QmlLS
+        | QmlLocalStorage | StateMachineQml | ScxmlQml | 3D\w*)\.so
+    | PySide6/Qt/qml/(QtQuick3D | Qt3D | QtGraphs | QtCharts | QtDataVisualization
+        | QtWebEngine | QtWebChannel | QtWebSockets | QtWebView | QtTest
+        | QtPositioning | QtLocation | QtMultimedia | QtSensors | QtScxml
+        | QtRemoteObjects | QtTextToSpeech | QtVirtualKeyboard)/
+    # Sub-modules of QtQuick itself whose backing library went with the list
+    # above — a QML plugin without its library is a load error waiting to
+    # happen, and LocalStorage/Pdf/VirtualKeyboard are nothing this UI imports.
+    | PySide6/Qt/qml/QtQuick/(VirtualKeyboard | Pdf | LocalStorage
+        | Scene2D | Scene3D)/
+    | PySide6/Qt/qml/QtQml/StateMachine/
+    | PySide6/Qt/(translations|resources|libexec)/
+    | PySide6/Qt/plugins/(qmltooling | designer | sqldrivers | multimedia
+        | webview | position | geoservices | sceneparsers | renderers
+        | texttospeech | virtualkeyboard)/
+    # Image formats: posters are JPEG/PNG/WebP. The PDF reader needs QtPdf,
+    # and the TIFF one arrives without its libtiff already — both are dead
+    # weight that only shows up as a failed plugin load.
+    | PySide6/Qt/plugins/imageformats/libq(pdf|tiff)\.so
+    | PySide6/Qt/plugins/platforminputcontexts/libqtvirtualkeyboardplugin\.so
+    """
+)
+
+
+def _strip_unused(entries: list, kind: str) -> list:
+    kept, dropped = [], 0
+    for entry in entries:
+        name = entry[0]
+        if QT_UNUSED.search(name.replace(os.sep, "/")):
+            dropped += Path(entry[1]).stat().st_size if Path(entry[1]).is_file() else 0
+        else:
+            kept.append(entry)
+    print(f"dropped {len(entries) - len(kept)} unused Qt {kind} ({dropped / 1048576:.0f} MB)")
+    return kept
+
+
+a.binaries = _strip_unused(a.binaries, "binaries")
+a.datas = _strip_unused(a.datas, "data files")
 
 # Driver loaders move off the library path into _internal/fallback/.
 #
