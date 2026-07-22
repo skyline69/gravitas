@@ -58,6 +58,33 @@ Item {
     property real edgeClipBottom: 100000
     property real edgeFadeLeftStrength: 0
     property real edgeFadeRightStrength: 0
+    // The title/subtitle are plain Text, not the poster shader's texture, so
+    // the same clips that DISSOLVE the poster slice them mid-glyph — the title
+    // cut in half across the bottom of the page. Rather than give the labels a
+    // per-pixel feather of their own (a layer + FBO on every card, for two
+    // short lines), the whole block fades out over the last `textFadeZone`
+    // pixels BEFORE a clip edge reaches it, so a cut never lands on a visible
+    // word. Coordinates are this card's, matching edgeClip* above.
+    readonly property real textFadeZone: 24
+    readonly property real textEdgeOpacity: {
+        const clamp01 = (v) => Math.max(0, Math.min(1, v))
+        const zone = root.textFadeZone
+        const top = content.y + label.y
+        const bottom = content.y + (subtitleLabel.visible
+            ? subtitleLabel.y + subtitleLabel.height
+            : label.y + label.height)
+        const left = content.x + label.x
+        const right = left + label.width
+        var f = Math.min(clamp01((root.edgeClipBottom - bottom) / zone),
+                         clamp01((top - root.edgeClipTop) / zone))
+        // Horizontal edges carry their geometry unconditionally, so they are
+        // gated by the same strengths the shader mixes with — a row that has
+        // nothing scrolled off that side has no edge to dissolve into.
+        f *= 1 - root.edgeFadeLeftStrength * (1 - clamp01((left - root.edgeClipLeft) / zone))
+        f *= 1 - root.edgeFadeRightStrength * (1 - clamp01((root.edgeClipRight - right) / zone))
+        return f
+    }
+
     property bool _loadReleased: loadDelay <= 0
     Timer {
         interval: root.loadDelay
@@ -312,6 +339,7 @@ Item {
             // Short titles top-align in this fixed box.
             height: 2 * (fontMetrics.height)
             verticalAlignment: Text.AlignTop
+            opacity: root.textEdgeOpacity
             text: root.title
             // brighten dim -> full on hover (scales with the card as one unit)
             color: mouse.containsMouse ? Theme.text : Theme.textDim
@@ -333,6 +361,7 @@ Item {
         Text {
             id: subtitleLabel
             visible: root.showSubtitle
+            opacity: root.textEdgeOpacity
             width: 160
             height: visible ? subtitleMetrics.height : 0
             text: root.subtitle
