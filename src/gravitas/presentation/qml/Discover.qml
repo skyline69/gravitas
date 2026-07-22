@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Controls as QQC
 import QtQuick.Layouts
 import Qt5Compat.GraphicalEffects
 import "components"
@@ -168,6 +169,12 @@ Item {
                     // trick as SearchBar; clearing `focus` alone doesn't
                     // release active focus.
                     Keys.onEscapePressed: { text = ""; root.forceActiveFocus() }
+
+                    // Qt's own editing menu is native on Windows and ignores
+                    // the theme; ours replaces it. Qualified because
+                    // `ContextMenu` also names a component in components/.
+                    QQC.ContextMenu.menu: null
+                    TextEditMenu { editor: filterField }
                 }
             }
 

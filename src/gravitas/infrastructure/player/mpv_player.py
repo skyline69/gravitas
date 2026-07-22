@@ -224,7 +224,12 @@ def _default_factory() -> Any:
         # one-shot lines: chosen VO/AO, video format, and — crucial for
         # streaming — demuxer/ffmpeg HTTP errors with their real cause.
         log_handler=_mpv_log_handler,
-        loglevel="info",
+        # mpv's verbosity follows ours. At GRAVITAS_LOG_LEVEL=DEBUG it gets
+        # `v`, which is where it prints the VO it chose, the GL vendor and
+        # renderer strings, the hwdec it settled on and the demuxer's view of
+        # the stream -- exactly the lines a "black video" or "this stream will
+        # not open" report needs, and noise otherwise.
+        loglevel="v" if logging.getLogger().isEnabledFor(logging.DEBUG) else "info",
     )
 
 

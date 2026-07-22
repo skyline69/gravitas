@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Controls as QQC
 import "."
 
 Item {
@@ -86,6 +87,12 @@ Item {
                 bar.unfocus() // blur so the live dropdown hides
             }
             Keys.onEscapePressed: { text = ""; field.focus = false }
+
+            // Qt's own editing menu is native on Windows and ignores the
+            // theme; ours replaces it. Qualified because `ContextMenu` also
+            // names a component of ours in this directory.
+            QQC.ContextMenu.menu: null
+            TextEditMenu { editor: field }
         }
     }
 

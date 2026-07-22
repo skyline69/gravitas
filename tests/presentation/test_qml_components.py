@@ -545,3 +545,46 @@ def test_a_recycled_card_is_hidden_while_pooled_and_shown_when_handed_back(
         "still painting, or an attached one stayed hidden"
     )
     win.deleteLater()
+
+
+def test_text_field_replaces_qts_native_editing_menu(qml_warnings: list[str]) -> None:
+    """Qt 6.9+ attaches a TextEditingContextMenu to every TextField, and on
+    Windows it is a *native* menu -- a grey Win32 popup in a dark themed app,
+    with no way to style it. Every field must turn it off and use ours.
+
+    The check runs inside the QML: `ContextMenu.menu` is an attached property,
+    readable only in the scope of the object it is attached to. console.warn
+    lands in the collected warnings, so a regression fails this test.
+    """
+    _instantiate(
+        """
+        import QtQuick
+        import QtQuick.Controls
+        import QtQuick.Controls as QQC
+        import "."
+
+        ApplicationWindow {
+            width: 800; height: 200
+            AppTextField {
+                id: field
+                anchors.centerIn: parent
+                width: 400
+                text: "https://v3-cinemeta.strem.io/manifest.json"
+                Component.onCompleted: {
+                    if (QQC.ContextMenu.menu !== null)
+                        console.warn("Qt's native editing menu is still attached")
+                    // Open ours the way the right-click handler does, so its
+                    // entry building is exercised too.
+                    for (var i = 0; i < field.children.length; i++) {
+                        if (field.children[i].openAt) {
+                            field.children[i].openAt(Qt.point(8, 8))
+                            return
+                        }
+                    }
+                    console.warn("no TextEditMenu on the field")
+                }
+            }
+        }
+        """
+    )
+    assert qml_warnings == []

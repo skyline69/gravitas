@@ -133,6 +133,21 @@ class _Renderer(QQuickFramebufferObject.Renderer):
                 return _windows_gl_symbol(name)
             return 0
 
+        # One line, once per context: which GL the scene graph actually got.
+        # A machine with no GPU driver (a VM, a fresh Windows install) silently
+        # lands on Qt's software rasteriser, where mpv renders correctly and far
+        # too slowly to keep up -- indistinguishable from "video is broken"
+        # unless this is written down.
+        glctx = QOpenGLContext.currentContext()
+        if glctx is not None:
+            surface_format = glctx.format()
+            _log.info(
+                "mpv render context on OpenGL %d.%d %s",
+                surface_format.majorVersion(),
+                surface_format.minorVersion(),
+                "ES" if glctx.isOpenGLES() else "desktop",
+            )
+
         self._get_proc = mpv.MpvGlGetProcAddressFn(get_proc_address)
         self._ctx = mpv.MpvRenderContext(
             self._item.handle,
