@@ -1,24 +1,30 @@
 """Open URLs in the user's browser, surviving frozen-bundle environments.
 
-On Linux QDesktopServices.openUrl spawns `xdg-open`, and the child inherits
-this process's environment. In a PyInstaller bundle (AppImage) the bootloader
-points LD_LIBRARY_PATH & co. at the bundle's private libs — a browser launched
-under that environment links against them and dies before showing a window,
-which is why "open in browser" silently did nothing. The bootloader saves each
-variable it touches as <NAME>_ORIG, so the host's values can be restored just
-around the spawn.
+In a PyInstaller bundle (AppImage) the bootloader points LD_LIBRARY_PATH & co.
+at the bundle's private libs. Anything spawned from here inherits them and
+links against libraries built on the release machine: on a Fedora host,
+`kde-open` dies with "libstdc++.so.6: version GLIBCXX_3.4.32 not found" before
+it can hand the URL to a browser, which is why "open in browser" did nothing.
 
-Inside Flatpak Qt never spawns anything — it hands the URL to the XDG desktop
-portal over DBus — so the swap is a harmless no-op there. Unfrozen dev runs
-skip it entirely.
+The obvious fix — swap the variables back around QDesktopServices.openUrl —
+does not work, and measurably so. With LD_LIBRARY_PATH unset, a subprocess
+launched from the same line sees it unset, while Qt's child still receives the
+bundle path: Qt spawns the opener from an environment it captured earlier, so
+mutating os.environ cannot reach it. So the opener is spawned here instead,
+with the child's environment passed explicitly.
+
+Inside Flatpak Qt hands the URL to the XDG desktop portal over DBus and none
+of this applies; the bundle variables are absent there anyway, so the child
+environment is simply a copy of this process's.
 """
 
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 import sys
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import Callable
 
 from PySide6.QtCore import QUrl
 from PySide6.QtGui import QDesktopServices
@@ -37,38 +43,64 @@ _BUNDLE_VARS = (
     "PYTHONHOME",
 )
 
+# Tried in order, first one present on PATH wins. xdg-open is the standard and
+# delegates to the desktop's own handler; gio covers GTK desktops where
+# xdg-open is missing, and the two desktop-specific openers are last resorts.
+_OPENERS = (["xdg-open"], ["gio", "open"], ["kde-open"], ["gnome-open"])
 
-@contextmanager
-def _host_environment() -> Iterator[None]:
-    """Swap the bundle's env vars for the host's around a child spawn."""
+
+def host_environment() -> dict[str, str]:
+    """The environment a spawned opener should get.
+
+    Unfrozen, that is simply this process's. Frozen, every bundle variable is
+    replaced by the host value the bootloader saved as <NAME>_ORIG, or dropped
+    when the host had none.
+    """
+    env = dict(os.environ)
     if not getattr(sys, "frozen", False):
-        yield
-        return
-    saved: dict[str, str | None] = {}
+        return env
     for var in _BUNDLE_VARS:
-        saved[var] = os.environ.get(var)
-        original = os.environ.get(f"{var}_ORIG")
+        original = env.pop(f"{var}_ORIG", None)
         if original is not None:
-            os.environ[var] = original
+            env[var] = original
         else:
-            os.environ.pop(var, None)
-    try:
-        yield
-    finally:
-        for var, value in saved.items():
-            if value is None:
-                os.environ.pop(var, None)
-            else:
-                os.environ[var] = value
+            env.pop(var, None)
+    return env
 
 
-def _launch(url: str) -> bool:
+def _launch(url: str, env: dict[str, str]) -> bool:
+    """Spawn a desktop opener with `env`, or fall back to Qt.
+
+    The child is detached (start_new_session) so it outlives this process, and
+    its output is discarded: an opener that writes to a terminal Gravitas may
+    not have would otherwise block on a full pipe.
+    """
+    for opener in _OPENERS:
+        executable = shutil.which(opener[0], path=env.get("PATH", os.defpath))
+        if executable is None:
+            continue
+        try:
+            # Fixed argv with the URL as an argument, never a shell string.
+            subprocess.Popen(
+                [executable, *opener[1:], url],
+                env=env,
+                start_new_session=True,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except OSError:
+            continue
+        return True
+    # No opener on PATH: macOS and Windows have their own mechanisms, and Qt
+    # knows them. There is no bundle environment to launder on those platforms.
     return bool(QDesktopServices.openUrl(QUrl(url)))
 
 
-def open_in_browser(url: str, *, launch: Callable[[str], bool] | None = None) -> bool:
-    """Open `url` externally. `launch` is a test seam over QDesktopServices."""
+def open_in_browser(
+    url: str, *, launch: Callable[[str, dict[str, str]], bool] | None = None
+) -> bool:
+    """Open `url` externally. `launch` is a test seam over the spawn."""
     if not url:
         return False
-    with _host_environment():
-        return (launch if launch is not None else _launch)(url)
+    return (launch if launch is not None else _launch)(url, host_environment())
