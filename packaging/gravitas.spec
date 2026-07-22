@@ -5,6 +5,7 @@
 import ctypes.util
 import os
 import platform
+import re
 import stat
 import sys
 import urllib.request
@@ -84,6 +85,27 @@ a = Analysis(
     # Lazy imports PyInstaller's scanner can miss.
     hiddenimports=["mpv", "qasync", "gravitas.presentation.video.mpv_item"],
 )
+
+# Graphics/driver libs must come from the HOST, never the build machine.
+# They are thin loaders that dlopen the real driver out of a path compiled in
+# at build time: Ubuntu's libgbm looks in /usr/lib/x86_64-linux-gnu/dri, libva
+# in the same triplet dir. Bundled, they win over the host's via
+# LD_LIBRARY_PATH and then find nothing on a Fedora/Arch/SUSE box — the
+# "MESA-LOADER: failed to open ... wrong ELF class: ELFCLASS32" spam is that
+# search falling through to /usr/lib/dri, which on multilib Fedora holds the
+# 32-bit drivers. Result: no mesa GL and no VA-API hwdec on any distro whose
+# driver dir differs from the builder's. Dropping them costs nothing — every
+# desktop with a GPU has its own copy, matched to its own kernel driver.
+_HOST_GRAPHICS = re.compile(
+    r"^lib(gbm|drm|EGL|GL|GLX|GLdispatch|OpenGL|GLESv2|GLU|glut|glapi"
+    r"|va|va-drm|va-x11|va-wayland|va-glx|vdpau)\.so"
+)
+_dropped = [name for name, *_ in a.binaries if _HOST_GRAPHICS.match(Path(name).name)]
+if _dropped:
+    print(f"excluding host graphics libs from the bundle: {', '.join(sorted(_dropped))}")
+a.binaries = [
+    entry for entry in a.binaries if not _HOST_GRAPHICS.match(Path(entry[0]).name)
+]
 
 pyz = PYZ(a.pure)
 
