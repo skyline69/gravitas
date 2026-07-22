@@ -149,6 +149,61 @@ async def test_skips_ratings_for_non_imdb_id(qapp: object) -> None:
     assert ctl.rottenTomatoes == ""
 
 
+async def test_ratings_are_tagged_with_the_item_they_describe(qapp: object) -> None:
+    """The Detail page shows a rating only while `ratingsFor` names its own item.
+
+    load() is an asyncSlot, so QML's call returns a loop turn before the reset
+    inside it runs: a page built for B binds against A's ratings in between.
+    Tagging them lets the page tell the two apart and stay blank until its own
+    numbers land, instead of flashing the previous film's pill."""
+    get_ratings = FakeGetRatings(Ratings(rotten_tomatoes="87", letterboxd="4.1"))
+    ctl = DetailController(
+        FakeGetDetail(),  # type: ignore[arg-type]
+        FakeResolve(),  # type: ignore[arg-type]
+        StreamListModel(),
+        get_ratings=get_ratings,  # type: ignore[arg-type]
+    )
+    assert ctl.ratingsFor == ""  # nothing loaded yet
+
+    await ctl.load("movie", "tt_A")
+    await _drain_pending_tasks()
+    assert ctl.ratingsFor == "tt_A"
+    assert ctl.rottenTomatoes == "87"
+
+    # A page built for B, while the controller still holds A's ratings, must
+    # not treat them as its own.
+    assert ctl.ratingsFor != "tt_B"
+
+    # Every tag the page could observe while B loads. The reset must clear it
+    # first, so B's page never sees A's ratings wearing B's name.
+    seen: list[str] = []
+    ctl.ratingsChanged.connect(lambda: seen.append(ctl.ratingsFor))
+
+    await ctl.load("movie", "tt_B")
+    await _drain_pending_tasks()
+
+    assert seen == ["", "tt_B"]
+    assert ctl.ratingsFor == "tt_B"
+    assert ctl.rottenTomatoes == "87"
+
+
+async def test_ratings_tag_stays_empty_when_none_load(qapp: object) -> None:
+    ctl = DetailController(
+        FakeGetDetail(),  # type: ignore[arg-type]
+        FakeResolve(),  # type: ignore[arg-type]
+        StreamListModel(),
+        get_ratings=FakeGetRatings(Ratings()),  # type: ignore[arg-type]
+    )
+
+    await ctl.load("movie", "tt123")
+    await _drain_pending_tasks()
+
+    # Tagged even when empty: the page asked, the answer was "no ratings", and
+    # it must not keep waiting on a pill that is never coming.
+    assert ctl.ratingsFor == "tt123"
+    assert ctl.rottenTomatoes == ""
+
+
 async def test_ratings_default_empty_without_resolver(qapp: object) -> None:
     ctl = DetailController(FakeGetDetail(), FakeResolve(), StreamListModel())  # type: ignore[arg-type]
 

@@ -46,6 +46,12 @@ class DetailController(QObject):
         self._get_ratings = get_ratings
         self._meta: MetaDetail | None = None
         self._ratings: Ratings = Ratings()
+        # Which media id `_ratings` describes. load() is an asyncSlot, so its
+        # reset runs a loop turn AFTER QML calls it -- long enough for a freshly
+        # built Detail page to bind against the PREVIOUS item's ratings. The
+        # page compares this against its own id and shows nothing until they
+        # agree, so a stale pill can never be on screen.
+        self._ratings_id: str = ""
         self._ratings_task: asyncio.Task[None] | None = None
         # Season 0 ("Specials") sorts last; regular seasons ascending.
         self._seasons: list[int] = []
@@ -111,6 +117,10 @@ class DetailController(QObject):
     @Property(str, notify=ratingsChanged)
     def letterboxd(self) -> str:
         return self._ratings.letterboxd or ""
+
+    @Property(str, notify=ratingsChanged)
+    def ratingsFor(self) -> str:
+        return self._ratings_id
 
     def _genres(self) -> list[str]:
         return list(self._meta.genres) if self._meta else []
@@ -285,6 +295,7 @@ class DetailController(QObject):
         self._meta = None
         self.metaChanged.emit()
         self._ratings = Ratings()
+        self._ratings_id = ""
         self.ratingsChanged.emit()
         self._stream_model.set_streams([])
         self._seasons = []
@@ -350,4 +361,7 @@ class DetailController(QObject):
         if token != self._seq:
             return  # a newer load started; drop this stale result
         self._ratings = ratings
+        # The id QML asked for, not meta.id: the page compares it against the
+        # id it passed to load().
+        self._ratings_id = self._media_id
         self.ratingsChanged.emit()

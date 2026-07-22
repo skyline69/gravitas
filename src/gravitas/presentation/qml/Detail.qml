@@ -20,6 +20,16 @@ Item {
 
     onMediaIdChanged: if (mediaId.length) detailController.load(mediaType, mediaId)
 
+    // True only once the controller's ratings describe THIS item. A Detail
+    // page is built before load() (an asyncSlot) has run, so until then the
+    // controller still holds the item the user was looking at a moment ago --
+    // bind to it and the previous film's pill is on screen instantly, then
+    // fades out through a bare "%" as the reset lands. Waiting for the ids to
+    // agree means the pills only ever animate in with their numbers already
+    // in them.
+    readonly property bool ratingsReady:
+        detailController && detailController.ratingsFor === detail.mediaId
+
     // blurred background art + dark scrim for readability
     Image {
         id: bgSrc
@@ -137,7 +147,8 @@ Item {
                     spacing: 8
                     // Ratings arrive after the page (and may be cached, so nearly
                     // instant); fade + slide the pill in so it never just pops.
-                    property bool shown: detailController && detailController.rottenTomatoes.length > 0
+                    property bool shown: detail.ratingsReady
+                        && detailController.rottenTomatoes.length > 0
                     opacity: shown ? 1 : 0
                     visible: shown || opacity > 0
                     Behavior on opacity { NumberAnimation { duration: 550; easing.type: Easing.OutCubic } }
@@ -147,7 +158,9 @@ Item {
                     }
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
-                        text: detailController ? detailController.rottenTomatoes + "%" : ""
+                        // Suffixed only when there is a number to suffix, so a
+                        // lone "%" cannot show through for a frame.
+                        text: rtRow.shown ? detailController.rottenTomatoes + "%" : ""
                         color: Theme.text; font.pixelSize: Theme.fontTitle; font.bold: true
                     }
                     Rectangle {
@@ -169,7 +182,8 @@ Item {
                 Row {
                     id: lbRow
                     spacing: 8
-                    property bool shown: detailController && detailController.letterboxd.length > 0
+                    property bool shown: detail.ratingsReady
+                        && detailController.letterboxd.length > 0
                     opacity: shown ? 1 : 0
                     visible: shown || opacity > 0
                     Behavior on opacity { NumberAnimation { duration: 550; easing.type: Easing.OutCubic } }
@@ -179,7 +193,7 @@ Item {
                     }
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
-                        text: detailController ? detailController.letterboxd : ""
+                        text: lbRow.shown ? detailController.letterboxd : ""
                         color: Theme.text; font.pixelSize: Theme.fontTitle; font.bold: true
                     }
                     Rectangle {

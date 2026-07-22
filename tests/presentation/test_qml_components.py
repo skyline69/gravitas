@@ -207,6 +207,67 @@ def test_settings_page_survives_its_controllers_going_away(
     assert qml_warnings == []
 
 
+async def test_detail_page_hides_the_previous_films_ratings(
+    qapp: object, tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    """Open a film, go back, open another: the second page must not wear the
+    first one's Rotten Tomatoes / Letterboxd pills.
+
+    DetailController.load is an asyncSlot, so QML's call returns a loop turn
+    before the reset inside it runs -- and StackView builds the new Detail
+    page in that window, while the controller still holds the previous item's
+    ratings. Binding straight to them put the old pill on screen at once (no
+    animation: a Behavior does not run on a binding's first evaluation), which
+    then faded out through a bare "%" as the reset landed. `ratingsReady`
+    compares ids so the pills only ever animate in with their own numbers.
+
+    The controller's use cases are swapped for fakes rather than built anew:
+    it has to be the one QML is actually bound to, and it must not reach the
+    network.
+    """
+    from gravitas.domain.models import Ratings
+
+    from .test_detail_controller import (
+        FakeGetDetail,
+        FakeGetRatings,
+        FakeResolve,
+        _drain_pending_tasks,
+    )
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    engine: QQmlApplicationEngine | None = None
+    try:
+        _app, engine = build_app(
+            argv=[], default_addon_url="https://v3-cinemeta.strem.io/manifest.json"
+        )
+        controller = engine.rootContext().contextProperty("detailController")
+        controller._get_detail = FakeGetDetail()
+        controller._resolve_stream = FakeResolve()
+        controller._get_ratings = FakeGetRatings(Ratings(rotten_tomatoes="87", letterboxd="4.1"))
+
+        await controller.load("movie", "tt_A")
+        await _drain_pending_tasks()
+        assert controller.ratingsFor == "tt_A", "the first film's ratings are loaded"
+
+        component = QQmlComponent(engine, str(_QML_DIR / "Detail.qml"))
+        page = component.createWithInitialProperties(
+            {"mediaType": "movie", "mediaId": "tt_B"}, engine.rootContext()
+        )
+        assert page is not None, component.errorString()
+
+        assert page.property("ratingsReady") is False, (
+            "the new page is bound to the previous film's ratings"
+        )
+
+        await _drain_pending_tasks()
+        await _drain_pending_tasks()
+        assert controller.ratingsFor == "tt_B"
+        assert page.property("ratingsReady") is True, "its own ratings must show"
+        page.deleteLater()
+    finally:
+        del engine
+
+
 def test_poster_card_builds_its_menu_only_when_asked(qml_warnings: list[str]) -> None:
     """A ContextMenu costs ~36 KB per delegate if built eagerly (measured), paid
     by every visible card for a menu most are never asked for. It must stay
