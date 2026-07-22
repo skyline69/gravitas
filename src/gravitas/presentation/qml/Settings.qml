@@ -422,6 +422,7 @@ Item {
                         GradientStop { position: 1.0; color: "#0b0d12" }
                     }
                     Rectangle {
+                        id: previewBox
                         anchors.horizontalCenter: parent.horizontalCenter
                         anchors.bottom: parent.bottom
                         anchors.bottomMargin: 14
@@ -431,20 +432,51 @@ Item {
                         color: Qt.rgba(0, 0, 0,
                             (settingsController && settingsController.subBackOpacity !== undefined
                                 ? settingsController.subBackOpacity : 0) / 100)
+
+                        // Everything the copies below share with the real text.
+                        readonly property string sample: "This is what subtitles will look like."
+                        // Preview at ~45% of mpv's rendering scale so the
+                        // strip stays proportionate.
+                        readonly property real scale45: 0.45
+                        readonly property int glyphSize: Math.round(
+                            ((settingsController && settingsController.subFontSize) || 55) * scale45)
+                        readonly property bool glyphBold:
+                            settingsController && settingsController.subBold ? true : false
+                        // mpv measures the border in the same units as the font,
+                        // so the preview scales it the same way.
+                        readonly property real outlinePx:
+                            ((settingsController && settingsController.subBorderSize) || 0) * scale45
+
+                        // The outline, drawn as black copies of the text ringed
+                        // around it. Text.Outline was the obvious thing here, but
+                        // it has ONE hardcoded width: every value above 0 drew
+                        // the same hairline, so the slider looked like it did
+                        // nothing -- or, next to a bolder-looking 0, like it ran
+                        // backwards. This tracks the value the way mpv does.
+                        // Sixteen copies: at the widest border the gaps between
+                        // eight would scallop the thin strokes.
+                        Repeater {
+                            model: previewBox.outlinePx > 0 ? 16 : 0
+                            Text {
+                                required property int index
+                                readonly property real angle: index * Math.PI / 8
+                                anchors.centerIn: parent
+                                anchors.horizontalCenterOffset: Math.cos(angle) * previewBox.outlinePx
+                                anchors.verticalCenterOffset: Math.sin(angle) * previewBox.outlinePx
+                                text: previewBox.sample
+                                color: "black"
+                                font.pixelSize: previewBox.glyphSize
+                                font.bold: previewBox.glyphBold
+                            }
+                        }
                         Text {
                             id: previewText
                             anchors.centerIn: parent
-                            text: "This is what subtitles will look like."
+                            text: previewBox.sample
                             color: settingsController && settingsController.subColor
                                 ? settingsController.subColor : "#FFFFFF"
-                            // Preview at ~45% of mpv's rendering scale so the
-                            // strip stays proportionate.
-                            font.pixelSize: Math.round(
-                                ((settingsController && settingsController.subFontSize) || 55) * 0.45)
-                            font.bold: settingsController && settingsController.subBold ? true : false
-                            style: settingsController && settingsController.subBorderSize > 0
-                                ? Text.Outline : Text.Normal
-                            styleColor: "black"
+                            font.pixelSize: previewBox.glyphSize
+                            font.bold: previewBox.glyphBold
                         }
                     }
                 }
