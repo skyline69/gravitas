@@ -148,26 +148,12 @@ Item {
             onClicked: root.openDetail(model.type, model.id)
         }
 
-        // Scroll the strip sideways only on a horizontal wheel/trackpad
-        // gesture. A vertical wheel is left unaccepted so it bubbles up to
-        // the outer rows ListView and scrolls the page — otherwise hovering
-        // any strip would swallow page scrolling.
-        WheelHandler {
-            acceptedModifiers: Qt.NoModifier
-            onWheel: (event) => {
-                if (Math.abs(event.angleDelta.x) > Math.abs(event.angleDelta.y)) {
-                    strip.contentX = Math.max(
-                        0,
-                        Math.min(
-                            Math.max(0, strip.contentWidth - strip.width),
-                            strip.contentX - event.angleDelta.x
-                        )
-                    )
-                } else {
-                    event.accepted = false
-                }
-            }
-        }
+        // Sideways scrolling is the WheelScroller above and nothing else. A
+        // second handler used to sit here doing the same job by hand, and it
+        // clamped contentX to [0, contentWidth - width] — ignoring the ±10
+        // margins the strip actually rests at. Both fired on one event, one
+        // gliding to -10 and the other snapping to 0, which is what made a
+        // trackpad swipe over a row feel like it was catching on something.
     }
 
     // Edge fades: cards dissolving into the background say "more this way"
