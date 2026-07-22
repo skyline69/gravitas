@@ -168,3 +168,36 @@ def test_macos_file_open_event_is_forwarded(qapp: QCoreApplication, name: str) -
 
     assert received == [_LINK]
     qapp.removeEventFilter(listener)
+
+
+def test_a_payload_still_queued_at_disconnect_is_drained(qapp: object, name: str) -> None:
+    # Windows delivers `disconnected` with the bytes still in the pipe and no
+    # `readyRead` after it, so the close handler has to read before it drops
+    # the connection. Driven directly here: on Unix the kernel buffers the
+    # payload and the ordering never shows up.
+    from PySide6.QtCore import QByteArray
+
+    class QueuedSocket:
+        """Stands in for a peer that hung up with its payload unread."""
+
+        def __init__(self, payload: bytes) -> None:
+            self._payload = payload
+
+        def readAll(self) -> QByteArray:
+            data, self._payload = self._payload, b""
+            return QByteArray(data)
+
+        def deleteLater(self) -> None:
+            pass
+
+    received: list[str] = []
+    listener = DeepLinkListener(name=name)
+    listener.linkReceived.connect(received.append)
+
+    socket = QueuedSocket(_LINK.encode("utf-8"))
+    listener._connections.append(socket)  # type: ignore[arg-type]
+    listener._close(socket)  # type: ignore[arg-type]
+
+    assert received == [_LINK]
+    # ...and the connection is gone, so a late readyRead cannot deliver twice.
+    assert listener._connections == []

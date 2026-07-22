@@ -72,6 +72,9 @@ def forward_to_running_instance(payload: str, *, name: str | None = None) -> boo
         return False
     try:
         socket.write(payload.encode("utf-8"))
+        # flush() then wait: this runs before any event loop exists (the GUI is
+        # not built yet), so nothing else will ever push these bytes out.
+        socket.flush()
         if not socket.waitForBytesWritten(_WRITE_TIMEOUT_MS):
             # Still True: the connect proved an instance is alive and holding
             # the databases. Dropping one link beats booting a second copy.
@@ -128,23 +131,41 @@ class DeepLinkListener(QObject):
         # Keep a reference: nextPendingConnection() hands back a child of the
         # server, but readyRead fires later and a dropped Python reference to a
         # parented QObject is fine -- the list is for deterministic cleanup.
+        # Membership in the list also means "this connection has not delivered
+        # yet", which is what keeps the two paths below from firing twice.
         self._connections.append(socket)
-        socket.readyRead.connect(lambda: self._on_ready_read(socket))
-        socket.disconnected.connect(lambda: self._forget(socket))
+        socket.readyRead.connect(lambda: self._deliver(socket))
+        socket.disconnected.connect(lambda: self._close(socket))
 
-    def _on_ready_read(self, socket: QLocalSocket) -> None:
+    def _deliver(self, socket: QLocalSocket) -> None:
+        """Read the queued payload and route it. One per connection: the
+        forwarder writes a single line and hangs up immediately."""
+        if socket not in self._connections:
+            return
         payload = bytes(socket.readAll().data()).decode("utf-8", errors="replace").strip()
         if not payload:
             return
+        self._connections.remove(socket)
         if payload == ACTIVATE:
             self.activateRequested.emit()
         else:
             self.linkReceived.emit(payload)
+        socket.deleteLater()
 
-    def _forget(self, socket: QLocalSocket) -> None:
+    def _close(self, socket: QLocalSocket) -> None:
+        """The peer hung up -- drain before dropping the connection.
+
+        Load-bearing on Windows, where the transport is a named pipe: the
+        forwarder writes, waits for the bytes to be handed over, and closes,
+        and Qt then delivers `disconnected` with the payload still queued and
+        `readyRead` never following. Forgetting the socket here without reading
+        it first loses the link outright -- every stremio:// click into a
+        running instance did nothing.
+        """
+        self._deliver(socket)
         if socket in self._connections:
             self._connections.remove(socket)
-        socket.deleteLater()
+            socket.deleteLater()
 
     def install_macos_handler(self, app: QCoreApplication) -> None:
         """Catch the QFileOpenEvent macOS delivers for a registered scheme.

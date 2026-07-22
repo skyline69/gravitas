@@ -39,12 +39,21 @@ def app_font(qapp: QGuiApplication) -> None:
         qapp.setFont(QFont(families[0]))
 
 
+# Emitted by the offscreen platform plugin on Windows, which uses Qt's own
+# font database and looks for the font directory the wheel does not ship. It
+# says nothing about the component under test -- the real app runs on the
+# `windows` plugin, which reads the system fonts and never warns.
+_ENVIRONMENT_WARNINGS = ("QFontDatabase: Cannot find font directory",)
+
+
 @pytest.fixture
 def qml_warnings(qapp: object, app_font: None) -> Iterator[list[str]]:
     """Collect Qt warnings emitted while a component is instantiated."""
     collected: list[str] = []
 
     def handler(mode: QtMsgType, _context: object, message: str) -> None:
+        if any(noise in message for noise in _ENVIRONMENT_WARNINGS):
+            return
         if mode in (QtMsgType.QtWarningMsg, QtMsgType.QtCriticalMsg):
             collected.append(message)
 
