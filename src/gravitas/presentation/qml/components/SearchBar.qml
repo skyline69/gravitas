@@ -219,6 +219,10 @@ Item {
                     }
                     HoverHandler { id: rowHover; cursorShape: Qt.PointingHandCursor }
                     TapHandler {
+                        // Suggestion rows hang over the page below the bar;
+                        // the exclusive grab keeps the pick from also
+                        // reaching the content behind the dropdown.
+                        gesturePolicy: TapHandler.ReleaseWithinBounds
                         onTapped: {
                             bar.openDetail(resultRow.type, resultRow.mediaId)
                             bar.reset()

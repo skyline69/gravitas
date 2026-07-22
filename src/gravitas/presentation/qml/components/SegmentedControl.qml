@@ -87,6 +87,10 @@ Item {
                 }
                 TapHandler {
                     enabled: !control.locked
+                    // Discover's filter bar floats over the poster grid, so
+                    // the exclusive grab is what stops a segment tap from
+                    // also opening the poster scrolled underneath it.
+                    gesturePolicy: TapHandler.ReleaseWithinBounds
                     onTapped: {
                         if (index !== control.currentIndex)
                             control.activated(index)

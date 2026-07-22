@@ -77,7 +77,18 @@ Item {
             }
         }
     }
-    TapHandler { id: tap; onTapped: root.clicked() }
+    TapHandler {
+        id: tap
+        // Same fix as ContextMenu/TrackMenu: the default DragThreshold policy
+        // is a passive grab that never ACCEPTS the press, so the tap also
+        // reached whatever this floating button covers. On Detail the button
+        // sits over the scrolling episode list, so going back from a series
+        // ALSO "clicked" the episode row underneath -- popping to Home while
+        // pushing that episode's Sources page, which then looked like a stale
+        // page wedged into the stack.
+        gesturePolicy: TapHandler.ReleaseWithinBounds
+        onTapped: root.clicked()
+    }
     Timer { id: tipTimer; interval: 500; onTriggered: tip.open() }
     AppToolTip {
         id: tip

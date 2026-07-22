@@ -107,6 +107,10 @@ Rectangle {
                     y: parent.height + 8
                 }
                 TapHandler {
+                    // The bar floats over the page (content scrolls under it),
+                    // so without the exclusive grab a tab tap also lands on
+                    // whatever poster happens to be beneath it.
+                    gesturePolicy: TapHandler.ReleaseWithinBounds
                     onTapped: {
                         // No-op when re-tapping the tab already showing.
                         if (!bar.settingsActive && bar.activeMode === modelData.mode)
