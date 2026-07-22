@@ -58,6 +58,7 @@ def test_frozen_run_launders_every_bundle_variable(monkeypatch: MonkeyPatch) -> 
 def test_the_spawn_gets_the_environment_not_this_process(monkeypatch: MonkeyPatch) -> None:
     """The whole point: mutating os.environ around the launch does not reach
     Qt's child, so the environment has to travel as an argument to Popen."""
+    monkeypatch.setattr(sys, "platform", "linux")  # the opener path is Unix-only
     monkeypatch.setattr(external_url.shutil, "which", lambda name, path=None: f"/usr/bin/{name}")
     calls: list[tuple[list[str], dict[str, str]]] = []
 
@@ -80,6 +81,7 @@ def test_the_spawn_gets_the_environment_not_this_process(monkeypatch: MonkeyPatc
 def test_the_child_is_detached_and_silenced(monkeypatch: MonkeyPatch) -> None:
     """A browser must outlive Gravitas, and an opener writing to a terminal
     that may not exist must not block on a full pipe."""
+    monkeypatch.setattr(sys, "platform", "linux")  # the opener path is Unix-only
     monkeypatch.setattr(external_url.shutil, "which", lambda name, path=None: f"/usr/bin/{name}")
     kwargs: dict[str, Any] = {}
 
@@ -99,6 +101,7 @@ def test_the_child_is_detached_and_silenced(monkeypatch: MonkeyPatch) -> None:
 def test_falls_through_to_the_next_opener_when_one_is_missing(
     monkeypatch: MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")  # the opener path is Unix-only
     monkeypatch.setattr(
         external_url.shutil,
         "which",
@@ -117,6 +120,7 @@ def test_falls_through_to_the_next_opener_when_one_is_missing(
 
 
 def test_no_opener_on_path_falls_back_to_qt(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")  # the opener path is Unix-only
     monkeypatch.setattr(external_url.shutil, "which", lambda name, path=None: None)
     asked: list[str] = []
     monkeypatch.setattr(
@@ -133,3 +137,24 @@ def test_empty_url_is_a_noop() -> None:
     calls: list[str] = []
     assert open_in_browser("", launch=lambda u, env: bool(calls.append(u)) or True) is False
     assert calls == []
+
+
+def test_windows_and_macos_go_straight_to_qt(monkeypatch: MonkeyPatch) -> None:
+    # A Windows box with Git Bash or WSL interop on PATH HAS an xdg-open, and
+    # it cannot open a Windows browser. Probing the opener list there would
+    # find it, spawn it, and report success while nothing happened.
+    def _boom(name: str, path: str | None = None) -> str:
+        raise AssertionError(f"opener search must not run: {name}")
+
+    monkeypatch.setattr(external_url.shutil, "which", _boom)
+    asked: list[str] = []
+    monkeypatch.setattr(
+        external_url.QDesktopServices,
+        "openUrl",
+        staticmethod(lambda qurl: bool(asked.append(qurl.toString())) or True),
+    )
+
+    for platform in ("win32", "darwin"):
+        monkeypatch.setattr(sys, "platform", platform)
+        assert open_in_browser("https://x") is True
+    assert asked == ["https://x", "https://x"]

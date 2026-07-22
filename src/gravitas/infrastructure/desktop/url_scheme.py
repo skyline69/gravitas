@@ -44,12 +44,18 @@ ACTIVATE = "activate"
 def socket_name() -> str:
     """Per-user socket name.
 
-    Scoped by uid because QLocalServer puts its socket in a shared /tmp on
-    Linux: an unscoped name would let one user's link reach -- or simply block
-    -- another user's Gravitas.
+    Scoped by user because the namespace is shared machine-wide: QLocalServer
+    puts its socket in a common /tmp on Unix and behind a global \\\\.\\pipe\\
+    name on Windows. Unscoped, one user's link would reach -- or simply block
+    -- another user's Gravitas. uid where there is one, the account name
+    elsewhere, reduced to characters both namespaces accept.
     """
-    uid = os.getuid() if hasattr(os, "getuid") else 0
-    return f"gravitas-deeplink-{uid}"
+    getuid = getattr(os, "getuid", None)
+    if getuid is not None:
+        return f"gravitas-deeplink-{getuid()}"
+    account = os.environ.get("USERNAME") or os.environ.get("USER") or "default"
+    scope = "".join(c if c.isalnum() or c in "-_" else "-" for c in account)
+    return f"gravitas-deeplink-{scope or 'default'}"
 
 
 def forward_to_running_instance(payload: str, *, name: str | None = None) -> bool:

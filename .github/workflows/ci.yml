@@ -7,20 +7,32 @@ on:
 
 jobs:
   checks:
-    runs-on: ubuntu-latest
+    # Tests run on both targets: paths, the single-instance socket name and
+    # libmpv discovery all branch per platform, and only a Windows runner can
+    # prove the Windows half. The lint/format/type gates are platform-blind,
+    # so they run once, on Linux.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - name: Qt runtime libraries (offscreen tests)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libegl1 libopengl0 libgl1 libxkbcommon0 libglib2.0-0
       - run: uv sync
       - name: Lint
+        if: runner.os == 'Linux'
         run: uv run ruff check .
       - name: Format
+        if: runner.os == 'Linux'
         run: uv run ruff format --check .
       - name: Types
+        if: runner.os == 'Linux'
         run: uv run mypy src
       - name: Tests
         run: uv run pytest -q

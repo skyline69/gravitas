@@ -1,4 +1,9 @@
+import os
+import sys
+from pathlib import Path
 from typing import Any
+
+import pytest
 
 from gravitas.infrastructure.player.mpv_player import MpvPlayer
 
@@ -314,3 +319,131 @@ def test_play_clears_headers_from_a_previous_stream() -> None:
     player.play("https://cdn/a.mp4", headers=(("Referer", "https://origin/"),))
     player.play("https://cdn/b.mp4")
     assert mpv.http_header_fields == []
+
+
+def test_libmpv_override_goes_on_path_on_windows() -> None:
+    # python-mpv opens the DLL by name off %PATH% at import time, so a manual
+    # libmpv is reachable only if its directory is on PATH before that import.
+    from gravitas.infrastructure.player.mpv_player import _ensure_libmpv_discoverable
+
+    # Host-shaped paths on purpose: os.path.dirname and os.pathsep follow the
+    # machine running the test, and it is the naming rules that differ on
+    # Windows, not the splitting.
+    library = os.path.join("opt", "mpv", "libmpv-2.dll")
+    env = {"GRAVITAS_LIBMPV": library, "PATH": "existing-dir"}
+    _ensure_libmpv_discoverable(env, platform="win32")
+    assert env["PATH"].split(os.pathsep)[0] == os.path.dirname(library)
+    assert "existing-dir" in env["PATH"].split(os.pathsep)
+
+
+def test_windows_without_an_override_touches_nothing() -> None:
+    # The bundle puts its own DLL on PATH later; a dev checkout is expected to
+    # have one on PATH already. Neither wants a spurious entry here.
+    from gravitas.infrastructure.player.mpv_player import _ensure_libmpv_discoverable
+
+    env = {"PATH": "existing-dir"}
+    _ensure_libmpv_discoverable(env, platform="win32")
+    assert env == {"PATH": "existing-dir"}
+
+
+def test_libmpv_override_redirects_find_library_on_unix(monkeypatch: pytest.MonkeyPatch) -> None:
+    import ctypes.util
+
+    from gravitas.infrastructure.player.mpv_player import _ensure_libmpv_discoverable
+
+    # Snapshot so the patch this installs is undone with the test.
+    monkeypatch.setattr(ctypes.util, "find_library", ctypes.util.find_library)
+    _ensure_libmpv_discoverable({"GRAVITAS_LIBMPV": "/opt/mpv/libmpv.so.2"}, platform="linux")
+    assert ctypes.util.find_library("mpv") == "/opt/mpv/libmpv.so.2"
+    # Every other lookup still goes to the real implementation.
+    assert ctypes.util.find_library("definitely-not-a-library-12345") is None
+
+
+def test_bundled_libmpv_goes_on_path_on_windows(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from gravitas.infrastructure.player.mpv_player import _ensure_bundled_libmpv_findable
+
+    (tmp_path / "libmpv-2.dll").write_bytes(b"")
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    env = {"PATH": "existing-dir"}
+    _ensure_bundled_libmpv_findable(env, platform="win32")
+    assert env["PATH"].split(os.pathsep)[0] == str(tmp_path)
+
+
+def test_bundled_libmpv_is_a_noop_when_the_dll_is_absent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from gravitas.infrastructure.player.mpv_player import _ensure_bundled_libmpv_findable
+
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    env = {"PATH": "existing-dir"}
+    _ensure_bundled_libmpv_findable(env, platform="win32")
+    assert env == {"PATH": "existing-dir"}
+
+
+def test_bundled_libmpv_is_a_noop_outside_a_bundle(monkeypatch: pytest.MonkeyPatch) -> None:
+    from gravitas.infrastructure.player.mpv_player import _ensure_bundled_libmpv_findable
+
+    monkeypatch.delattr(sys, "_MEIPASS", raising=False)
+    env: dict[str, str] = {}
+    _ensure_bundled_libmpv_findable(env, platform="win32")
+    assert env == {}
+
+
+def test_bundled_ytdlp_uses_the_windows_executable_name(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # mpv's ytdl_hook spawns `yt-dlp`, which Windows resolves to yt-dlp.exe --
+    # looking for the extension-less name there finds nothing and YouTube and
+    # every trailer silently stop working.
+    from gravitas.infrastructure.player.mpv_player import _ensure_bundled_ytdlp_on_path
+
+    (tmp_path / "yt-dlp.exe").write_bytes(b"")
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    env = {"PATH": "existing-dir"}
+    _ensure_bundled_ytdlp_on_path(env, platform="win32")
+    assert env["PATH"].split(os.pathsep)[0] == str(tmp_path)
+
+    # The Unix name is not the Windows one: a bundle carrying only the .exe
+    # must not put itself on PATH on Linux.
+    unix_env = {"PATH": "/usr/bin"}
+    _ensure_bundled_ytdlp_on_path(unix_env, platform="linux")
+    assert unix_env == {"PATH": "/usr/bin"}
+
+
+def test_path_prepend_never_duplicates(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Both the libmpv and the yt-dlp hook point at _MEIPASS; running them in
+    # sequence must not grow PATH by an entry each launch.
+    from gravitas.infrastructure.player.mpv_player import (
+        _ensure_bundled_libmpv_findable,
+        _ensure_bundled_ytdlp_on_path,
+    )
+
+    (tmp_path / "libmpv-2.dll").write_bytes(b"")
+    (tmp_path / "yt-dlp.exe").write_bytes(b"")
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    env = {"PATH": "existing-dir"}
+    _ensure_bundled_libmpv_findable(env, platform="win32")
+    _ensure_bundled_ytdlp_on_path(env, platform="win32")
+    assert env["PATH"].split(os.pathsep) == [str(tmp_path), "existing-dir"]
+
+
+def test_an_explicit_libmpv_beats_the_bundled_one(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Setting GRAVITAS_LIBMPV inside a bundle is how you test a different
+    # libmpv against a shipped build; the bundled DLL taking it back would
+    # make the variable look broken.
+    from gravitas.infrastructure.player.mpv_player import (
+        _ensure_bundled_libmpv_findable,
+        _ensure_libmpv_discoverable,
+    )
+
+    (tmp_path / "libmpv-2.dll").write_bytes(b"")
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    override = os.path.join("elsewhere", "libmpv-2.dll")
+    env = {"GRAVITAS_LIBMPV": override, "PATH": "existing-dir"}
+    _ensure_libmpv_discoverable(env, platform="win32")
+    _ensure_bundled_libmpv_findable(env, platform="win32")
+    assert env["PATH"].split(os.pathsep)[0] == os.path.dirname(override)

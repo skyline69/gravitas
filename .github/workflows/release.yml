@@ -92,6 +92,54 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload rolling dist/Gravitas.dmg --repo "$GITHUB_REPOSITORY" --clobber
 
+  windows:
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      # No libmpv package exists for Windows, so the spec downloads the
+      # official mpv-dev build itself (and yt-dlp.exe with it). py7zr is the
+      # in-process fallback for the extraction if the runner ever loses 7z.
+      - name: Build one-dir bundle
+        env:
+          # Raises the GitHub API rate limit the spec's libmpv lookup uses.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: uv run --with pyinstaller --with py7zr pyinstaller packaging/gravitas.spec --noconfirm
+      - name: Verify the bundle carries libmpv and yt-dlp
+        shell: pwsh
+        run: |
+          $internal = "dist/Gravitas/_internal"
+          foreach ($file in @("libmpv-2.dll", "yt-dlp.exe")) {
+            if (-not (Test-Path "$internal/$file")) {
+              throw "$file missing from the bundle - playback would be dead on arrival"
+            }
+          }
+          if (Test-Path "$internal/PySide6/Qt6WebEngineCore.dll") {
+            throw "QtWebEngine survived the payload filter - the installer would be 200 MB of Chromium"
+          }
+      - name: Portable zip
+        shell: pwsh
+        run: Compress-Archive -Path dist/Gravitas/* -DestinationPath dist/Gravitas-windows-x64.zip
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          # Upgrade rather than install-if-missing: the .iss uses
+          # ArchitecturesAllowed=x64compatible, which needs Inno Setup 6.3+,
+          # and the runner image has historically shipped 6.2.
+          choco upgrade innosetup -y --no-progress
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { $iscc = "iscc" }
+          & $iscc packaging\windows\gravitas.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with $LASTEXITCODE" }
+      - name: Upload to the rolling release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          gh release upload rolling dist/Gravitas-Setup.exe dist/Gravitas-windows-x64.zip
+          --repo "$env:GITHUB_REPOSITORY" --clobber
+
   flatpak:
     needs: prepare
     # Independent of the AppImage/dmg jobs: a Flatpak failure never blocks them.

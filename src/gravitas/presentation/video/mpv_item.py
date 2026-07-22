@@ -24,6 +24,7 @@ _log = logging.getLogger(__name__)
 
 _MACOS_OPENGL_FRAMEWORK = "/System/Library/Frameworks/OpenGL.framework/OpenGL"
 _macos_gl: ctypes.CDLL | None = None
+_windows_gl: ctypes.CDLL | None = None
 
 
 def _macos_gl_symbol(name: bytes) -> int:
@@ -33,6 +34,26 @@ def _macos_gl_symbol(name: bytes) -> int:
         if _macos_gl is None:
             _macos_gl = ctypes.CDLL(_MACOS_OPENGL_FRAMEWORK)
         fn = getattr(_macos_gl, name.decode("ascii"))
+        return ctypes.cast(fn, ctypes.c_void_p).value or 0
+    except (OSError, AttributeError, UnicodeDecodeError):
+        return 0
+
+
+def _windows_gl_symbol(name: bytes) -> int:
+    """Resolve a GL symbol straight out of opengl32.dll.
+
+    WGL's own wglGetProcAddress returns NULL for everything in OpenGL 1.1 --
+    glClear, glGetString, glTexImage2D and friends are plain exports of
+    opengl32.dll instead. Qt's WGL backend already falls back to those exports,
+    so this is the belt to that suspenders: if a driver or a future Qt ever
+    hands back 0 for a 1.1 entry point, mpv's render context fails to
+    initialise and the video item stays black with no error worth the name.
+    """
+    global _windows_gl
+    try:
+        if _windows_gl is None:
+            _windows_gl = ctypes.WinDLL("opengl32")  # type: ignore[attr-defined,unused-ignore]
+        fn = getattr(_windows_gl, name.decode("ascii"))
         return ctypes.cast(fn, ctypes.c_void_p).value or 0
     except (OSError, AttributeError, UnicodeDecodeError):
         return 0
@@ -103,9 +124,13 @@ class _Renderer(QQuickFramebufferObject.Renderer):
             if addr:
                 return int(addr)
             # macOS/CGL: Qt occasionally returns null for core GL symbols;
-            # resolve them straight from the OpenGL framework instead.
+            # resolve them straight from the OpenGL framework instead. Windows
+            # has the same hole for the OpenGL 1.1 entry points, which live in
+            # opengl32.dll rather than behind wglGetProcAddress.
             if sys.platform == "darwin":
                 return _macos_gl_symbol(name)
+            if sys.platform == "win32":
+                return _windows_gl_symbol(name)
             return 0
 
         self._get_proc = mpv.MpvGlGetProcAddressFn(get_proc_address)

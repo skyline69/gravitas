@@ -75,6 +75,12 @@ def _launch(url: str, env: dict[str, str]) -> bool:
     its output is discarded: an opener that writes to a terminal Gravitas may
     not have would otherwise block on a full pipe.
     """
+    # Windows and macOS have one correct answer each (ShellExecute, LaunchServices)
+    # and Qt knows both. Never probe the opener list there: a machine with Git
+    # Bash, MSYS or WSL interop on PATH has an `xdg-open` that would win the
+    # search and then fail to open anything.
+    if sys.platform in ("win32", "darwin"):
+        return bool(QDesktopServices.openUrl(QUrl(url)))
     for opener in _OPENERS:
         executable = shutil.which(opener[0], path=env.get("PATH", os.defpath))
         if executable is None:
@@ -92,8 +98,7 @@ def _launch(url: str, env: dict[str, str]) -> bool:
         except OSError:
             continue
         return True
-    # No opener on PATH: macOS and Windows have their own mechanisms, and Qt
-    # knows them. There is no bundle environment to launder on those platforms.
+    # No opener on PATH: Qt's own attempt is all that is left.
     return bool(QDesktopServices.openUrl(QUrl(url)))
 
 

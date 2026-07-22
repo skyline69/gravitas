@@ -1,39 +1,29 @@
 from pathlib import Path
 
-from pytest import MonkeyPatch
-
 from gravitas.infrastructure.cache.network_cache import (
     MAX_CACHE_BYTES,
     CachingNetworkAccessManagerFactory,
     default_network_cache_path,
 )
+from gravitas.infrastructure.paths import cache_dir
 
 
-def test_default_path_follows_xdg_cache_home(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
-    assert default_network_cache_path() == tmp_path / "gravitas" / "network"
+def test_default_path_lives_in_the_cache_dir() -> None:
+    # Which directory that is per platform is paths.py's business (and its
+    # tests'); here it only matters that artwork goes to the disposable one.
+    assert default_network_cache_path() == cache_dir() / "network"
 
 
-def test_default_path_falls_back_to_dot_cache(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
-    monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
-    assert default_network_cache_path() == tmp_path / ".cache" / "gravitas" / "network"
-
-
-def test_path_is_cache_not_data_or_config(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
-    # Posters are re-downloadable, so they belong in XDG_CACHE_HOME: a user (or
-    # a cleaner) deleting it loses nothing. progress.db lives in
-    # XDG_DATA_HOME and settings.json in XDG_CONFIG_HOME precisely because
-    # those are NOT disposable.
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+def test_path_is_cache_not_data_or_config() -> None:
+    # Posters are re-downloadable, so they belong in the cache dir: a user (or
+    # a cleaner) wiping it loses nothing. progress.db and settings.json are NOT
+    # disposable, so nothing of theirs may sit under it.
     from gravitas.infrastructure.progress.sqlite_store import default_progress_path
     from gravitas.infrastructure.settings.json_store import default_settings_path
 
-    assert default_network_cache_path().is_relative_to(tmp_path / "cache")
-    assert not default_progress_path().is_relative_to(tmp_path / "cache")
-    assert not default_settings_path().is_relative_to(tmp_path / "cache")
+    assert default_network_cache_path().is_relative_to(cache_dir())
+    assert not default_progress_path().is_relative_to(cache_dir())
+    assert not default_settings_path().is_relative_to(cache_dir())
 
 
 def test_factory_creates_a_manager_with_a_disk_cache(qapp: object, tmp_path: Path) -> None:

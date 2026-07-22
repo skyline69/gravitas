@@ -1,4 +1,4 @@
-"""SQLite ProgressStore adapter (XDG data dir by default).
+"""SQLite ProgressStore adapter (the user data dir by default -- see paths.py).
 
 One row per (media_id, video_id). Writes are single-row UPSERTs into a
 WITHOUT ROWID B-tree, so a save costs the same whether the table holds ten
@@ -9,12 +9,12 @@ format here.
 from __future__ import annotations
 
 import logging
-import os
 import sqlite3
 from pathlib import Path
 from typing import Any
 
 from gravitas.domain.models import MediaType, PlaybackProgress
+from gravitas.infrastructure.paths import data_dir
 
 _log = logging.getLogger(__name__)
 
@@ -53,9 +53,7 @@ CREATE TABLE IF NOT EXISTS forgotten (
 
 
 def default_progress_path() -> Path:
-    base = os.environ.get("XDG_DATA_HOME", "")
-    root = Path(base) if base else Path.home() / ".local" / "share"
-    return root / "gravitas" / "progress.db"
+    return data_dir() / "progress.db"
 
 
 def _to_entry(row: tuple[Any, ...]) -> PlaybackProgress:

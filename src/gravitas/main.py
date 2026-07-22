@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import sys
@@ -16,6 +17,7 @@ from PySide6.QtCore import (
     QEvent,
     QMessageLogContext,
     QtMsgType,
+    QUrl,
     qInstallMessageHandler,
 )
 from PySide6.QtGui import QFont, QFontDatabase, QGuiApplication, QIcon, QSurfaceFormat
@@ -150,12 +152,33 @@ def _install_qt_log_filter() -> None:
     qInstallMessageHandler(handler)
 
 
+def _set_windows_app_id(app_id: str = "dev.skyline.Gravitas") -> None:
+    """Give Windows an explicit AppUserModelID.
+
+    Without one the shell derives an identity from the process, and a pinned
+    taskbar button then fails to unify with the running window -- the classic
+    "two icons for one app" after pinning. The installer's shortcut carries no
+    ID of its own, so the process has to declare it. No-op off Windows, and a
+    failure here is cosmetic: never let it stop a launch.
+    """
+    if sys.platform != "win32":
+        return
+    import ctypes
+
+    with contextlib.suppress(Exception):
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(  # type: ignore[attr-defined,unused-ignore]
+            app_id
+        )
+
+
 def pending_link(argv: list[str]) -> str | None:
     """The stremio:// URL this process was launched with, if any.
 
-    Linux browsers hand a registered scheme over as `gravitas <url>`. macOS
-    never does -- it posts a QFileOpenEvent instead -- so this returns None
-    there and DeepLinkListener carries it.
+    Linux browsers hand a registered scheme over as `gravitas <url>`, and so
+    does Windows -- the installer registers exactly that command line under
+    HKCU\\Software\\Classes\\stremio. macOS never does -- it posts a
+    QFileOpenEvent instead -- so this returns None there and DeepLinkListener
+    carries it.
     """
     for arg in argv[1:]:
         if arg.lower().startswith(_LINK_SCHEME):
@@ -197,6 +220,7 @@ def build_app(
     app.setApplicationName("Gravitas")
     app.setApplicationDisplayName("Gravitas")
     app.setDesktopFileName("dev.skyline.Gravitas")
+    _set_windows_app_id()
     _icon = _QML_DIR / "assets" / "gravitas.png"
     if _icon.exists():
         app.setWindowIcon(QIcon(str(_icon)))
@@ -520,7 +544,9 @@ def build_app(
             await trakt_controller.sync_quietly()
             await trakt_controller.refresh_rows_quietly()
 
-    engine.load(str(_QML_DIR / "Main.qml"))
+    # fromLocalFile, not the raw path: QUrl parses `C:\...` as scheme "c" on
+    # Windows, and the engine then loads nothing at all.
+    engine.load(QUrl.fromLocalFile(str(_QML_DIR / "Main.qml")))
 
     # setContextProperty does not take ownership of the QObject in PySide6: if
     # no Python reference to these controllers/models survives past this

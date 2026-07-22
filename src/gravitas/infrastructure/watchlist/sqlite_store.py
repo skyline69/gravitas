@@ -1,4 +1,4 @@
-"""SQLite WatchlistStore adapter (XDG data dir by default).
+"""SQLite WatchlistStore adapter (the user data dir by default -- see paths.py).
 
 One row per media_id. Same failure policy as the progress store: a bad
 database disables the watchlist for the session instead of taking the app
@@ -8,12 +8,12 @@ down, and every method degrades to a no-op / empty read.
 from __future__ import annotations
 
 import logging
-import os
 import sqlite3
 from pathlib import Path
 from typing import Any
 
 from gravitas.domain.models import MediaType, WatchlistEntry
+from gravitas.infrastructure.paths import data_dir
 
 _log = logging.getLogger(__name__)
 
@@ -35,9 +35,7 @@ _COLUMNS = "media_id, type, name, poster, year, added_at"
 
 
 def default_watchlist_path() -> Path:
-    base = os.environ.get("XDG_DATA_HOME", "")
-    root = Path(base) if base else Path.home() / ".local" / "share"
-    return root / "gravitas" / "watchlist.db"
+    return data_dir() / "watchlist.db"
 
 
 def _to_entry(row: tuple[Any, ...]) -> WatchlistEntry:

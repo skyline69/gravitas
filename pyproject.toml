@@ -12,7 +12,6 @@ dependencies = [
     "python-mpv>=1.0.8",
     "httpx[http2]>=0.28",
     "qasync>=0.28",
-    "platformdirs>=4.11",
 ]
 
 [project.urls]

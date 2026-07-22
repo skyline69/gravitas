@@ -1,4 +1,4 @@
-"""SQLite-backed JSON response cache (XDG cache dir by default).
+"""SQLite-backed JSON response cache (the user cache dir by default -- see paths.py).
 
 The persistent layer under AddonClient's in-memory TtlCache: catalogs, meta
 and manifests survive a restart, so a warm launch paints from disk instead of
@@ -19,13 +19,14 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import sqlite3
 import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+from gravitas.infrastructure.paths import cache_dir
 
 _log = logging.getLogger(__name__)
 
@@ -44,9 +45,7 @@ CREATE TABLE IF NOT EXISTS cache (
 
 
 def default_cache_path() -> Path:
-    base = os.environ.get("XDG_CACHE_HOME", "")
-    root = Path(base) if base else Path.home() / ".cache"
-    return root / "gravitas" / "addon-json.db"
+    return cache_dir() / "addon-json.db"
 
 
 class JsonDiskCache:

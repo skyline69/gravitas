@@ -10,12 +10,13 @@ cannot grow without bound.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from PySide6.QtCore import QObject
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkDiskCache
 from PySide6.QtQml import QQmlNetworkAccessManagerFactory
+
+from gravitas.infrastructure.paths import cache_dir
 
 # Posters are ~20-60 KB each, so this holds a large library's artwork while
 # staying a rounding error on any disk this app runs on.
@@ -24,11 +25,9 @@ MAX_CACHE_BYTES = 256 * 1024 * 1024
 
 def default_network_cache_path() -> Path:
     """Artwork is re-downloadable, so it belongs in the cache dir: deleting it
-    costs a user nothing but bandwidth. Contrast progress.db (XDG_DATA_HOME)
-    and settings.json (XDG_CONFIG_HOME), which are not disposable."""
-    base = os.environ.get("XDG_CACHE_HOME", "")
-    root = Path(base) if base else Path.home() / ".cache"
-    return root / "gravitas" / "network"
+    costs a user nothing but bandwidth. Contrast progress.db (the data dir)
+    and settings.json (the config dir), which are not disposable."""
+    return cache_dir() / "network"
 
 
 class CachingNetworkAccessManagerFactory(QQmlNetworkAccessManagerFactory):

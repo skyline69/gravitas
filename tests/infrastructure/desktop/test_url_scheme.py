@@ -130,9 +130,27 @@ def test_first_launch_without_a_link_is_the_primary(qapp: object, name: str) -> 
 
 
 def test_socket_name_is_scoped_to_the_user(qapp: object) -> None:
-    # QLocalServer sockets live in a shared /tmp on Linux; an unscoped name
-    # would let one user's link reach another user's Gravitas.
-    assert str(os.getuid()) in socket_name()
+    # QLocalServer sockets live in a shared /tmp on Unix and a machine-global
+    # \\.\pipe\ namespace on Windows; an unscoped name would let one user's
+    # link reach another user's Gravitas.
+    getuid = getattr(os, "getuid", None)
+    if getuid is not None:
+        assert str(getuid()) in socket_name()
+    else:
+        assert socket_name() != "gravitas-deeplink-"
+
+
+def test_socket_name_falls_back_to_the_account_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The Windows path: no uid exists there, so the account name scopes the
+    # pipe -- reduced to characters the namespace accepts, since a real
+    # account can be `DOMAIN\Ada Lovelace`.
+    monkeypatch.delattr(os, "getuid", raising=False)
+    monkeypatch.setenv("USERNAME", "Ada Lovelace")
+    assert socket_name() == "gravitas-deeplink-Ada-Lovelace"
+
+    monkeypatch.delenv("USERNAME")
+    monkeypatch.delenv("USER", raising=False)
+    assert socket_name() == "gravitas-deeplink-default"
 
 
 def test_macos_file_open_event_is_forwarded(qapp: QCoreApplication, name: str) -> None:

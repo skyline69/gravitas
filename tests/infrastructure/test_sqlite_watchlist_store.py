@@ -3,6 +3,7 @@ from pathlib import Path
 from pytest import MonkeyPatch
 
 from gravitas.domain.models import WatchlistEntry
+from gravitas.infrastructure.paths import data_dir
 from gravitas.infrastructure.watchlist.sqlite_store import (
     SqliteWatchlistStore,
     default_watchlist_path,
@@ -85,6 +86,5 @@ def test_corrupt_file_loads_empty_and_never_raises(tmp_path: Path) -> None:
     store.clear()
 
 
-def test_default_path_follows_xdg_data_home(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
-    assert default_watchlist_path() == tmp_path / "gravitas" / "watchlist.db"
+def test_default_path_lives_in_the_data_dir() -> None:
+    assert default_watchlist_path() == data_dir() / "watchlist.db"

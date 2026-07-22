@@ -1,11 +1,13 @@
 # PyInstaller spec: one-dir bundle with libmpv included.
 # Build:  uv run --with pyinstaller pyinstaller packaging/gravitas.spec --noconfirm
-# Output: dist/Gravitas/ (Linux), dist/Gravitas.app (macOS)
+# Output: dist/Gravitas/ (Linux, Windows), dist/Gravitas.app (macOS)
 
 import ctypes.util
+import json
 import os
 import platform
 import re
+import shutil
 import stat
 import subprocess
 import sys
@@ -14,25 +16,40 @@ from pathlib import Path
 
 ROOT = Path(SPECPATH).parent  # noqa: F821 - SPECPATH is injected by PyInstaller
 SRC = ROOT / "src"
+WINDOWS = sys.platform == "win32"
+CACHE = ROOT / "packaging" / ".cache"
+
+# Windows has no package manager that ships libmpv, so the build fetches it:
+# shinchiro's mpv-dev packages are the de-facto official Windows libmpv, and
+# libmpv-2.dll there is statically linked (ffmpeg, libass and the rest live
+# inside it), so one file is the whole player.
+_MPV_WINBUILD_RELEASE = (
+    "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest"
+)
+# `mpv-dev-x86_64-<date>-git-<hash>.7z` and nothing else: the `-v3-` variant of
+# the same name is compiled for x86-64-v3 (AVX2) and crashes on older CPUs.
+_MPV_DEV_ASSET = re.compile(r"^mpv-dev-x86_64-\d{8}-git-[0-9a-f]+\.7z$")
 
 
 def fetch_ytdlp() -> str | None:
     """Download the self-contained yt-dlp for the build host and cache it under
-    packaging/.cache. Bundled as `yt-dlp` (the exact name mpv's ytdl_hook spawns)
-    so YouTube/trailer streams resolve with no system yt-dlp. Set
-    GRAVITAS_NO_YTDLP=1 to skip (e.g. Flatpak, which builds it as its own module)."""
+    packaging/.cache. Bundled under the exact name mpv's ytdl_hook spawns
+    (`yt-dlp`, `yt-dlp.exe` on Windows) so YouTube/trailer streams resolve with
+    no system yt-dlp. Set GRAVITAS_NO_YTDLP=1 to skip (e.g. Flatpak, which
+    builds it as its own module)."""
     if os.environ.get("GRAVITAS_NO_YTDLP"):
         return None
     machine = platform.machine().lower()
-    if sys.platform == "darwin":
+    if WINDOWS:
+        asset = "yt-dlp.exe"
+    elif sys.platform == "darwin":
         asset = "yt-dlp_macos"
     elif machine in ("aarch64", "arm64"):
         asset = "yt-dlp_linux_aarch64"
     else:
         asset = "yt-dlp_linux"
-    cache = ROOT / "packaging" / ".cache"
-    cache.mkdir(exist_ok=True)
-    dest = cache / "yt-dlp"
+    CACHE.mkdir(exist_ok=True)
+    dest = CACHE / ("yt-dlp.exe" if WINDOWS else "yt-dlp")
     if not dest.exists():
         url = f"https://github.com/yt-dlp/yt-dlp/releases/latest/download/{asset}"
         print(f"fetching {url}")
@@ -42,9 +59,99 @@ def fetch_ytdlp() -> str | None:
     return str(dest)
 
 
+def _extract_7z(archive: Path, member: str, dest: Path) -> bool:
+    """Pull one file out of a .7z. Tries the 7z CLI, then py7zr."""
+    for exe in ("7z", "7za", "7zz"):
+        found = shutil.which(exe)
+        if found is None:
+            continue
+        # `e` extracts flat (no directory structure), -y answers every prompt.
+        result = subprocess.run(
+            [found, "e", str(archive), f"-o{dest.parent}", member, "-y"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0 and dest.exists():
+            return True
+        print(f"{exe} failed: {result.stderr.strip() or result.stdout.strip()}")
+    try:
+        import py7zr
+    except ImportError:
+        return False
+    with py7zr.SevenZipFile(archive, "r") as archive_file:
+        archive_file.extract(path=dest.parent, targets=[member])
+    # py7zr keeps the archive's directory structure; flatten it.
+    extracted = dest.parent / member
+    if extracted != dest and extracted.exists():
+        shutil.move(str(extracted), str(dest))
+    return dest.exists()
+
+
+def fetch_libmpv_windows() -> str | None:
+    """Download libmpv-2.dll and cache it under packaging/.cache.
+
+    Skipped entirely when GRAVITAS_LIBMPV points at a DLL already. Needs either
+    the 7z CLI (present on GitHub's windows runners and with any 7-Zip install)
+    or py7zr importable, because that is the only format these builds ship in.
+    """
+    CACHE.mkdir(exist_ok=True)
+    dest = CACHE / "libmpv-2.dll"
+    if dest.exists():
+        return str(dest)
+    print(f"fetching the libmpv release list from {_MPV_WINBUILD_RELEASE}")
+    headers = {"Accept": "application/vnd.github+json"}
+    # Unauthenticated GitHub API calls are 60/hour per IP, and CI runners share
+    # theirs. The token (when the workflow exports one) lifts that to 1000 --
+    # but it is deliberately NOT sent with the asset download below: that
+    # redirects to a storage host which rejects a request carrying two
+    # authentication mechanisms.
+    token = os.environ.get("GITHUB_TOKEN", "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(_MPV_WINBUILD_RELEASE, headers=headers)
+    with urllib.request.urlopen(request) as response:  # noqa: S310
+        release = json.load(response)
+    assets = [a for a in release.get("assets", ()) if _MPV_DEV_ASSET.match(a.get("name", ""))]
+    if not assets:
+        raise SystemExit(
+            "no mpv-dev-x86_64 asset in the latest shinchiro/mpv-winbuild-cmake "
+            "release; download one by hand and point GRAVITAS_LIBMPV at its "
+            "libmpv-2.dll"
+        )
+    asset = assets[0]
+    archive = CACHE / asset["name"]
+    if not archive.exists():
+        print(f"fetching {asset['browser_download_url']}")
+        with urllib.request.urlopen(asset["browser_download_url"]) as r:  # noqa: S310
+            archive.write_bytes(r.read())
+    if not _extract_7z(archive, "libmpv-2.dll", dest):
+        raise SystemExit(
+            f"cannot extract libmpv-2.dll from {archive}: install 7-Zip (so `7z` "
+            "is on PATH) or `pip install py7zr`, or point GRAVITAS_LIBMPV at a "
+            "libmpv-2.dll you extracted yourself"
+        )
+    return str(dest)
+
+
 def find_libmpv() -> str | None:
     """Locate the native libmpv to bundle; PyInstaller pulls its dependency
-    closure (ffmpeg, libass, ...) automatically."""
+    closure (ffmpeg, libass, ...) automatically.
+
+    GRAVITAS_LIBMPV overrides the search on every platform — the way to build
+    against a libmpv the system search cannot see.
+    """
+    override = os.environ.get("GRAVITAS_LIBMPV", "").strip()
+    if override:
+        if not Path(override).exists():
+            raise SystemExit(f"GRAVITAS_LIBMPV={override} does not exist")
+        return str(Path(override).resolve())
+    if WINDOWS:
+        # A DLL already on PATH (a hand-placed copy) beats a download.
+        for name in ("mpv-2.dll", "libmpv-2.dll", "mpv-1.dll"):
+            found = ctypes.util.find_library(name)
+            if found:
+                return str(Path(found).resolve())
+        return fetch_libmpv_windows()
     if sys.platform == "darwin":
         for prefix in ("/opt/homebrew/lib", "/usr/local/lib"):
             candidate = Path(prefix) / "libmpv.dylib"
@@ -83,10 +190,18 @@ def precompile_qml() -> list[tuple[str, str]]:
     """
     import PySide6
 
-    tool = Path(PySide6.__file__).parent / "Qt" / "libexec" / "qmlcachegen"
+    # Unix wheels put the Qt tools in Qt/libexec; Windows wheels drop them at
+    # the package root as .exe.
+    package = Path(PySide6.__file__).parent
+    candidates = (
+        package / "Qt" / "libexec" / "qmlcachegen",
+        package / "qmlcachegen.exe",
+        package / "Qt" / "bin" / "qmlcachegen.exe",
+    )
+    tool = next((c for c in candidates if c.exists()), None)
     qml_dir = SRC / "gravitas" / "presentation" / "qml"
-    if not tool.exists():
-        print(f"qmlcachegen not found at {tool} — shipping QML uncompiled")
+    if tool is None:
+        print(f"qmlcachegen not found under {package} — shipping QML uncompiled")
         return []
     out_root = ROOT / "packaging" / ".cache" / "qmlc"
     compiled: list[tuple[str, str]] = []
@@ -112,7 +227,10 @@ def precompile_qml() -> list[tuple[str, str]]:
 
 libmpv = find_libmpv()
 if libmpv is None:
-    raise SystemExit("libmpv not found — install mpv (dnf/apt/brew) before building")
+    raise SystemExit(
+        "libmpv not found — install mpv (dnf/apt/brew) before building, or set "
+        "GRAVITAS_LIBMPV to the library file"
+    )
 
 binaries = [(libmpv, ".")]
 ytdlp = fetch_ytdlp()
@@ -190,34 +308,44 @@ a = Analysis(
 # view. Everything named here is unreachable: no Python import, no QML import,
 # no plugin we load. Translations go as well (the UI is English-only), as do
 # the QML tooling plugins, which only serve the remote debugger.
+#
+# Two wheel layouts to cover: Unix keeps Qt under PySide6/Qt/{lib,qml,plugins}
+# with libQt6Foo.so names, Windows drops Qt6Foo.dll at the package root and the
+# trees one level up (PySide6/qml, PySide6/plugins). Hence the optional `Qt/`
+# segment and the `(lib)?` / `\.(so|dll)` alternatives — a Windows-blind filter
+# here means shipping Chromium in the installer.
 QT_UNUSED = re.compile(
     r"""(?x)
-    libQt6(WebEngine\w* | WebChannel\w* | WebSockets | WebView\w* | Pdf\w*
+    (lib)?Qt6(WebEngine\w* | WebChannel\w* | WebSockets | WebView\w* | Pdf\w*
         | Quick3D\w* | Graphs\w* | Charts\w* | DataVisualization\w*
         | Multimedia\w* | SpatialAudio | Sensors\w* | Positioning\w* | Location
         | Bluetooth | Nfc | SerialPort | SerialBus | Sql | Test | QuickTest
         | Designer\w* | UiTools | Help | Scxml | StateMachine | RemoteObjects\w*
         | TextToSpeech | VirtualKeyboard\w* | QmlCompiler | QmlLS
-        | QmlLocalStorage | StateMachineQml | ScxmlQml | 3D\w*)\.so
-    | PySide6/Qt/qml/(QtQuick3D | Qt3D | QtGraphs | QtCharts | QtDataVisualization
+        | QmlLocalStorage | StateMachineQml | ScxmlQml | 3D\w*)\.(so|dll)
+    # The out-of-process renderer that comes with QtWebEngineCore on Windows.
+    | QtWebEngineProcess\.exe
+    | PySide6/(Qt/)?qml/(QtQuick3D | Qt3D | QtGraphs | QtCharts | QtDataVisualization
         | QtWebEngine | QtWebChannel | QtWebSockets | QtWebView | QtTest
         | QtPositioning | QtLocation | QtMultimedia | QtSensors | QtScxml
         | QtRemoteObjects | QtTextToSpeech | QtVirtualKeyboard)/
     # Sub-modules of QtQuick itself whose backing library went with the list
     # above — a QML plugin without its library is a load error waiting to
     # happen, and LocalStorage/Pdf/VirtualKeyboard are nothing this UI imports.
-    | PySide6/Qt/qml/QtQuick/(VirtualKeyboard | Pdf | LocalStorage
+    | PySide6/(Qt/)?qml/QtQuick/(VirtualKeyboard | Pdf | LocalStorage
         | Scene2D | Scene3D)/
-    | PySide6/Qt/qml/QtQml/StateMachine/
-    | PySide6/Qt/(translations|resources|libexec)/
-    | PySide6/Qt/plugins/(qmltooling | designer | sqldrivers | multimedia
+    | PySide6/(Qt/)?qml/QtQml/StateMachine/
+    # resources/ is WebEngine's icudtl.dat and .pak blobs; libexec its helper
+    # binaries. Translations go because the UI is English-only.
+    | PySide6/(Qt/)?(translations|resources|libexec)/
+    | PySide6/(Qt/)?plugins/(qmltooling | designer | sqldrivers | multimedia
         | webview | position | geoservices | sceneparsers | renderers
         | texttospeech | virtualkeyboard)/
     # Image formats: posters are JPEG/PNG/WebP. The PDF reader needs QtPdf,
     # and the TIFF one arrives without its libtiff already — both are dead
     # weight that only shows up as a failed plugin load.
-    | PySide6/Qt/plugins/imageformats/libq(pdf|tiff)\.so
-    | PySide6/Qt/plugins/platforminputcontexts/libqtvirtualkeyboardplugin\.so
+    | PySide6/(Qt/)?plugins/imageformats/(lib)?q(pdf|tiff)\.(so|dll)
+    | PySide6/(Qt/)?plugins/platforminputcontexts/(lib)?qtvirtualkeyboardplugin\.(so|dll)
     """
 )
 
@@ -237,7 +365,9 @@ def _strip_unused(entries: list, kind: str) -> list:
 a.binaries = _strip_unused(a.binaries, "binaries")
 a.datas = _strip_unused(a.datas, "data files")
 
-# Driver loaders move off the library path into _internal/fallback/.
+# Driver loaders move off the library path into _internal/fallback/ (Linux
+# only: nothing here has a Windows or macOS counterpart, and libmpv-2.dll is
+# statically linked anyway).
 #
 # Each of these is a thin loader that dlopens the real driver out of a
 # directory compiled in when IT was built: Ubuntu's libgbm looks under
@@ -259,18 +389,19 @@ _HOST_DRIVERS = re.compile(
     r"^lib(gbm|drm|EGL|GL|GLX|GLdispatch|OpenGL|GLESv2|GLU|glut|glapi"
     r"|va|va-drm|va-x11|va-wayland|va-glx|vdpau)\.so"
 )
-_moved = []
-_binaries = []
-for _entry in a.binaries:
-    _name, *_rest = _entry
-    if _HOST_DRIVERS.match(Path(_name).name):
-        _moved.append(Path(_name).name)
-        _binaries.append((f"{FALLBACK_DIR}/{Path(_name).name}", *_rest))
-    else:
-        _binaries.append(_entry)
-if _moved:
-    print(f"host driver libs moved to {FALLBACK_DIR}/: {', '.join(sorted(_moved))}")
-a.binaries = _binaries
+if sys.platform.startswith("linux"):
+    _moved = []
+    _binaries = []
+    for _entry in a.binaries:
+        _name, *_rest = _entry
+        if _HOST_DRIVERS.match(Path(_name).name):
+            _moved.append(Path(_name).name)
+            _binaries.append((f"{FALLBACK_DIR}/{Path(_name).name}", *_rest))
+        else:
+            _binaries.append(_entry)
+    if _moved:
+        print(f"host driver libs moved to {FALLBACK_DIR}/: {', '.join(sorted(_moved))}")
+    a.binaries = _binaries
 
 pyz = PYZ(a.pure)
 
@@ -280,6 +411,11 @@ exe = EXE(
     exclude_binaries=True,
     name="gravitas",
     console=False,
+    # Windows only (both are ignored elsewhere): the .ico is what Explorer, the
+    # taskbar and the installer show, and the version resource is what the file
+    # properties dialog reads — an executable with neither looks like malware.
+    icon=str(ROOT / "packaging" / "icon" / "gravitas.ico") if WINDOWS else None,
+    version=str(ROOT / "packaging" / "windows" / "version_info.txt") if WINDOWS else None,
 )
 
 coll = COLLECT(

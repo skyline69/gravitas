@@ -30,14 +30,70 @@ _MACOS_LIBMPV_DIRS = ("/opt/homebrew/lib", "/usr/local/lib")
 # variable is set, so it must be re-included explicitly.
 _MACOS_DYLD_DEFAULTS = (os.path.expanduser("~/lib"), "/usr/local/lib", "/lib", "/usr/lib")
 
+_WINDOWS = "win32"
+# The DLL names python-mpv tries, in its order (mpv.py checks %PATH% for each
+# at import time). Windows has no packaging convention for libmpv at all, so
+# the bundle ships libmpv-2.dll itself.
+_WINDOWS_LIBMPV_NAMES = ("mpv-2.dll", "libmpv-2.dll", "mpv-1.dll")
+
+# Escape hatch: an absolute path to the libmpv library file (.dll/.so/.dylib)
+# for a copy living somewhere nothing searches. The only practical way to run
+# a dev checkout against a hand-placed libmpv on Windows.
+_LIBMPV_OVERRIDE = "GRAVITAS_LIBMPV"
+
+
+def _prepend_to_path(environ: MutableMapping[str, str], directory: str) -> None:
+    """Put `directory` first on PATH, exactly once."""
+    entries = [p for p in environ.get("PATH", "").split(os.pathsep) if p]
+    if entries[:1] == [directory]:
+        return
+    environ["PATH"] = os.pathsep.join([directory, *(p for p in entries if p != directory)])
+
+
+def _force_find_library(path: str) -> None:
+    """Make `ctypes.util.find_library("mpv")` answer `path`.
+
+    python-mpv is a ctypes wrapper: on Unix it asks find_library for the soname
+    and CDLL()s whatever comes back. find_library consults only the system
+    loader cache, so a libmpv outside it — a bundled copy, a manual build — is
+    invisible until this redirect is installed. Windows never reaches here:
+    there python-mpv searches %PATH% directly, with no seam to patch.
+    """
+    import ctypes.util
+
+    _stock_find_library = ctypes.util.find_library
+
+    def _find_library(name: str) -> str | None:
+        if name == "mpv":
+            return path
+        return _stock_find_library(name)
+
+    ctypes.util.find_library = _find_library
+
 
 def _ensure_libmpv_discoverable(
     environ: MutableMapping[str, str] = os.environ, platform: str = sys.platform
 ) -> None:
-    """macOS: python-mpv locates libmpv with ctypes.util.find_library, which
+    """Point the loader at a system libmpv the stock search would miss.
+
+    macOS: python-mpv locates libmpv with ctypes.util.find_library, which
     searches DYLD_FALLBACK_LIBRARY_PATH — Homebrew's prefix is not in it on
     Apple Silicon, so the import fails with libmpv installed. ctypes reads the
-    environment at lookup time, so extending it here (in-process) works."""
+    environment at lookup time, so extending it here (in-process) works.
+
+    Windows: python-mpv resolves the DLL at *import* time by scanning %PATH%
+    for its three known names, so a directory must be on PATH before
+    `import mpv` — nothing later can help.
+
+    Anywhere: GRAVITAS_LIBMPV names the library file outright and wins.
+    """
+    override = environ.get(_LIBMPV_OVERRIDE, "").strip()
+    if platform == _WINDOWS:
+        if override:
+            _prepend_to_path(environ, os.path.dirname(override) or os.curdir)
+        return
+    if override:
+        _force_find_library(override)
     if platform != "darwin":
         return
     existing = [p for p in environ.get("DYLD_FALLBACK_LIBRARY_PATH", "").split(":") if p]
@@ -49,7 +105,9 @@ def _ensure_libmpv_discoverable(
     environ["DYLD_FALLBACK_LIBRARY_PATH"] = ":".join(existing)
 
 
-def _ensure_bundled_libmpv_findable() -> None:
+def _ensure_bundled_libmpv_findable(
+    environ: MutableMapping[str, str] = os.environ, platform: str = sys.platform
+) -> None:
     """In a PyInstaller bundle, the fat build ships libmpv next to the app so
     playback works on hosts with no system libmpv. But python-mpv resolves the
     Linux library via ctypes.util.find_library('mpv'), which only consults the
@@ -58,40 +116,51 @@ def _ensure_bundled_libmpv_findable() -> None:
     the absolute bundled soname; python-mpv then CDLL()s it directly. Its ffmpeg
     dependency closure resolves through the LD_LIBRARY_PATH PyInstaller's
     bootloader already points at _MEIPASS. No-op when not frozen (find_library
-    keeps its stock behaviour, so a dev checkout uses system libmpv)."""
+    keeps its stock behaviour, so a dev checkout uses system libmpv).
+
+    Windows takes the other road: the search is a %PATH% scan by DLL name, so
+    the bundle directory goes on PATH instead. libmpv-2.dll is statically
+    linked (ffmpeg and friends are inside it), so there is no closure to place.
+
+    GRAVITAS_LIBMPV still wins: _ensure_libmpv_discoverable has already pointed
+    the loader at it, and a user who names a libmpv explicitly inside a bundle
+    is debugging exactly this — the bundled copy must not quietly take it back.
+    """
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass is None:
         return
-    import ctypes.util
+    if environ.get(_LIBMPV_OVERRIDE, "").strip():
+        return
     import glob
 
+    if platform == _WINDOWS:
+        if any(os.path.exists(os.path.join(meipass, name)) for name in _WINDOWS_LIBMPV_NAMES):
+            _prepend_to_path(environ, meipass)
+        return
     # PyInstaller drops the dylib next to the app on macOS, the .so on Linux.
-    pattern = "libmpv*.dylib" if sys.platform == "darwin" else "libmpv.so*"
+    pattern = "libmpv*.dylib" if platform == "darwin" else "libmpv.so*"
     matches = sorted(glob.glob(os.path.join(meipass, pattern)))
     if not matches:
         return
-    bundled = matches[0]
-    _stock_find_library = ctypes.util.find_library
-
-    def _find_library(name: str) -> str | None:
-        if name == "mpv":
-            return bundled
-        return _stock_find_library(name)
-
-    ctypes.util.find_library = _find_library
+    _force_find_library(matches[0])
 
 
-def _ensure_bundled_ytdlp_on_path(environ: MutableMapping[str, str] = os.environ) -> None:
+def _ensure_bundled_ytdlp_on_path(
+    environ: MutableMapping[str, str] = os.environ, platform: str = sys.platform
+) -> None:
     """mpv's ytdl_hook resolves YouTube/trailer streams by spawning a `yt-dlp`
-    executable found on PATH. The fat bundle ships one next to the app; libmpv
-    inherits this process's environment when it forks, so prepending the bundle
-    dir to PATH here (before mpv loads) is enough for the hook to find it. No-op
-    when not frozen or when no yt-dlp was bundled — a system yt-dlp still works."""
+    executable found on PATH (`yt-dlp.exe` on Windows, which is how mpv's own
+    Windows subprocess lookup resolves the name). The fat bundle ships one next
+    to the app; libmpv inherits this process's environment when it spawns, so
+    prepending the bundle dir to PATH here (before mpv loads) is enough for the
+    hook to find it. No-op when not frozen or when no yt-dlp was bundled — a
+    system yt-dlp still works."""
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass is None:
         return
-    if os.path.exists(os.path.join(meipass, "yt-dlp")):
-        environ["PATH"] = meipass + os.pathsep + environ.get("PATH", "")
+    name = "yt-dlp.exe" if platform == _WINDOWS else "yt-dlp"
+    if os.path.exists(os.path.join(meipass, name)):
+        _prepend_to_path(environ, meipass)
 
 
 # mpv's own message levels -> logging levels. Everything below `info`
@@ -134,7 +203,16 @@ def _default_factory() -> Any:
     # lets such a box force a working backend that auto-safe skips -- e.g.
     # `vdpau` (NVIDIA's decode API, works from GLX with no CUDA) or `vaapi` --
     # without a rebuild. Any mpv hwdec value is accepted; empty falls back.
-    hwdec = os.environ.get("GRAVITAS_HWDEC", "").strip() or "auto-safe"
+    #
+    # Windows is the exception. Its decode APIs hand back D3D11/DXVA2 surfaces,
+    # and this VO renders through OpenGL, which cannot import those directly --
+    # so the zero-copy backends auto-safe would pick are unusable here and the
+    # fallback is software decoding of 4K HEVC on the CPU. `auto-copy` picks
+    # the best backend that copies frames back to system memory instead: a
+    # readback per frame, still an order of magnitude cheaper than decoding in
+    # software. mpv falls back to software on its own if none initialises.
+    default_hwdec = "auto-copy" if sys.platform == _WINDOWS else "auto-safe"
+    hwdec = os.environ.get("GRAVITAS_HWDEC", "").strip() or default_hwdec
 
     return mpv.MPV(
         vo="libmpv",

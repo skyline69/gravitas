@@ -3,6 +3,7 @@ from pathlib import Path
 from pytest import MonkeyPatch
 
 from gravitas.domain.models import PlaybackProgress
+from gravitas.infrastructure.paths import data_dir
 from gravitas.infrastructure.progress.sqlite_store import (
     SqliteProgressStore,
     default_progress_path,
@@ -122,9 +123,10 @@ def test_schema_version_recorded(tmp_path: Path) -> None:
     conn.close()
 
 
-def test_default_path_follows_xdg_data_home(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
-    assert default_progress_path() == tmp_path / "gravitas" / "progress.db"
+def test_default_path_lives_in_the_data_dir() -> None:
+    # paths.py owns the per-platform mapping (and tests it both ways); this
+    # layer only promises the file lands in the durable directory.
+    assert default_progress_path() == data_dir() / "progress.db"
 
 
 def test_delete_many_removes_exactly_those_rows(tmp_path: Path) -> None:

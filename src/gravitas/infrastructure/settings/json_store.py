@@ -1,4 +1,4 @@
-"""JSON-file SettingsStore adapter (XDG config dir by default)."""
+"""JSON-file SettingsStore adapter (the user config dir by default -- see paths.py)."""
 
 from __future__ import annotations
 
@@ -8,14 +8,13 @@ import os
 from pathlib import Path
 
 from gravitas.domain.models import PersistedSettings, SubtitleStyle, TraktAuth
+from gravitas.infrastructure.paths import config_dir
 
 _log = logging.getLogger(__name__)
 
 
 def default_settings_path() -> Path:
-    base = os.environ.get("XDG_CONFIG_HOME", "")
-    root = Path(base) if base else Path.home() / ".config"
-    return root / "gravitas" / "settings.json"
+    return config_dir() / "settings.json"
 
 
 def _style_from(raw: object) -> SubtitleStyle:
