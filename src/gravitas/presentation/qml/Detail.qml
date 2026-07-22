@@ -11,6 +11,13 @@ Item {
     signal back()
     signal openSources()
 
+    // Fades itself in; StackView's transitions are empty so the stack stays
+    // responsive during the animation (see PageFade).
+    opacity: 0
+    PageFade { id: pageFade; target: detail }
+    StackView.onActivating: pageFade.restart()
+    Component.onCompleted: pageFade.restart()
+
     onMediaIdChanged: if (mediaId.length) detailController.load(mediaType, mediaId)
 
     // blurred background art + dark scrim for readability

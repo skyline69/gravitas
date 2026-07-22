@@ -6,6 +6,13 @@ import "components"
 Item {
     id: sources
     objectName: "sourcesPage"
+
+    // Fades itself in; StackView's transitions are empty so the stack stays
+    // responsive during the animation (see PageFade).
+    opacity: 0
+    PageFade { id: pageFade; target: sources }
+    StackView.onActivating: pageFade.restart()
+    Component.onCompleted: pageFade.restart()
     signal playUrl(string url, var headers)
     signal back()
 

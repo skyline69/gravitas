@@ -13,6 +13,13 @@ Item {
     property var headers: ({})
     signal back()
 
+    // Fades itself in; StackView's transitions are empty so the stack stays
+    // responsive during the animation (see PageFade). The exit fade is this
+    // page's own blackout rectangle, below.
+    opacity: 0
+    PageFade { id: pageFade; target: player }
+    StackView.onActivating: pageFade.restart()
+
     // Deliberately NOT onUrlChanged: StackView applies initial properties one
     // at a time between beginCreate() and completeCreate(), so `url` arriving
     // first would start playback while `headers` was still its default {} --
@@ -158,6 +165,7 @@ Item {
     }
 
     Component.onCompleted: {
+        pageFade.restart()
         if (player.url.length)
             playerController.play(player.url, player.headers)
     }

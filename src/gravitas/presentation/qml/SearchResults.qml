@@ -5,6 +5,13 @@ import "components"
 Item {
     id: root
     objectName: "searchResultsPage"
+
+    // Fades itself in; StackView's transitions are empty so the stack stays
+    // responsive during the animation (see PageFade).
+    opacity: 0
+    PageFade { id: pageFade; target: root }
+    StackView.onActivating: pageFade.restart()
+    Component.onCompleted: pageFade.restart()
     signal openDetail(string type, string id)
     signal back()
 

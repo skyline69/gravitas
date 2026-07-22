@@ -107,23 +107,16 @@ ApplicationWindow {
         anchors.fill: parent
         initialItem: homePage
 
-        // Fade + slight zoom instead of the default lateral slide: pushed
-        // pages settle in from 2% above scale, popped pages recede the same
-        // way, so navigation reads as depth rather than sideways motion.
-        pushEnter: Transition {
-            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durMed; easing.type: Easing.OutCubic }
-            NumberAnimation { property: "scale"; from: 1.02; to: 1; duration: Theme.durMed; easing.type: Easing.OutCubic }
-        }
-        pushExit: Transition {
-            NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.durFast }
-        }
-        popEnter: Transition {
-            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Theme.durMed; easing.type: Easing.OutCubic }
-        }
-        popExit: Transition {
-            NumberAnimation { property: "opacity"; from: 1; to: 0; duration: Theme.durFast }
-            NumberAnimation { property: "scale"; from: 1; to: 1.02; duration: Theme.durFast }
-        }
+        // Deliberately empty, all four. StackView swallows EVERY input event
+        // while a transition runs, so a fade here bought ~180ms of dead
+        // clicks after each navigation: press Back, click an episode, nothing
+        // happens. With nothing for StackView to run, `busy` never latches and
+        // the stack is live the instant it changes; each page owns its own
+        // entrance fade instead (see components/PageFade.qml).
+        pushEnter: Transition {}
+        pushExit: Transition {}
+        popEnter: Transition {}
+        popExit: Transition {}
 
         // Tapping empty space clears keyboard focus (e.g. blurs a focused
         // text field). Controls consume their own taps, so this only fires

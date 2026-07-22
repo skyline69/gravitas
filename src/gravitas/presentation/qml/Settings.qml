@@ -7,6 +7,13 @@ Item {
     objectName: "settingsPage"
     signal back()
 
+    // Fades itself in; StackView's transitions are empty so the stack stays
+    // responsive during the animation (see PageFade).
+    opacity: 0
+    PageFade { id: pageFade; target: settings }
+    StackView.onActivating: pageFade.restart()
+    Component.onCompleted: pageFade.restart()
+
     Flickable {
         id: page
         // Wheel scrolling that doesn't eat the click after it (see the component).

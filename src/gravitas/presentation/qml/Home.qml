@@ -5,6 +5,13 @@ import "components"
 Item {
     id: home
     objectName: "homePage"
+
+    // Fades itself in; StackView's transitions are empty so the stack stays
+    // responsive during the animation (see PageFade).
+    opacity: 0
+    PageFade { id: pageFade; target: home }
+    StackView.onActivating: pageFade.restart()
+    Component.onCompleted: pageFade.restart()
     signal openDetail(string type, string id)
     signal seeAll(string addonId, string type, string catalogId)
     // Set by Main from the TopBar tab. "watchlist" swaps the catalog rows for

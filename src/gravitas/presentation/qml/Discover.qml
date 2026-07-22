@@ -9,6 +9,12 @@ Item {
     signal openDetail(string type, string id)
     signal back()
 
+    // Fades itself in; StackView's transitions are empty so the stack stays
+    // responsive during the animation (see PageFade).
+    opacity: 0
+    PageFade { id: pageFade; target: root }
+    StackView.onActivating: pageFade.restart()
+
     // Mirrors DiscoverController's loading signal (see AppSpinner pattern in
     // the old page); drives the count shimmer + first-load spinner.
     property bool loading: false
@@ -32,6 +38,7 @@ Item {
     // at their defaults — clear any filter/sort a previous visit left behind
     // so the UI and the proxy agree.
     Component.onCompleted: {
+        pageFade.restart()
         discoverProxy.setFilterText("")
         discoverProxy.setSortKey("default")
     }
