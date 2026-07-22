@@ -4,11 +4,11 @@ version = "0.1.0"
 description = "Minimal, no-nonsense alternative to Stremio"
 requires-python = ">=3.12"
 dependencies = [
-    "pyside6>=6.9",
-    "python-mpv>=1.0.7",
-    "httpx[http2]>=0.27",
-    "qasync>=0.27",
-    "platformdirs>=4.2",
+    "pyside6>=6.11",
+    "python-mpv>=1.0.8",
+    "httpx[http2]>=0.28",
+    "qasync>=0.28",
+    "platformdirs>=4.11",
 ]
 
 [project.scripts]
@@ -16,12 +16,12 @@ gravitas = "gravitas.main:main"
 
 [dependency-groups]
 dev = [
-    "pytest>=8",
-    "pytest-asyncio>=0.24",
-    "pytest-qt>=4.4",
-    "respx>=0.21",
-    "ruff>=0.6",
-    "mypy>=1.11",
+    "pytest>=9.1",
+    "pytest-asyncio>=1.4",
+    "pytest-qt>=4.5",
+    "respx>=0.23",
+    "ruff>=0.15",
+    "mypy>=2.3",
 ]
 
 [build-system]
