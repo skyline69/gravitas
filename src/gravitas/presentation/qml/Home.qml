@@ -97,13 +97,23 @@ Item {
         // each strip its visible cards — in one synchronous chunk on the GUI
         // thread, stalling the render sync (the boot spinner hitched on
         // every such burst). The incubator spreads that creation over
-        // frames instead. The Loader carries the strip's fixed geometry
-        // (28px header + 8px gap + 300px cards) so row layout is stable
-        // before its content exists.
+        // frames instead. The Loader carries the strip's geometry (header +
+        // gap + cards, all from Theme) so row layout is stable before its
+        // content exists.
         delegate: Loader {
             id: rowLoader
             width: rowsView.width - 24
-            height: 336
+            // Mirrors CatalogRowStrip.implicitHeight, which cannot be read
+            // until the async load finishes — a subtitled row's strip is
+            // taller, so it must be reserved that height from the start or
+            // the strip's clip cuts the cards it can't fit.
+            // Read defensively: a pooled row still evaluates its bindings
+            // while the view has taken its model row away.
+            readonly property bool rowContinueWatching:
+                typeof model !== "undefined" && model.continueWatching === true
+            height: Theme.posterRowHeaderHeight
+                + (rowContinueWatching ? Theme.posterStripSubtitleHeight
+                                       : Theme.posterStripHeight)
             asynchronous: true
             // Same recycled-delegate hygiene as PosterCard, and derived the
             // same way: the view sets index to -1 while a row sits in the

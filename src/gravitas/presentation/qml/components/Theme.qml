@@ -22,6 +22,17 @@ QtObject {
     readonly property int radiusSmall: 6
     readonly property int spacing: 8
     readonly property int controlHeight: 36
+    // Catalog row geometry, shared by the row strip and the page view that
+    // sizes its delegates before the strip exists. The strip clips, so its
+    // height must hold a card's content (poster + two title lines) PLUS the
+    // slack the hover scale-up grows into — a card whose content fills the
+    // height gets the top of its poster shaved when hovered. A Continue
+    // Watching card carries one more line (the episode subtitle), so its row
+    // reserves that line on top of the same slack.
+    readonly property int posterStripHeight: 300
+    readonly property int posterStripSubtitleHeight: 324
+    // 28px title + the 8px gap above the strip.
+    readonly property int posterRowHeaderHeight: 36
     // type
     readonly property int fontSmall: 13
     readonly property int fontBody: 15

@@ -18,6 +18,8 @@ Item {
     signal openDetail(string type, string id)
     signal seeAll(string addonId, string type, string catalogId)
 
+    // Kept equal to Theme.posterRowHeaderHeight + the strip's height, which is
+    // what Home sizes its row Loader to before this component is built.
     implicitHeight: header.height + strip.anchors.topMargin + strip.height
 
     Item {
@@ -66,7 +68,11 @@ Item {
         anchors.topMargin: 8
         anchors.left: parent.left
         anchors.right: parent.right
-        height: 300
+        // Taller for a subtitled row: its cards carry an extra line, which
+        // would otherwise eat the slack the hover scale-up needs and let this
+        // clip shave the top of the hovered poster.
+        height: root.continueWatching ? Theme.posterStripSubtitleHeight
+                                      : Theme.posterStripHeight
         orientation: ListView.Horizontal
         spacing: 16
         clip: true
