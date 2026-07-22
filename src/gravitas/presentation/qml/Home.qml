@@ -246,6 +246,20 @@ Item {
                             // scale-up grows into the slack, not the clip edge.
                             width: 176
                             height: 300
+                            // The page's visible bounds in this card's
+                            // coordinates: posters dissolve into the window's
+                            // top and bottom edges instead of being sliced by
+                            // the Flickable's clip, the same feather the
+                            // catalog rows get. mapToItem is not a tracked
+                            // binding dependency, so contentY (scrolling) and
+                            // width (relayout) are read to drive it.
+                            readonly property real pageY: {
+                                const _scroll = watchlistFlick.contentY
+                                const _layout = watchlistFlick.width
+                                return mapToItem(watchlistFlick, 0, 0).y
+                            }
+                            edgeClipTop: -pageY
+                            edgeClipBottom: watchlistFlick.height - pageY
                             title: model.name
                             posterUrl: model.poster ? model.poster : ""
                             posterShape: model.posterShape
@@ -296,6 +310,20 @@ Item {
                         delegate: PosterCard {
                             width: 176
                             height: 300
+                            // The page's visible bounds in this card's
+                            // coordinates: posters dissolve into the window's
+                            // top and bottom edges instead of being sliced by
+                            // the Flickable's clip, the same feather the
+                            // catalog rows get. mapToItem is not a tracked
+                            // binding dependency, so contentY (scrolling) and
+                            // width (relayout) are read to drive it.
+                            readonly property real pageY: {
+                                const _scroll = watchlistFlick.contentY
+                                const _layout = watchlistFlick.width
+                                return mapToItem(watchlistFlick, 0, 0).y
+                            }
+                            edgeClipTop: -pageY
+                            edgeClipBottom: watchlistFlick.height - pageY
                             title: model.name
                             posterUrl: model.poster ? model.poster : ""
                             posterShape: model.posterShape
