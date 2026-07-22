@@ -11,6 +11,7 @@ from PySide6.QtCore import QCoreApplication, QEventLoop, QTimer
 from PySide6.QtNetwork import QLocalServer
 
 from gravitas.infrastructure.desktop.url_scheme import (
+    ACTIVATE,
     DeepLinkListener,
     forward_to_running_instance,
     socket_name,
@@ -99,6 +100,33 @@ def test_listen_reclaims_a_socket_left_by_a_crash(qapp: object, name: str) -> No
     assert forward_to_running_instance(_LINK, name=name) is True
     _spin(lambda: received)
     assert received == [_LINK]
+
+
+def test_second_launch_without_a_link_asks_the_running_one_to_surface(
+    qapp: object, name: str
+) -> None:
+    # The single-instance path: a plain `gravitas` with an instance already up
+    # must not open a second window, it must raise the first one.
+    activations: list[int] = []
+    links: list[str] = []
+    listener = DeepLinkListener(name=name)
+    assert listener.listen() is True
+    listener.activateRequested.connect(lambda: activations.append(1))
+    listener.linkReceived.connect(links.append)
+
+    assert forward_to_running_instance(ACTIVATE, name=name) is True
+    _spin(lambda: activations)
+
+    assert activations == [1]
+    # ACTIVATE is not a URL; routing it as one would hand the deep-link
+    # controller garbage to resolve.
+    assert links == []
+
+
+def test_first_launch_without_a_link_is_the_primary(qapp: object, name: str) -> None:
+    # Nothing listening: the caller must boot normally rather than exit
+    # believing it forwarded and leave the user with no app at all.
+    assert forward_to_running_instance(ACTIVATE, name=name) is False
 
 
 def test_socket_name_is_scoped_to_the_user(qapp: object) -> None:

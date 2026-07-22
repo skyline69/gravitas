@@ -47,6 +47,7 @@ from gravitas.infrastructure.addons.client import AddonClient
 from gravitas.infrastructure.cache.json_disk_cache import JsonDiskCache
 from gravitas.infrastructure.cache.network_cache import CachingNetworkAccessManagerFactory
 from gravitas.infrastructure.desktop.url_scheme import (
+    ACTIVATE,
     DeepLinkListener,
     forward_to_running_instance,
 )
@@ -160,6 +161,26 @@ def pending_link(argv: list[str]) -> str | None:
         if arg.lower().startswith(_LINK_SCHEME):
             return arg
     return None
+
+
+def surface_window(engine: QQmlApplicationEngine) -> None:
+    """Bring the existing window to the front.
+
+    What a second launch gets instead of a second window: un-minimize, raise,
+    take focus. Compositors may refuse the focus steal (Wayland grants it only
+    to the app the user is interacting with), but the un-minimize and the
+    taskbar attention are enough for the click to have visibly done something.
+    """
+    for obj in engine.rootObjects():
+        if not isinstance(obj, QQuickWindow):
+            continue
+        if obj.visibility() == QQuickWindow.Visibility.Minimized:
+            obj.showNormal()
+        else:
+            obj.show()
+        obj.raise_()
+        obj.requestActivate()
+        return
 
 
 def build_app(
@@ -421,11 +442,16 @@ def build_app(
     ctx.setContextProperty("deepLinkController", deep_link_controller)
     ctx.setContextProperty("onboardingController", onboarding_controller)
 
-    # One listener owns both delivery paths: forwarded links from a second
-    # process (Linux) and QFileOpenEvent (macOS). It is created even when
-    # listen() failed in main(), so the macOS path works regardless.
+    # One listener owns the instance socket and both link-delivery paths:
+    # forwarded payloads from a second process (Linux) and QFileOpenEvent
+    # (macOS). It is created even when listen() failed in main(), so the macOS
+    # path works regardless.
     deep_links = DeepLinkListener()
     deep_links.linkReceived.connect(deep_link_controller.handleLink)
+    # A forwarded link is also a launch attempt: whatever it opens (a dialog,
+    # a detail page) belongs in front of the user, not behind their browser.
+    deep_links.linkReceived.connect(lambda _url: surface_window(engine))
+    deep_links.activateRequested.connect(lambda: surface_window(engine))
     deep_links.install_macos_handler(app)
 
     async def _install_and_load() -> None:
@@ -566,12 +592,14 @@ def main() -> int:
 
     app = QGuiApplication(sys.argv)
 
-    # Before anything is built: a browser launching `gravitas stremio://...`
-    # starts a SECOND process while one is very likely already running. Hand the
-    # link over and leave -- two instances would mean two windows fighting over
-    # the same SQLite and settings files.
+    # Before anything is built: Gravitas is single-instance. Every launch first
+    # asks whether one is already running -- a browser firing
+    # `gravitas stremio://...`, or the user clicking the icon twice. If so, hand
+    # over what this launch carried (the link, or a bare "raise your window")
+    # and leave. Two instances would mean two windows fighting over the same
+    # SQLite and settings files.
     link = pending_link(sys.argv)
-    if link is not None and forward_to_running_instance(link):
+    if forward_to_running_instance(link if link is not None else ACTIVATE):
         return 0
 
     loop = qasync.QEventLoop(app)
@@ -580,9 +608,9 @@ def main() -> int:
     if not engine.rootObjects():
         return 1
     listener: DeepLinkListener = engine._gravitas_deep_links  # type: ignore[attr-defined]
-    # Claim the socket so the next `gravitas stremio://...` forwards here.
-    # Failure is not fatal: links stop arriving from other processes, the app
-    # otherwise works, and url_scheme logs why.
+    # Claim the socket so the next launch forwards here instead of starting a
+    # second copy. Failure is not fatal: the single-instance guard and deep
+    # links both go away, the app otherwise works, and url_scheme logs why.
     listener.listen()
     with loop:
         bootstrap: Callable[[], Awaitable[None]] = engine._gravitas_bootstrap  # type: ignore[attr-defined]

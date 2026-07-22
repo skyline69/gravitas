@@ -1,16 +1,23 @@
-"""Get a stremio:// URL from the desktop into this process.
+"""Keep Gravitas to one process, and get a stremio:// URL into it.
 
-Two platforms deliver a registered scheme two different ways, and neither
-resembles the other:
+Both jobs ride the same per-user local socket. Whoever owns it is *the*
+instance; anything that fails to claim it hands its payload over and exits.
+Two Gravitas windows with separate SQLite and settings state is not a thing a
+user asked for -- the second one would silently fight the first over the same
+files.
 
-- **Linux**: the browser executes `gravitas <url>`. That is a *new process*
-  while one is very likely already running, so it must hand the URL to the
-  running instance and get out of the way -- two Gravitas windows with separate
-  SQLite and settings state is not a thing a user asked for.
-- **macOS**: the OS does not re-exec anything. It posts a QFileOpenEvent to the
-  already-running app, and at cold start delivers it once the event loop is up.
+The payload is either a stremio:// URL or `ACTIVATE`:
 
-This module owns both, and everything above it sees one signal: a URL arrived.
+- **A link, Linux**: the browser executes `gravitas <url>`. That is a *new
+  process* while one is very likely already running, so it forwards the URL.
+- **A link, macOS**: the OS does not re-exec anything. It posts a
+  QFileOpenEvent to the already-running app, and at cold start delivers it
+  once the event loop is up.
+- **A plain launch**: no URL at all -- the user clicked the icon a second
+  time. `ACTIVATE` says "you are already running, come to the front".
+
+This module owns all of it, and everything above it sees two signals: a URL
+arrived, or someone asked us to surface.
 """
 
 from __future__ import annotations
@@ -29,6 +36,10 @@ _log = logging.getLogger(__name__)
 _CONNECT_TIMEOUT_MS = 500
 _WRITE_TIMEOUT_MS = 1000
 
+# "I am a second launch with nothing to hand over -- raise your window."
+# Cannot collide with a link: every forwarded URL starts with `stremio://`.
+ACTIVATE = "activate"
+
 
 def socket_name() -> str:
     """Per-user socket name.
@@ -41,31 +52,38 @@ def socket_name() -> str:
     return f"gravitas-deeplink-{uid}"
 
 
-def forward_to_running_instance(url: str, *, name: str | None = None) -> bool:
-    """Hand `url` to an already-running Gravitas. True if one took it.
+def forward_to_running_instance(payload: str, *, name: str | None = None) -> bool:
+    """Hand `payload` -- a stremio:// URL or ACTIVATE -- to a running Gravitas.
 
-    False means no instance is listening and the caller is the primary. Called
-    before any GUI exists, so it must never raise: a failure here has to end as
-    "start normally", not as a crash on a link click.
+    True if one took it, and the caller must exit: an instance already owns the
+    databases. False means nothing is listening and the caller is the primary.
+    Called before any GUI exists, so it must never raise: a failure here has to
+    end as "start normally", not as a crash on launch.
     """
     socket = QLocalSocket()
     socket.connectToServer(name or socket_name())
     if not socket.waitForConnected(_CONNECT_TIMEOUT_MS):
         return False
     try:
-        socket.write(url.encode("utf-8"))
+        socket.write(payload.encode("utf-8"))
         if not socket.waitForBytesWritten(_WRITE_TIMEOUT_MS):
-            _log.warning("connected to the running instance but could not send %s", url)
-            return False
+            # Still True: the connect proved an instance is alive and holding
+            # the databases. Dropping one link beats booting a second copy.
+            _log.warning("connected to the running instance but could not send %s", payload)
         return True
     finally:
         socket.disconnectFromServer()
 
 
 class DeepLinkListener(QObject):
-    """Emits linkReceived for every stremio:// URL this process is handed."""
+    """Owns the single-instance socket.
+
+    Emits linkReceived for every stremio:// URL this process is handed, and
+    activateRequested when a second launch asks us to come to the front.
+    """
 
     linkReceived = Signal(str)
+    activateRequested = Signal()
 
     def __init__(self, parent: QObject | None = None, *, name: str | None = None) -> None:
         super().__init__(parent)
@@ -74,19 +92,22 @@ class DeepLinkListener(QObject):
         self._connections: list[QLocalSocket] = []
 
     def listen(self) -> bool:
-        """Start accepting forwarded links. True if this process now owns the socket.
+        """Claim the instance socket. True if this process now owns it.
 
         A crash leaves the socket file behind on Linux and every later launch
-        would fail to listen -- and silently stop handling links. removeServer()
-        clears that stale entry. It cannot steal a live one: a running instance
-        would have answered forward_to_running_instance() first, and this is
-        only reached when nothing did.
+        would fail to listen -- and silently stop handling links, and stop
+        holding the single-instance lock. removeServer() clears that stale
+        entry. It cannot steal a live one: a running instance would have
+        answered forward_to_running_instance() first, and this is only reached
+        when nothing did.
         """
         QLocalServer.removeServer(self._name)
         server = QLocalServer(self)
         if not server.listen(self._name):
             _log.warning(
-                "deep links disabled: cannot listen on %s: %s", self._name, server.errorString()
+                "single-instance lock and deep links disabled: cannot listen on %s: %s",
+                self._name,
+                server.errorString(),
             )
             return False
         server.newConnection.connect(self._on_connection)
@@ -107,7 +128,11 @@ class DeepLinkListener(QObject):
 
     def _on_ready_read(self, socket: QLocalSocket) -> None:
         payload = bytes(socket.readAll().data()).decode("utf-8", errors="replace").strip()
-        if payload:
+        if not payload:
+            return
+        if payload == ACTIVATE:
+            self.activateRequested.emit()
+        else:
             self.linkReceived.emit(payload)
 
     def _forget(self, socket: QLocalSocket) -> None:
