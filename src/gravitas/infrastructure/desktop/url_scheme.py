@@ -35,6 +35,10 @@ _log = logging.getLogger(__name__)
 # generous enough to survive a busy machine.
 _CONNECT_TIMEOUT_MS = 500
 _WRITE_TIMEOUT_MS = 1000
+# How long the forwarder waits for the instance to read and hang up. See
+# forward_to_running_instance: on Windows this wait is what keeps the payload
+# alive, so it must outlast a GUI thread that is briefly busy.
+_HANDOVER_TIMEOUT_MS = 2000
 
 # "I am a second launch with nothing to hand over -- raise your window."
 # Cannot collide with a link: every forwarded URL starts with `stremio://`.
@@ -65,6 +69,12 @@ def forward_to_running_instance(payload: str, *, name: str | None = None) -> boo
     databases. False means nothing is listening and the caller is the primary.
     Called before any GUI exists, so it must never raise: a failure here has to
     end as "start normally", not as a crash on launch.
+
+    The receiver closes the connection once it has the payload, and this waits
+    for that close. Not politeness: on Windows the transport is a named pipe,
+    and bytes still unread when the writing end closes are *discarded*. Writing
+    and hanging up immediately -- which is enough on a Unix socket, where the
+    kernel keeps the buffer -- silently dropped every link there.
     """
     socket = QLocalSocket()
     socket.connectToServer(name or socket_name())
@@ -79,6 +89,12 @@ def forward_to_running_instance(payload: str, *, name: str | None = None) -> boo
             # Still True: the connect proved an instance is alive and holding
             # the databases. Dropping one link beats booting a second copy.
             _log.warning("connected to the running instance but could not send %s", payload)
+            return True
+        if not socket.waitForDisconnected(_HANDOVER_TIMEOUT_MS):
+            # It never acknowledged. On Unix the payload is in the socket
+            # buffer regardless; on Windows it may be lost. Either way a second
+            # instance is the worse answer, so this still reports handover.
+            _log.warning("the running instance did not acknowledge %s", payload)
         return True
     finally:
         socket.disconnectFromServer()
@@ -139,28 +155,32 @@ class DeepLinkListener(QObject):
 
     def _deliver(self, socket: QLocalSocket) -> None:
         """Read the queued payload and route it. One per connection: the
-        forwarder writes a single line and hangs up immediately."""
+        forwarder writes a single line and waits to be hung up on."""
         if socket not in self._connections:
             return
         payload = bytes(socket.readAll().data()).decode("utf-8", errors="replace").strip()
         if not payload:
             return
         self._connections.remove(socket)
+        # Hang up BEFORE routing: the forwarder is blocked in
+        # waitForDisconnected and that close is its acknowledgement, so it must
+        # not wait on whatever the link handler goes off and does.
+        socket.disconnectFromServer()
+        socket.deleteLater()
         if payload == ACTIVATE:
             self.activateRequested.emit()
         else:
             self.linkReceived.emit(payload)
-        socket.deleteLater()
 
     def _close(self, socket: QLocalSocket) -> None:
         """The peer hung up -- drain before dropping the connection.
 
-        Load-bearing on Windows, where the transport is a named pipe: the
-        forwarder writes, waits for the bytes to be handed over, and closes,
-        and Qt then delivers `disconnected` with the payload still queued and
-        `readyRead` never following. Forgetting the socket here without reading
-        it first loses the link outright -- every stremio:// click into a
-        running instance did nothing.
+        A peer that writes and closes without waiting for the acknowledgement
+        (an older Gravitas, or anything else that speaks to this socket) can
+        have its payload arrive with `disconnected`, and forgetting the socket
+        unread would swallow the link. Reading here costs nothing when
+        `readyRead` already did the job: the connection is off the list by then
+        and this returns immediately.
         """
         self._deliver(socket)
         if socket in self._connections:
