@@ -488,6 +488,67 @@ def test_trakt_refresh_with_moved_content_updates_strips_in_place(qapp: object) 
     assert same.rowCount() == 2
 
 
+def test_set_filter_is_surgical_not_a_reset(qapp: object) -> None:
+    """A tab switch was a full model reset: every strip torn down and every
+    poster re-incubated, so the whole page flashed skeletons. It must be
+    granular removes/inserts instead — rows visible under both filters keep
+    their delegates (same poster model objects)."""
+    model = CatalogRowsModel()
+    model.set_rows(_ROWS)
+    movie_posters = model.data(model.index(0, 0), CatalogRowsModel.PostersRole)
+    resets: list[None] = []
+    model.modelAboutToBeReset.connect(lambda: resets.append(None))
+
+    model.set_filter("movie")
+    assert resets == []
+    assert _titles(model) == ["Popular Movies", "Trending Now"]
+    assert model.data(model.index(0, 0), CatalogRowsModel.PostersRole) is movie_posters
+
+    model.set_filter("all")
+    assert resets == []
+    assert _titles(model) == [r.title for r in _ROWS]
+    assert model.data(model.index(0, 0), CatalogRowsModel.PostersRole) is movie_posters
+
+
+def test_set_filter_emits_minimal_ranges(qapp: object) -> None:
+    # all -> movie over [movie, series, movie, series]: two removes (the
+    # series rows), zero inserts — nothing else may move.
+    model = CatalogRowsModel()
+    model.set_rows(_ROWS)
+    inserted: list[tuple[int, int]] = []
+    removed: list[tuple[int, int]] = []
+    model.rowsInserted.connect(lambda _p, first, last: inserted.append((first, last)))
+    model.rowsRemoved.connect(lambda _p, first, last: removed.append((first, last)))
+    model.set_filter("movie")
+    assert inserted == []
+    assert removed == [(3, 3), (1, 1)]
+
+
+def test_set_filter_same_mode_is_a_noop(qapp: object) -> None:
+    model = CatalogRowsModel()
+    model.set_rows(_ROWS)
+    ops: list[str] = []
+    model.modelAboutToBeReset.connect(lambda: ops.append("reset"))
+    model.rowsAboutToBeRemoved.connect(lambda *_: ops.append("remove"))
+    model.rowsAboutToBeInserted.connect(lambda *_: ops.append("insert"))
+    model.set_filter("all")
+    assert ops == []
+
+
+def test_set_filter_keeps_continue_watching_row_when_its_cards_are_unchanged(
+    qapp: object,
+) -> None:
+    """all -> movie with only movie progress: the CW row shows the same cards
+    under both filters, so its poster model (and delegate) must survive."""
+    model = CatalogRowsModel()
+    model.set_rows(_CATALOGS)
+    model.set_continue_watching([_progress("tt1", "movie")])
+    cw_posters = model.data(model.index(0, 0), CatalogRowsModel.PostersRole)
+    model.set_filter("movie")
+    assert _titles(model) == ["Continue Watching", "Popular Movies"]
+    assert model.data(model.index(0, 0), CatalogRowsModel.PostersRole) is cw_posters
+
+
 def test_catalog_refresh_with_shuffled_items_updates_strips_in_place(qapp: object) -> None:
     model = CatalogRowsModel()
     model.set_rows(_ROWS)

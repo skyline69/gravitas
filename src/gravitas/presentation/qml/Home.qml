@@ -17,6 +17,29 @@ Item {
     // Trakt) has landed, then fade in together.
     readonly property bool booting: catalogController && catalogController.booting
 
+    // Ease back to the top on every tab switch. Filter changes are surgical
+    // now (no model reset), so the view would otherwise keep the previous
+    // tab's scroll offset — disorienting mid-list. Any user scroll (drag or
+    // wheel) cancels the glide immediately; fighting the user is worse than
+    // landing short.
+    onCatalogModeChanged: watchlistMode ? watchlistToTop.restart() : rowsToTop.restart()
+    NumberAnimation {
+        id: rowsToTop
+        target: rowsView
+        property: "contentY"
+        to: rowsView.originY - rowsView.topMargin
+        duration: 480
+        easing.type: Easing.OutCubic
+    }
+    NumberAnimation {
+        id: watchlistToTop
+        target: watchlistFlick
+        property: "contentY"
+        to: watchlistFlick.originY - watchlistFlick.topMargin
+        duration: 480
+        easing.type: Easing.OutCubic
+    }
+
     ListView {
         id: rowsView
         // Stays in the scene (visible, opacity 0) through boot so delegates
@@ -51,6 +74,7 @@ Item {
         // stutter.
         reuseItems: true
         ScrollBar.vertical: AppScrollBar {}
+        onMovementStarted: rowsToTop.stop()
         model: catalogRowsModel
         // Each row loads through an ASYNC Loader: when a model change lands,
         // the view would otherwise create every visible row's strip — and
@@ -93,7 +117,10 @@ Item {
         visible: rowsView.visible
         WheelHandler {
             acceptedDevices: PointerDevice.Mouse
-            onWheel: (w) => Scroll.wheel(rowsView, w)
+            onWheel: (w) => {
+                rowsToTop.stop()
+                Scroll.wheel(rowsView, w)
+            }
         }
     }
 
@@ -118,6 +145,7 @@ Item {
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         ScrollBar.vertical: AppScrollBar {}
+        onMovementStarted: watchlistToTop.stop()
 
         Column {
             id: watchlistContent
@@ -265,7 +293,10 @@ Item {
         visible: watchlistFlick.visible
         WheelHandler {
             acceptedDevices: PointerDevice.Mouse
-            onWheel: (w) => Scroll.wheel(watchlistFlick, w)
+            onWheel: (w) => {
+                watchlistToTop.stop()
+                Scroll.wheel(watchlistFlick, w)
+            }
         }
     }
 

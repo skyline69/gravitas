@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 from typing import Any, NamedTuple
 
 from PySide6.QtCore import (
@@ -197,10 +198,44 @@ class CatalogRowsModel(QAbstractListModel):
             self.endRemoveRows()
 
     def set_filter(self, mode: str) -> None:
-        self.beginResetModel()
+        """Switch the visible subset surgically. A reset here tore down and
+        re-incubated EVERY strip on the page — each tab switch flashed a full
+        screen of poster skeletons. Rows visible under both filters are the
+        same _Row objects (subsets of _all_rows / _trakt_rows), so diffing
+        old->new yields only the rows that actually enter or leave; their
+        delegates and decoded posters survive untouched."""
+        if mode == self._filter:
+            return
         self._filter = mode
-        self._rebuild()
-        self.endResetModel()
+        self._cw_row = self._current_cw_row()
+        rows = self._filtered(self._all_rows, self._filter)
+        trakt = self._filtered_trakt()
+        new = ([self._cw_row] if self._cw_row is not None else []) + trakt + rows
+        self._apply_visible(new)
+
+    def _current_cw_row(self) -> _Row | None:
+        """The Continue Watching row for the active filter — reusing the live
+        row (and its delegate) when the filter change didn't alter which cards
+        it shows."""
+        if self._cw_row is not None and self._cw_visible_items() == self._cw_shown_items:
+            return self._cw_row
+        return self._build_continue_watching()
+
+    def _apply_visible(self, new_rows: list[_Row]) -> None:
+        """Morph _rows into new_rows through granular remove/insert ranges.
+        Both lists order rows the same way (CW, Trakt block, catalog), so the
+        diff is clean subsequence surgery. Opcodes are applied back-to-front
+        so earlier ranges' indices stay valid."""
+        matcher = difflib.SequenceMatcher(a=self._rows, b=new_rows, autojunk=False)
+        for tag, i1, i2, j1, j2 in reversed(matcher.get_opcodes()):
+            if tag in ("replace", "delete"):
+                self.beginRemoveRows(_ROOT_INDEX, i1, i2 - 1)
+                del self._rows[i1:i2]
+                self.endRemoveRows()
+            if tag in ("replace", "insert"):
+                self.beginInsertRows(_ROOT_INDEX, i1, i1 + (j2 - j1) - 1)
+                self._rows[i1:i1] = new_rows[j1:j2]
+                self.endInsertRows()
 
     def refresh_progress(self) -> None:
         # The nested poster models own the visible cells; refresh every row's,
