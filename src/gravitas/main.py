@@ -375,10 +375,23 @@ def build_app(
     # through a CPU buffer and works on any RHI. Player.qml is written against
     # the shared `handle` property and never learns which it got.
     video_item: type[QQuickItem]
+    zero_copy_video = False
     if metal_scene_graph():
-        from gravitas.presentation.video.mpv_sw_item import MpvSwVideoItem
+        # Zero-copy where the native bridge is present and matches this Qt;
+        # libmpv's software render path everywhere else. The loader logs which
+        # and why, and never raises: a missing bridge is a slower player, not
+        # a broken one.
+        from gravitas.presentation.video import metal_bridge
 
-        video_item = MpvSwVideoItem
+        zero_copy_video = metal_bridge.available()
+        if zero_copy_video:
+            from gravitas.presentation.video.mpv_metal_item import MpvMetalVideoItem
+
+            video_item = MpvMetalVideoItem
+        else:
+            from gravitas.presentation.video.mpv_sw_item import MpvSwVideoItem
+
+            video_item = MpvSwVideoItem
     else:
         from gravitas.presentation.video.mpv_item import MpvVideoItem
 
@@ -396,7 +409,9 @@ def build_app(
     engine.setNetworkAccessManagerFactory(nam_factory)
 
     def make_player() -> MediaPlayer:
-        return MpvPlayer()
+        # Frames may stay on the GPU only if the video item can read them
+        # there; otherwise mpv has to copy them back to system memory.
+        return MpvPlayer(zero_copy_video=zero_copy_video)
 
     watched_model = WatchedListModel()
     progress_controller = ProgressController(progress_repo, watched_model)
