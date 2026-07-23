@@ -37,6 +37,17 @@ Item {
         to: rowsView.originY - rowsView.topMargin
         duration: 480
         easing.type: Easing.OutCubic
+        // Land on the top the view has NOW, not the one it had when the glide
+        // started. A tab switch mid-glide removes rows above the viewport, and
+        // ListView keeps the surviving rows where they are by moving originY
+        // instead of contentY — so the `to` captured at restart stops meaning
+        // "the top". Nothing clamps it either: an animation drives contentY
+        // without the view ever entering a movement, so Flickable's fixup
+        // never runs. The glide then finished with the viewport parked
+        // entirely outside the content: a blank page. `finished` fires only on
+        // a glide that ran to completion, never on the stop() a user scroll
+        // triggers, so this doesn't yank the view back from under them.
+        onFinished: rowsView.contentY = rowsView.originY - rowsView.topMargin
     }
     NumberAnimation {
         id: watchlistToTop
