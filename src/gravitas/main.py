@@ -388,10 +388,12 @@ def build_app(
             from gravitas.presentation.video.mpv_metal_item import MpvMetalVideoItem
 
             video_item = MpvMetalVideoItem
+            _log.info("video renders zero-copy: mpv on the GPU, no frame copies")
         else:
             from gravitas.presentation.video.mpv_sw_item import MpvSwVideoItem
 
             video_item = MpvSwVideoItem
+            _log.info("video renders in software: frames are copied back and uploaded")
     else:
         from gravitas.presentation.video.mpv_item import MpvVideoItem
 
@@ -648,11 +650,14 @@ def main() -> int:
         fmt.setProfile(QSurfaceFormat.OpenGLContextProfile.CoreProfile)
         QSurfaceFormat.setDefaultFormat(fmt)
     if sys.platform == "darwin":
+        # Which video path this becomes is decided later, once the native
+        # bridge has been probed -- metal_bridge logs that, and saying it here
+        # would only be a guess.
         _log.info(
             "scene graph on %s",
-            "Metal (video renders in software; GRAVITAS_GRAPHICS=opengl to switch back)"
+            "Metal (GRAVITAS_GRAPHICS=opengl for the OpenGL scene graph)"
             if metal_scene_graph()
-            else "OpenGL (GRAVITAS_GRAPHICS=opengl)",
+            else "OpenGL (GRAVITAS_GRAPHICS)",
         )
 
     app = QGuiApplication(sys.argv)
