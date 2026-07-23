@@ -25,7 +25,7 @@ import ctypes
 import logging
 from typing import Any
 
-from PySide6.QtCore import Property, QRectF
+from PySide6.QtCore import Property, QRectF, Slot
 from PySide6.QtQuick import QQuickItem, QQuickWindow, QSGNode, QSGSimpleTextureNode, QSGTexture
 from shiboken6 import getCppPointer, wrapInstance
 
@@ -87,6 +87,17 @@ class MpvMetalVideoItem(QQuickItem):
         self.update()
 
     handle = Property("QVariant", _get_handle, _set_handle)  # type: ignore[arg-type]
+
+    @Slot()
+    def requestUpdate(self) -> None:
+        """mpv has a frame. Called by the bridge, on the GUI thread.
+
+        It has to be QQuickItem::update(): only that marks the item dirty, and
+        Qt calls updatePaintNode for dirty items alone. Asking the window to
+        update instead schedules a render that skips this item entirely, so
+        the video sits still until something else (a resize) dirties it.
+        """
+        self.update()
 
     # --- rendering ---
 
@@ -156,6 +167,9 @@ class MpvMetalVideoItem(QQuickItem):
         key = getCppPointer(window)[0]
         existing = _BRIDGES.get(key)
         if existing is not None:
+            # Whichever item is on screen is the one to wake; the page is
+            # rebuilt for every playback while the bridge stays.
+            bridge.gv_video_bridge_set_item(ctypes.c_void_p(existing), getCppPointer(self)[0])
             return existing
         pointer = mpv_pointer(self._handle)
         if not pointer:
@@ -166,5 +180,6 @@ class MpvMetalVideoItem(QQuickItem):
             self._fail(f"zero-copy bridge unavailable ({last_error(bridge)})")
             return None
         _BRIDGES[key] = created
+        bridge.gv_video_bridge_set_item(ctypes.c_void_p(created), getCppPointer(self)[0])
         _log.info("zero-copy video bridge ready")
         return created

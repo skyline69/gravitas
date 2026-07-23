@@ -195,6 +195,10 @@ struct GvVideoBridge {
     CGLContextObj previousContext = nullptr;
 
     MpvRenderContext *mpv = nullptr;
+    // The item currently drawing this bridge. Read and written only on the
+    // GUI thread, so mpv's thread can never see it half-updated.
+    QObject *item = nullptr;
+    QMetaObject::Connection itemGone;
 
     Surface current;
     // Surfaces the renderer may still be holding. Qt gives no way to ask, so
@@ -234,8 +238,10 @@ void frameReady(void *opaque)
     QMetaObject::invokeMethod(
         app,
         [bridge]() {
-            if (!bridge->stopped && bridge->window)
-                bridge->window->update();
+            if (bridge->stopped || !bridge->item)
+                return;
+            // Already on the GUI thread, so this is a plain call.
+            QMetaObject::invokeMethod(bridge->item, "requestUpdate", Qt::DirectConnection);
         },
         Qt::QueuedConnection);
 }
@@ -370,6 +376,8 @@ void teardown(GvVideoBridge *bridge)
     QObject::disconnect(bridge->aboutToStop);
     QObject::disconnect(bridge->invalidated);
     QObject::disconnect(bridge->windowGone);
+    QObject::disconnect(bridge->itemGone);
+    bridge->item = nullptr;
 
     if (bridge->gl) {
         makeCurrent(bridge);
@@ -554,6 +562,22 @@ GV_API int gv_video_bridge_set_size(GvVideoBridge *bridge, int width, int height
     }
     doneCurrent(bridge);
     return ok ? 1 : 0;
+}
+
+GV_API void gv_video_bridge_set_item(GvVideoBridge *bridge, void *itemPtr)
+{
+    auto *item = static_cast<QObject *>(itemPtr);
+    if (!bridge || bridge->item == item)
+        return;
+    QObject::disconnect(bridge->itemGone);
+    bridge->item = item;
+    if (!item)
+        return;
+    // The player page is destroyed and rebuilt for every playback, so the
+    // item this points at is routinely outlived by the bridge.
+    bridge->itemGone = QObject::connect(item, &QObject::destroyed, [bridge]() {
+        bridge->item = nullptr;
+    });
 }
 
 GV_API int gv_video_bridge_render(GvVideoBridge *bridge)

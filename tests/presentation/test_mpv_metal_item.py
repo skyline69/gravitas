@@ -118,6 +118,11 @@ class _FakeBridge:
         self.created += 1
         return 0xBEEF00 + self.created
 
+    def gv_video_bridge_set_item(self, _bridge: object, item: int) -> None:
+        # Which item to wake when mpv has a frame; the page is rebuilt for
+        # every playback, so this is re-pointed rather than recreated.
+        self.item = item
+
 
 def test_a_second_player_page_reuses_the_first_bridge(monkeypatch: pytest.MonkeyPatch) -> None:
     """The regression that made a second file play black.

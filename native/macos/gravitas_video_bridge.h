@@ -35,7 +35,7 @@ extern "C" {
 
 // ABI version. The loader refuses a bridge whose number it does not know,
 // which is what keeps a stale build from being loaded against newer Python.
-#define GV_VIDEO_BRIDGE_ABI 5
+#define GV_VIDEO_BRIDGE_ABI 6
 
 // The library is built with -fvisibility=hidden so nothing but these entry
 // points is exported; each one has to opt back in.
@@ -70,6 +70,14 @@ GV_API void gv_video_bridge_destroy(GvVideoBridge *bridge);
 // Point the bridge at a new video resolution, retiring any previous surface.
 // Returns 1 on success. mpv's render context survives.
 GV_API int gv_video_bridge_set_size(GvVideoBridge *bridge, int width, int height);
+
+// The item to wake when mpv has a frame. Qt only calls updatePaintNode on
+// items marked dirty, and only QQuickItem::update() marks one -- asking the
+// WINDOW to update schedules a render in which our item is not dirty, so
+// nothing is drawn and the picture only moves when something else (a resize)
+// dirties the item. The item is woken through a named slot rather than
+// touched directly, since update() is protected.
+GV_API void gv_video_bridge_set_item(GvVideoBridge *bridge, void *item);
 
 // Draw one mpv frame into the surface. Returns 1 if a frame was rendered.
 GV_API int gv_video_bridge_render(GvVideoBridge *bridge);
