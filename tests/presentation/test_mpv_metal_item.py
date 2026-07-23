@@ -122,6 +122,15 @@ class _FakeBridge:
     def gv_video_bridge_destroy(self, _handle: object) -> None:
         self.destroyed += 1
 
+    def gv_video_bridge_begin(self, _handle: object) -> int:
+        # Freeing a render context needs mpv's GL context current, so the item
+        # brackets it the same way it brackets a frame.
+        self.made_current = getattr(self, "made_current", 0) + 1
+        return 1
+
+    def gv_video_bridge_end(self, _handle: object) -> None:
+        self.released_current = getattr(self, "released_current", 0) + 1
+
 
 def test_a_second_player_page_reuses_the_first_session(monkeypatch: pytest.MonkeyPatch) -> None:
     """The regression that made a second file play black.
@@ -184,6 +193,9 @@ def test_a_rebuilt_mpv_core_drops_the_stale_render_context(
     assert replacement._session(fake, window) is session
     assert session.ctx is None, "the old core's render context must be dropped"
     assert freed == [True]
+    # ...and it was freed with mpv's GL context current, then released again.
+    assert fake.made_current == 1
+    assert fake.released_current == 1
 
 
 def test_reusing_a_session_never_reinstalls_the_mpv_callback(
