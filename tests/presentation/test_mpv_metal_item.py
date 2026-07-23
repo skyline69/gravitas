@@ -113,31 +113,20 @@ class _FakeBridge:
 
     def __init__(self) -> None:
         self.created = 0
-        self.destroyed = 0
 
-    def gv_video_bridge_create(self, _window: int) -> int:
+    def gv_video_bridge_create(self, _window: int, _mpv: object) -> int:
         self.created += 1
         return 0xBEEF00 + self.created
 
-    def gv_video_bridge_destroy(self, _handle: object) -> None:
-        self.destroyed += 1
 
-    def gv_video_bridge_begin(self, _handle: object) -> int:
-        # Freeing a render context needs mpv's GL context current, so the item
-        # brackets it the same way it brackets a frame.
-        self.made_current = getattr(self, "made_current", 0) + 1
-        return 1
-
-    def gv_video_bridge_end(self, _handle: object) -> None:
-        self.released_current = getattr(self, "released_current", 0) + 1
-
-
-def test_a_second_player_page_reuses_the_first_session(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_second_player_page_reuses_the_first_bridge(monkeypatch: pytest.MonkeyPatch) -> None:
     """The regression that made a second file play black.
 
     libmpv allows one render context per core, and the core outlives the
-    player page. An item that builds its own session would make the second
-    playback fail with "There is already a mpv_render_context set".
+    player page -- PlayerController keeps it while a page pop only stops
+    playback. An item that built its own bridge would ask for a second render
+    context and get "There is already a mpv_render_context set", decoding
+    fine and drawing nothing.
     """
     from PySide6.QtCore import QObject
 
@@ -145,138 +134,48 @@ def test_a_second_player_page_reuses_the_first_session(monkeypatch: pytest.Monke
 
     fake = _FakeBridge()
     monkeypatch.setattr(mpv_metal_item, "library", lambda: fake)
-    monkeypatch.setattr(mpv_metal_item, "_SESSIONS", {})
+    monkeypatch.setattr(mpv_metal_item, "_BRIDGES", {})
+    monkeypatch.setattr(mpv_metal_item, "mpv_pointer", lambda _handle: 0x1234)
 
-    # A session is keyed by the window's pointer and nothing else is read off
+    # A bridge is keyed by the window's pointer and nothing else is read off
     # it here, so any QObject stands in -- and a real QQuickWindow needs a GUI
     # application this suite deliberately does not create.
     window = QObject()
-    handle = object()  # the one mpv core, as PlayerController keeps it
 
-    first = mpv_metal_item.MpvMetalVideoItem()
-    first._handle = handle
-    session = first._session(fake, window)
-    assert session is not None
-
-    # The page is popped and reopened: a brand new item, same window, same core.
-    second = mpv_metal_item.MpvMetalVideoItem()
-    second._handle = handle
-    assert second._session(fake, window) is session
-    assert fake.created == 1, "the second page must not build its own bridge"
-    assert fake.destroyed == 0, "nothing may be freed while the window lives"
-
-
-def test_a_rebuilt_mpv_core_drops_the_stale_render_context(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A render context belongs to the core it was made for. If the player is
-    rebuilt, reusing it would render frames from a core that no longer runs."""
-    from PySide6.QtCore import QObject
-
-    from gravitas.presentation.video import mpv_metal_item
-
-    fake = _FakeBridge()
-    monkeypatch.setattr(mpv_metal_item, "library", lambda: fake)
-    monkeypatch.setattr(mpv_metal_item, "_SESSIONS", {})
-
-    window = QObject()
-    item = mpv_metal_item.MpvMetalVideoItem()
-    item._handle = object()
-    session = item._session(fake, window)
-    assert session is not None
-
-    freed: list[bool] = []
-    session.ctx = type("Ctx", (), {"update_cb": None, "free": lambda _self: freed.append(True)})()
-
-    replacement = mpv_metal_item.MpvMetalVideoItem()
-    replacement._handle = object()  # a different core
-    assert replacement._session(fake, window) is session
-    assert session.ctx is None, "the old core's render context must be dropped"
-    assert freed == [True]
-    # ...and it was freed with mpv's GL context current, then released again.
-    assert fake.made_current == 1
-    assert fake.released_current == 1
-
-
-def test_reusing_a_session_never_reinstalls_the_mpv_callback(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Assigning update_cb builds a new ctypes closure and drops the old one.
-
-    mpv's VO thread calls that closure from outside Python, so replacing it
-    while frames are flowing is a use-after-free -- it crashed a second into
-    playback, in _CallPythonObject on mpv's vo thread. The session installs one
-    callback at creation and re-points a plain attribute instead.
-    """
-    from PySide6.QtCore import QObject
-
-    from gravitas.presentation.video import mpv_metal_item
-
-    class Context:
-        def __init__(self) -> None:
-            self.assignments = 0
-            self._cb = None
-
-        @property
-        def update_cb(self) -> object:
-            return self._cb
-
-        @update_cb.setter
-        def update_cb(self, value: object) -> None:
-            self.assignments += 1
-            self._cb = value
-
-    fake = _FakeBridge()
-    monkeypatch.setattr(mpv_metal_item, "library", lambda: fake)
-    monkeypatch.setattr(mpv_metal_item, "_SESSIONS", {})
-
-    window = QObject()
     first = mpv_metal_item.MpvMetalVideoItem()
     first._handle = object()
-    session = first._session(fake, window)
-    assert session is not None
-    session.ctx = Context()
-    session.ctx.update_cb = session.notify  # what context creation does, once
-    assert session.ctx.assignments == 1
+    handle = first._bridge(fake, window)
+    assert handle is not None
 
-    # Many frames, then a new item takes over, then many more frames.
-    for _ in range(5):
-        assert first._ensure_render_context(fake, session) is True
+    # The page is popped and reopened: a brand new item, same window and core.
     second = mpv_metal_item.MpvMetalVideoItem()
     second._handle = first._handle
-    for _ in range(5):
-        assert second._ensure_render_context(fake, session) is True
-
-    assert session.ctx.assignments == 1, "the callback must be installed exactly once"
-    assert session._owner is not None and session._owner() is second
+    assert second._bridge(fake, window) == handle
+    assert fake.created == 1, "the second page must not build its own bridge"
 
 
-def test_frame_notifications_follow_the_item_on_screen() -> None:
+def test_an_unusable_mpv_handle_does_not_reach_the_bridge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The bridge dereferences the pointer it is given, so a handle that
+    cannot produce one must stop here rather than there."""
+    from PySide6.QtCore import QObject
+
     from gravitas.presentation.video import mpv_metal_item
 
-    woken: list[str] = []
+    fake = _FakeBridge()
+    monkeypatch.setattr(mpv_metal_item, "library", lambda: fake)
+    monkeypatch.setattr(mpv_metal_item, "_BRIDGES", {})
 
-    class Item:
-        def __init__(self, name: str) -> None:
-            self.name = name
+    item = mpv_metal_item.MpvMetalVideoItem()
+    item._handle = object()  # not an mpv instance: no .handle to cast
+    assert item._bridge(fake, QObject()) is None
+    assert fake.created == 0
+    assert item._failed is True
 
-        def scheduleUpdate(self) -> None:
-            woken.append(self.name)
 
-    session = mpv_metal_item._Session(1, object())
-    session.notify()  # nobody owns it yet
-    assert woken == []
+def test_mpv_pointer_survives_a_handle_that_is_not_mpv() -> None:
+    from gravitas.presentation.video.mpv_metal_item import mpv_pointer
 
-    first = Item("first")
-    session.set_owner(first)
-    session.notify()
-    second = Item("second")
-    session.set_owner(second)
-    session.notify()
-    assert woken == ["first", "second"]
-
-    # The owning item is held weakly: a destroyed page must not keep it alive,
-    # and a notification arriving after it is gone must be a no-op.
-    del second
-    session.notify()
-    assert woken == ["first", "second"]
+    assert mpv_pointer(object()) == 0
+    assert mpv_pointer(None) == 0

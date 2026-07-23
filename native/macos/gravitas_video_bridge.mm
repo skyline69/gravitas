@@ -7,14 +7,19 @@
 // but libmpv's render API speaks OpenGL and nothing else. An IOSurface is the
 // one buffer both APIs can address, so it is the seam between them.
 //
-// The ownership rules encoded below were each learned from a crash, and none
-// of them is guessable from the API signatures. They are stated where they
-// bite.
+// libmpv is reached through dlsym rather than linked: python-mpv has already
+// loaded it into the process by the time any of this runs, and resolving the
+// four render-API symbols from the running image keeps the build free of an
+// mpv dependency (and free of the version skew that would come with one).
+//
+// The ownership rules were each learned from a crash, and none is guessable
+// from the API signatures. They are stated where they bite.
 
 #include "gravitas_video_bridge.h"
 
 #include <QtGui/rhi/qrhi.h>
 #include <QtGui/rhi/qrhi_platform.h>
+#include <QtCore/QCoreApplication>
 #include <QtQuick/QQuickWindow>
 #include <QtQuick/QSGRendererInterface>
 #include <QtQuick/QSGTexture>
@@ -26,11 +31,101 @@
 #include <OpenGL/OpenGL.h>
 #include <OpenGL/gl3.h>
 
+#include <dlfcn.h>
+
 #include <cstdio>
 #include <string>
 #include <vector>
 
 namespace {
+
+// --- libmpv's render API, as much of it as this needs -------------------
+//
+// Mirrors libmpv/render.h and render_gl.h. These are part of libmpv's stable
+// ABI, so declaring them here is safe and saves depending on mpv's headers at
+// build time.
+
+using MpvRenderContext = struct mpv_render_context;
+
+struct MpvRenderParam {
+    int type;
+    void *data;
+};
+
+enum {
+    MPV_RENDER_PARAM_INVALID = 0,
+    MPV_RENDER_PARAM_API_TYPE = 1,
+    MPV_RENDER_PARAM_OPENGL_INIT_PARAMS = 2,
+    MPV_RENDER_PARAM_OPENGL_FBO = 3,
+    MPV_RENDER_PARAM_FLIP_Y = 4,
+    MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME = 12,
+};
+
+struct MpvOpenGLInitParams {
+    void *(*get_proc_address)(void *ctx, const char *name);
+    void *get_proc_address_ctx;
+};
+
+struct MpvOpenGLFBO {
+    int fbo;
+    int w;
+    int h;
+    int internal_format;
+};
+
+using MpvRenderContextCreate = int (*)(MpvRenderContext **, void *, MpvRenderParam *);
+using MpvRenderContextSetUpdateCallback = void (*)(MpvRenderContext *, void (*)(void *), void *);
+using MpvRenderContextRender = int (*)(MpvRenderContext *, MpvRenderParam *);
+using MpvRenderContextFree = void (*)(MpvRenderContext *);
+
+struct MpvRenderApi {
+    MpvRenderContextCreate create = nullptr;
+    MpvRenderContextSetUpdateCallback setUpdateCallback = nullptr;
+    MpvRenderContextRender render = nullptr;
+    MpvRenderContextFree free = nullptr;
+
+    bool resolve()
+    {
+        if (create)
+            return true;
+        // Not RTLD_DEFAULT: python-mpv loads libmpv through ctypes, which
+        // dlopens it RTLD_LOCAL, so its symbols are deliberately absent from
+        // the global namespace. The library has to be named again to get at
+        // them -- with RTLD_NOLOAD first, which returns a handle only if the
+        // image is ALREADY loaded and so cannot give mpv a second core by
+        // accident. The plain dlopen after it is for the case where this ever
+        // runs before python-mpv has loaded anything.
+        static const char *names[] = {
+            "libmpv.2.dylib",
+            "libmpv.dylib",
+            "/opt/homebrew/lib/libmpv.2.dylib",
+            "/usr/local/lib/libmpv.2.dylib",
+        };
+        void *handle = nullptr;
+        for (const char *name : names) {
+            handle = dlopen(name, RTLD_LAZY | RTLD_NOLOAD);
+            if (handle)
+                break;
+        }
+        if (!handle) {
+            for (const char *name : names) {
+                handle = dlopen(name, RTLD_LAZY);
+                if (handle)
+                    break;
+            }
+        }
+        if (!handle)
+            return false;
+        create = (MpvRenderContextCreate)dlsym(handle, "mpv_render_context_create");
+        setUpdateCallback = (MpvRenderContextSetUpdateCallback)dlsym(
+            handle, "mpv_render_context_set_update_callback");
+        render = (MpvRenderContextRender)dlsym(handle, "mpv_render_context_render");
+        free = (MpvRenderContextFree)dlsym(handle, "mpv_render_context_free");
+        return create && setUpdateCallback && render && free;
+    }
+};
+
+MpvRenderApi g_mpv;
 
 // Reported through gv_video_bridge_error(). Thread-local: the render thread
 // and the GUI thread can both be in here during teardown.
@@ -39,6 +134,16 @@ thread_local std::string g_error;
 void setError(const char *message)
 {
     g_error = message ? message : "";
+}
+
+// mpv asks for GL entry points by name. Its own context is a plain CGL
+// context, so the OpenGL framework's symbols are the right ones.
+void *glSymbol(void *, const char *name)
+{
+    static void *framework = dlopen("/System/Library/Frameworks/OpenGL.framework/OpenGL", RTLD_LAZY);
+    if (!framework)
+        return nullptr;
+    return dlsym(framework, name);
 }
 
 // The pixel formats the surface can take, best first. Every layer has to
@@ -89,13 +194,67 @@ struct GvVideoBridge {
     CGLContextObj gl = nullptr;
     CGLContextObj previousContext = nullptr;
 
+    MpvRenderContext *mpv = nullptr;
+
     Surface current;
     // Surfaces the renderer may still be holding. Qt gives no way to ask, so
     // they wait here until the scene graph is gone.
     std::vector<Surface> retired;
+
+    QMetaObject::Connection aboutToStop;
+    QMetaObject::Connection invalidated;
+    QMetaObject::Connection windowGone;
+    // Two flags, not one. `stopped` means draw nothing and post nothing, and
+    // can be set from any thread because it only stops work. `torn` means the
+    // GPU and mpv objects are gone, and may only be set on the render thread.
+    bool stopped = false;
+    bool torn = false;
 };
 
 namespace {
+
+// mpv's thread: a new frame is ready. Nothing may be rendered here -- this is
+// not the render thread -- so it only asks Qt for a repaint, which arrives as
+// an updatePaintNode on the render thread in the usual way.
+void frameReady(void *opaque)
+{
+    auto *bridge = static_cast<GvVideoBridge *>(opaque);
+    if (!bridge || bridge->stopped)
+        return;
+    QCoreApplication *app = QCoreApplication::instance();
+    if (!app)
+        return;
+    // Posted to the APPLICATION, not to the window, and the window is only
+    // touched inside the lambda. Testing bridge->window here on mpv's thread
+    // would be a race the destructor wins about one run in eight: the window
+    // can start dying between the check and the post. The application
+    // outlives every window, and the lambda runs on the GUI thread -- the
+    // same thread that clears bridge->window when the window is destroyed --
+    // so by the time it looks, the answer cannot change underneath it.
+    QMetaObject::invokeMethod(
+        app,
+        [bridge]() {
+            if (!bridge->stopped && bridge->window)
+                bridge->window->update();
+        },
+        Qt::QueuedConnection);
+}
+
+void makeCurrent(GvVideoBridge *bridge)
+{
+    bridge->previousContext = CGLGetCurrentContext();
+    CGLSetCurrentContext(bridge->gl);
+}
+
+void doneCurrent(GvVideoBridge *bridge)
+{
+    // Metal reads the surface when Qt's command buffer runs, and the two APIs
+    // share no implicit ordering: without this the GL work may still be queued
+    // and the frame tears or repeats.
+    glFlush();
+    CGLSetCurrentContext(bridge->previousContext);
+    bridge->previousContext = nullptr;
+}
 
 // Frees one surface's objects. Must run on the render thread with the
 // bridge's GL context current, and only when nothing can still reference it.
@@ -159,8 +318,7 @@ bool buildSurface(GvVideoBridge *bridge, int width, int height, const SurfaceFor
 
     // Qt's view of it. createFrom() does NOT retain the MTLTexture; the
     // Surface holds the only strong reference and outlives the QRhiTexture.
-    QRhiTexture *rhiTexture =
-        bridge->rhi->newTexture(format.qt, QSize(width, height), 1);
+    QRhiTexture *rhiTexture = bridge->rhi->newTexture(format.qt, QSize(width, height), 1);
     if (!rhiTexture->createFrom({quint64((__bridge void *)out.metalTexture), 0})) {
         delete rhiTexture;
         setError("QRhiTexture::createFrom failed");
@@ -201,6 +359,38 @@ bool buildSurface(GvVideoBridge *bridge, int width, int height, const SurfaceFor
     return true;
 }
 
+// The whole teardown, on the render thread, with nothing Python in sight.
+// Idempotent: Qt may say both "about to stop" and "invalidated".
+void teardown(GvVideoBridge *bridge)
+{
+    if (!bridge || bridge->torn)
+        return;
+    bridge->torn = true;
+    bridge->stopped = true;
+    QObject::disconnect(bridge->aboutToStop);
+    QObject::disconnect(bridge->invalidated);
+    QObject::disconnect(bridge->windowGone);
+
+    if (bridge->gl) {
+        makeCurrent(bridge);
+        if (bridge->mpv) {
+            // Detach first so no callback can be in flight, then free -- both
+            // with mpv's own GL context current, which libmpv requires.
+            g_mpv.setUpdateCallback(bridge->mpv, nullptr, nullptr);
+            g_mpv.free(bridge->mpv);
+            bridge->mpv = nullptr;
+        }
+        releaseSurface(bridge->current);
+        for (Surface &surface : bridge->retired)
+            releaseSurface(surface);
+        bridge->retired.clear();
+        doneCurrent(bridge);
+        CGLDestroyContext(bridge->gl);
+        bridge->gl = nullptr;
+    }
+    bridge->window = nullptr;
+}
+
 } // namespace
 
 extern "C" {
@@ -220,11 +410,15 @@ GV_API const char *gv_video_bridge_error(void)
     return g_error.c_str();
 }
 
-GV_API GvVideoBridge *gv_video_bridge_create(void *windowPtr)
+GV_API GvVideoBridge *gv_video_bridge_create(void *windowPtr, void *mpvHandle)
 {
     setError("");
-    if (!windowPtr) {
-        setError("no window");
+    if (!windowPtr || !mpvHandle) {
+        setError("no window or no mpv handle");
+        return nullptr;
+    }
+    if (!g_mpv.resolve()) {
+        setError("libmpv's render API is not in this process");
         return nullptr;
     }
     auto *window = static_cast<QQuickWindow *>(windowPtr);
@@ -273,21 +467,73 @@ GV_API GvVideoBridge *gv_video_bridge_create(void *windowPtr)
         delete bridge;
         return nullptr;
     }
+
+    // mpv's render context, on that GL context.
+    makeCurrent(bridge);
+    MpvOpenGLInitParams glParams = {glSymbol, nullptr};
+    char apiType[] = "opengl";
+    MpvRenderParam params[] = {
+        {MPV_RENDER_PARAM_API_TYPE, apiType},
+        {MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, &glParams},
+        {MPV_RENDER_PARAM_INVALID, nullptr},
+    };
+    const int created = g_mpv.create(&bridge->mpv, mpvHandle, params);
+    doneCurrent(bridge);
+    if (created < 0 || !bridge->mpv) {
+        char message[96];
+        std::snprintf(message, sizeof(message), "mpv_render_context_create failed (%d)", created);
+        setError(message);
+        CGLDestroyContext(bridge->gl);
+        bridge->gl = nullptr;
+        delete bridge;
+        return nullptr;
+    }
+    g_mpv.setUpdateCallback(bridge->mpv, frameReady, bridge);
+
+    // Teardown, in C++ and on the render thread, which is the entire reason
+    // mpv's context lives on this side of the boundary. Both signals: only one
+    // of them is reliable, and which one depends on how the app is quit.
+    // Measured across repeated runs, freeing here survives teardown more
+    // often than waiting for sceneGraphInvalidated (which does not always
+    // arrive). Neither is reliable yet -- see the note in metal_bridge.py.
+    bridge->aboutToStop = QObject::connect(window, &QQuickWindow::sceneGraphAboutToStop, window,
+                                           [bridge]() { teardown(bridge); },
+                                           Qt::DirectConnection);
+    bridge->invalidated = QObject::connect(window, &QQuickWindow::sceneGraphInvalidated, window,
+                                           [bridge]() { teardown(bridge); },
+                                           Qt::DirectConnection);
+    // The window can be destroyed without the scene graph ever announcing
+    // anything -- and then mpv, which knows nothing about any of this, keeps
+    // asking a half-destroyed window to repaint. That crashed in Qt's own
+    // destructors. This hook only sets flags, which is all that is safe on
+    // the GUI thread: whatever is left over is handed back with the process.
+    bridge->windowGone = QObject::connect(window, &QObject::destroyed, [bridge]() {
+        bridge->stopped = true;
+        bridge->window = nullptr;
+    });
+    // Quitting is the earliest reliable warning, and it arrives before the
+    // QML engine is dismantled. Stopping here means no repaint is requested
+    // and no frame is drawn while Qt destroys the scene -- which is the state
+    // the software path has always torn down in, and it does not crash.
+    // Flag only: freeing anything from this thread is what must not happen.
+    if (QCoreApplication *app = QCoreApplication::instance()) {
+        QObject::connect(app, &QCoreApplication::aboutToQuit, app,
+                         [bridge]() { bridge->stopped = true; });
+    }
     return bridge;
 }
 
 GV_API int gv_video_bridge_set_size(GvVideoBridge *bridge, int width, int height)
 {
     setError("");
-    if (!bridge || width <= 0 || height <= 0) {
+    if (!bridge || bridge->stopped || width <= 0 || height <= 0) {
         setError("bad arguments");
         return 0;
     }
     if (bridge->current.width == width && bridge->current.height == height)
         return 1;
 
-    CGLContextObj previous = CGLGetCurrentContext();
-    CGLSetCurrentContext(bridge->gl);
+    makeCurrent(bridge);
     if (bridge->current.surface) {
         // Retire, do not release: the renderer may still be holding the old
         // texture, and Qt offers no way to ask.
@@ -306,56 +552,47 @@ GV_API int gv_video_bridge_set_size(GvVideoBridge *bridge, int width, int height
         // be released here and now, and the next format tried.
         releaseSurface(fresh);
     }
-    glFlush();
-    CGLSetCurrentContext(previous);
+    doneCurrent(bridge);
     return ok ? 1 : 0;
+}
+
+GV_API int gv_video_bridge_render(GvVideoBridge *bridge)
+{
+    if (!bridge || bridge->stopped || !bridge->mpv || !bridge->current.fbo)
+        return 0;
+    makeCurrent(bridge);
+    MpvOpenGLFBO fbo = {int(bridge->current.fbo), bridge->current.width, bridge->current.height,
+                        int(bridge->current.format->glInternal)};
+    // No flip: the GL framebuffer's bottom-left origin and the way Metal
+    // samples the IOSurface already agree.
+    int flipY = 0;
+    // Never sleep until the frame's presentation time: this is Qt's render
+    // thread and the whole UI would wait with it.
+    int blockForTargetTime = 0;
+    MpvRenderParam params[] = {
+        {MPV_RENDER_PARAM_OPENGL_FBO, &fbo},
+        {MPV_RENDER_PARAM_FLIP_Y, &flipY},
+        {MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME, &blockForTargetTime},
+        {MPV_RENDER_PARAM_INVALID, nullptr},
+    };
+    const int rendered = g_mpv.render(bridge->mpv, params);
+    doneCurrent(bridge);
+    return rendered >= 0 ? 1 : 0;
 }
 
 GV_API void gv_video_bridge_destroy(GvVideoBridge *bridge)
 {
     if (!bridge)
         return;
-    if (bridge->gl) {
-        CGLContextObj previous = CGLGetCurrentContext();
-        CGLSetCurrentContext(bridge->gl);
-        releaseSurface(bridge->current);
-        for (Surface &surface : bridge->retired)
-            releaseSurface(surface);
-        glFlush();
-        CGLSetCurrentContext(previous);
-        CGLDestroyContext(bridge->gl);
-        bridge->gl = nullptr;
-    }
-    bridge->retired.clear();
+    teardown(bridge);
     delete bridge;
 }
 
-GV_API int gv_video_bridge_begin(GvVideoBridge *bridge)
+GV_API void *gv_video_bridge_texture(GvVideoBridge *bridge)
 {
-    if (!bridge || !bridge->gl) {
-        setError("bridge not usable");
-        return 0;
-    }
-    bridge->previousContext = CGLGetCurrentContext();
-    CGLSetCurrentContext(bridge->gl);
-    return 1;
-}
-
-GV_API void gv_video_bridge_end(GvVideoBridge *bridge)
-{
-    if (!bridge || !bridge->gl)
-        return;
-    // Metal reads the surface when Qt's command buffer runs, and the two APIs
-    // share no implicit ordering: without this the GL work may still be queued
-    // and the frame tears or repeats.
-    glFlush();
-    CGLSetCurrentContext(bridge->previousContext);
-    bridge->previousContext = nullptr;
-}
-
-GV_API unsigned int gv_video_bridge_fbo(GvVideoBridge *bridge)
-{
-    return bridge ? bridge->current.fbo : 0;
+    if (!bridge || bridge->stopped || bridge->torn)
+        return nullptr;
+    return bridge->current.sceneTexture;
 }
 
 GV_API const char *gv_video_bridge_format(GvVideoBridge *bridge)
@@ -363,18 +600,6 @@ GV_API const char *gv_video_bridge_format(GvVideoBridge *bridge)
     if (!bridge || !bridge->current.format)
         return "";
     return bridge->current.format->name;
-}
-
-GV_API unsigned int gv_video_bridge_gl_internal_format(GvVideoBridge *bridge)
-{
-    if (!bridge || !bridge->current.format)
-        return 0;
-    return bridge->current.format->glInternal;
-}
-
-GV_API void *gv_video_bridge_texture(GvVideoBridge *bridge)
-{
-    return bridge ? bridge->current.sceneTexture : nullptr;
 }
 
 } // extern "C"

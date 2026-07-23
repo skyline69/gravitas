@@ -23,7 +23,7 @@ from PySide6.QtCore import qVersion
 _log = logging.getLogger(__name__)
 
 # Kept in step with GV_VIDEO_BRIDGE_ABI in the header.
-_ABI = 4
+_ABI = 5
 _LIBRARY = Path(__file__).parent / "libgravitas_video_bridge.dylib"
 
 
@@ -41,22 +41,16 @@ def _bind(library: ctypes.CDLL) -> ctypes.CDLL:
     library.gv_video_bridge_qt_version.restype = ctypes.c_char_p
     library.gv_video_bridge_error.argtypes = []
     library.gv_video_bridge_error.restype = ctypes.c_char_p
-    library.gv_video_bridge_create.argtypes = [ctypes.c_void_p]
+    library.gv_video_bridge_create.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
     library.gv_video_bridge_create.restype = ctypes.c_void_p
     library.gv_video_bridge_destroy.argtypes = [ctypes.c_void_p]
     library.gv_video_bridge_destroy.restype = None
     library.gv_video_bridge_set_size.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
     library.gv_video_bridge_set_size.restype = ctypes.c_int
-    library.gv_video_bridge_begin.argtypes = [ctypes.c_void_p]
-    library.gv_video_bridge_begin.restype = ctypes.c_int
-    library.gv_video_bridge_end.argtypes = [ctypes.c_void_p]
-    library.gv_video_bridge_end.restype = None
-    library.gv_video_bridge_fbo.argtypes = [ctypes.c_void_p]
-    library.gv_video_bridge_fbo.restype = ctypes.c_uint
+    library.gv_video_bridge_render.argtypes = [ctypes.c_void_p]
+    library.gv_video_bridge_render.restype = ctypes.c_int
     library.gv_video_bridge_format.argtypes = [ctypes.c_void_p]
     library.gv_video_bridge_format.restype = ctypes.c_char_p
-    library.gv_video_bridge_gl_internal_format.argtypes = [ctypes.c_void_p]
-    library.gv_video_bridge_gl_internal_format.restype = ctypes.c_uint
     library.gv_video_bridge_texture.argtypes = [ctypes.c_void_p]
     library.gv_video_bridge_texture.restype = ctypes.c_void_p
     return library
