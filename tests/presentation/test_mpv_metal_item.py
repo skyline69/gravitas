@@ -106,3 +106,81 @@ def test_a_missing_library_is_not_an_error(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(sys, "platform", "darwin")
     monkeypatch.setattr(metal_bridge.Path, "is_file", lambda _self: False)
     assert metal_bridge.available() is False
+
+
+class _FakeBridge:
+    """Stands in for the native library: records what the item asks of it."""
+
+    def __init__(self) -> None:
+        self.created = 0
+        self.destroyed = 0
+
+    def gv_video_bridge_create(self, _window: int) -> int:
+        self.created += 1
+        return 0xBEEF00 + self.created
+
+    def gv_video_bridge_destroy(self, _handle: object) -> None:
+        self.destroyed += 1
+
+
+def test_a_second_player_page_reuses_the_first_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The regression that made a second file play black.
+
+    libmpv allows one render context per core, and the core outlives the
+    player page. An item that builds its own session would make the second
+    playback fail with "There is already a mpv_render_context set".
+    """
+    from PySide6.QtCore import QObject
+
+    from gravitas.presentation.video import mpv_metal_item
+
+    fake = _FakeBridge()
+    monkeypatch.setattr(mpv_metal_item, "library", lambda: fake)
+    monkeypatch.setattr(mpv_metal_item, "_SESSIONS", {})
+
+    # A session is keyed by the window's pointer and nothing else is read off
+    # it here, so any QObject stands in -- and a real QQuickWindow needs a GUI
+    # application this suite deliberately does not create.
+    window = QObject()
+    handle = object()  # the one mpv core, as PlayerController keeps it
+
+    first = mpv_metal_item.MpvMetalVideoItem()
+    first._handle = handle
+    session = first._session(fake, window)
+    assert session is not None
+
+    # The page is popped and reopened: a brand new item, same window, same core.
+    second = mpv_metal_item.MpvMetalVideoItem()
+    second._handle = handle
+    assert second._session(fake, window) is session
+    assert fake.created == 1, "the second page must not build its own bridge"
+    assert fake.destroyed == 0, "nothing may be freed while the window lives"
+
+
+def test_a_rebuilt_mpv_core_drops_the_stale_render_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A render context belongs to the core it was made for. If the player is
+    rebuilt, reusing it would render frames from a core that no longer runs."""
+    from PySide6.QtCore import QObject
+
+    from gravitas.presentation.video import mpv_metal_item
+
+    fake = _FakeBridge()
+    monkeypatch.setattr(mpv_metal_item, "library", lambda: fake)
+    monkeypatch.setattr(mpv_metal_item, "_SESSIONS", {})
+
+    window = QObject()
+    item = mpv_metal_item.MpvMetalVideoItem()
+    item._handle = object()
+    session = item._session(fake, window)
+    assert session is not None
+
+    freed: list[bool] = []
+    session.ctx = type("Ctx", (), {"update_cb": None, "free": lambda _self: freed.append(True)})()
+
+    replacement = mpv_metal_item.MpvMetalVideoItem()
+    replacement._handle = object()  # a different core
+    assert replacement._session(fake, window) is session
+    assert session.ctx is None, "the old core's render context must be dropped"
+    assert freed == [True]

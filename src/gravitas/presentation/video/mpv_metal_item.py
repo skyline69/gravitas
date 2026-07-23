@@ -6,7 +6,22 @@ CPU. That is the difference from mpv_sw_item.py, the fallback used when the
 native bridge is missing or was built against a different Qt: there every
 frame is converted and uploaded by hand.
 
-The order of operations is forced, and it is not the obvious one:
+NOTHING HERE BELONGS TO THE ITEM. The GL context, mpv's render context and
+the surface all live in a _Session held per window, because the two lifetimes
+they have to match are longer than an item's:
+
+  * The mpv core outlives the player page -- PlayerController owns it for the
+    whole session and a page pop only stops playback. libmpv allows exactly
+    one render context per core, so creating one per item makes the SECOND
+    playback fail with "There is already a mpv_render_context set" and render
+    nothing.
+  * Qt's batch renderer keeps using a texture for an unbounded number of
+    frames after the node referencing it is gone, so a surface can only be
+    freed once the scene graph is invalidated -- which is also the only
+    moment the session is torn down.
+
+The order of operations inside a session is forced, and it is not the
+obvious one:
 
   1. The bridge, and its GL context, is created as soon as there is a window
      and an mpv handle -- BEFORE anything is known about the video.
@@ -16,11 +31,8 @@ The order of operations is forced, and it is not the obvious one:
   3. Only then does a frame arrive, and with it the video's size, which the
      bridge turns into a surface.
 
-Everything here runs on the render thread (inside updatePaintNode, or a
-directly-connected sceneGraphInvalidated handler). Nothing is freed while the
-window lives: Qt's batch renderer keeps using a texture for an unbounded
-number of frames after the node referencing it is gone, so a surface replaced
-by a resolution change is retired inside the bridge instead.
+Everything runs on the render thread: inside updatePaintNode, or a
+directly-connected sceneGraphInvalidated handler.
 """
 
 from __future__ import annotations
@@ -54,6 +66,45 @@ def fitted_rect(item_width: float, item_height: float, video_w: int, video_h: in
     return QRectF((item_width - width) / 2.0, (item_height - height) / 2.0, width, height)
 
 
+class _Session:
+    """The GPU plumbing for one window: bridge, mpv render context, surface.
+
+    Outlives every item that draws through it. Torn down only when the window's
+    scene graph goes away.
+    """
+
+    def __init__(self, bridge_handle: int, mpv_handle: Any) -> None:
+        self.bridge = bridge_handle
+        self.mpv_handle = mpv_handle
+        self.ctx: Any = None
+        self.size: tuple[int, int] = (0, 0)
+        # mpv calls this for as long as its render context lives, so the ctypes
+        # trampoline has to outlive the call that installs it.
+        self.proc_resolver: Any = None
+
+    def free_render_context(self) -> None:
+        ctx, self.ctx = self.ctx, None
+        if ctx is None:
+            return
+        with contextlib.suppress(Exception):
+            # Detach first: no callback can be in flight while free() runs.
+            ctx.update_cb = None
+        with contextlib.suppress(Exception):
+            ctx.free()
+
+    def destroy(self, bridge: Any) -> None:
+        self.free_render_context()
+        handle, self.bridge = self.bridge, 0
+        if handle:
+            bridge.gv_video_bridge_destroy(ctypes.c_void_p(handle))
+
+
+# Keyed by QQuickWindow pointer. One entry in practice -- the app has a single
+# window and plays one thing at a time -- but keyed rather than global so a
+# second window cannot silently adopt the first one's GL context.
+_SESSIONS: dict[int, _Session] = {}
+
+
 class MpvMetalVideoItem(QQuickItem):
     """Same contract as the other two video items: set `handle`, get video."""
 
@@ -61,15 +112,9 @@ class MpvMetalVideoItem(QQuickItem):
         super().__init__(parent)
         self.setFlag(QQuickItem.Flag.ItemHasContents, True)
         self._handle: Any = None
-        self._bridge: int | None = None
-        self._ctx: Any = None
-        self._size: tuple[int, int] = (0, 0)
         self._failed = False
         self._connected_window: QQuickWindow | None = None
         self._update_bridge = _UpdateBridge(self)
-        # mpv calls this for as long as its render context lives, so the
-        # ctypes trampoline must outlive the call that installs it.
-        self._proc_resolver: Any = None
 
     # --- the handle PlayerController injects ---
 
@@ -99,22 +144,14 @@ class MpvMetalVideoItem(QQuickItem):
 
     def _release(self) -> None:
         """Render thread, scene graph gone: the one moment freeing is safe."""
-        self._free_render_context()
-        handle, self._bridge = self._bridge, None
-        if handle is None:
+        window = self._connected_window
+        if window is None:
+            return
+        session = _SESSIONS.pop(getCppPointer(window)[0], None)
+        if session is None:
             return
         with contextlib.suppress(BridgeUnavailable):
-            library().gv_video_bridge_destroy(ctypes.c_void_p(handle))
-
-    def _free_render_context(self) -> None:
-        ctx, self._ctx = self._ctx, None
-        if ctx is None:
-            return
-        with contextlib.suppress(Exception):
-            # Detach first: no callback can be in flight while free() runs.
-            ctx.update_cb = None
-        with contextlib.suppress(Exception):
-            ctx.free()
+            session.destroy(library())
 
     # --- rendering ---
 
@@ -141,9 +178,8 @@ class MpvMetalVideoItem(QQuickItem):
             self._failed = True
             return node
         self._connect_window(window)
-        if not self._ensure_bridge(bridge, window):
-            return node
-        if not self._ensure_render_context(bridge):
+        session = self._session(bridge, window)
+        if session is None or not self._ensure_render_context(bridge, session):
             return node
 
         video_w, video_h = self._video_size()
@@ -151,24 +187,26 @@ class MpvMetalVideoItem(QQuickItem):
             # mpv has not decoded anything yet. Keep whatever is on screen
             # rather than flashing a black frame.
             return node
-        if (video_w, video_h) != self._size:
-            if not bridge.gv_video_bridge_set_size(ctypes.c_void_p(self._bridge), video_w, video_h):
+        if (video_w, video_h) != session.size:
+            if not bridge.gv_video_bridge_set_size(
+                ctypes.c_void_p(session.bridge), video_w, video_h
+            ):
                 self._fail(f"zero-copy surface failed ({last_error(bridge)})")
                 return node
-            self._size = (video_w, video_h)
+            session.size = (video_w, video_h)
             pixel_format = (
-                bridge.gv_video_bridge_format(ctypes.c_void_p(self._bridge)) or b""
+                bridge.gv_video_bridge_format(ctypes.c_void_p(session.bridge)) or b""
             ).decode()
             _log.info("zero-copy video surface at %dx%d, %s", video_w, video_h, pixel_format)
 
-        if not self._render_frame(bridge):
+        if not self._render_frame(bridge, session):
             return node
-        address = bridge.gv_video_bridge_texture(ctypes.c_void_p(self._bridge))
+        address = bridge.gv_video_bridge_texture(ctypes.c_void_p(session.bridge))
         if not address:
             return node
 
         texture_node = node if isinstance(node, QSGSimpleTextureNode) else QSGSimpleTextureNode()
-        # The bridge owns the texture and outlives the node; letting the node
+        # The session owns the texture and outlives the node; letting the node
         # own it would free it out from under the renderer.
         texture_node.setOwnsTexture(False)
         # wrapInstance hands back a shiboken Object; it IS the bridge's
@@ -178,60 +216,77 @@ class MpvMetalVideoItem(QQuickItem):
         texture_node.setFiltering(QSGTexture.Filtering.Linear)
         return texture_node
 
-    def _ensure_bridge(self, bridge: Any, window: QQuickWindow) -> bool:
-        if self._bridge is not None:
-            return True
-        handle = bridge.gv_video_bridge_create(getCppPointer(window)[0])
+    def _session(self, bridge: Any, window: QQuickWindow) -> _Session | None:
+        """This window's session, created on first use and reused after that.
+
+        Reuse is the point: a fresh render context per item is what breaks the
+        second playback, since libmpv allows only one per core.
+        """
+        key = getCppPointer(window)[0]
+        session = _SESSIONS.get(key)
+        if session is not None:
+            if session.mpv_handle is self._handle:
+                return session
+            # A different mpv core (the player was rebuilt): its render context
+            # belongs to the old one and cannot be reused.
+            session.free_render_context()
+            session.mpv_handle = self._handle
+            return session
+        handle = bridge.gv_video_bridge_create(key)
         if not handle:
             self._fail(f"zero-copy bridge unavailable ({last_error(bridge)})")
-            return False
-        self._bridge = handle
-        return True
+            return None
+        session = _Session(handle, self._handle)
+        _SESSIONS[key] = session
+        return session
 
-    def _ensure_render_context(self, bridge: Any) -> bool:
-        if self._ctx is not None:
+    def _ensure_render_context(self, bridge: Any, session: _Session) -> bool:
+        if session.ctx is not None:
+            # Frames must wake THIS item; the one that created the context may
+            # be long gone.
+            session.ctx.update_cb = self.scheduleUpdate
             return True
         import mpv  # type: ignore[import-untyped]
 
-        if not bridge.gv_video_bridge_begin(ctypes.c_void_p(self._bridge)):
+        if not bridge.gv_video_bridge_begin(ctypes.c_void_p(session.bridge)):
             self._fail(f"zero-copy GL context unusable ({last_error(bridge)})")
             return False
         try:
-            self._proc_resolver = mpv.MpvGlGetProcAddressFn(
+            session.proc_resolver = mpv.MpvGlGetProcAddressFn(
                 lambda _ctx, name: _macos_gl_symbol(name)
             )
-            self._ctx = mpv.MpvRenderContext(
-                self._handle,
+            session.ctx = mpv.MpvRenderContext(
+                session.mpv_handle,
                 "opengl",
-                opengl_init_params={"get_proc_address": self._proc_resolver},
+                opengl_init_params={"get_proc_address": session.proc_resolver},
             )
-            self._ctx.update_cb = self.scheduleUpdate
+            session.ctx.update_cb = self.scheduleUpdate
             _log.info("mpv render context created on the zero-copy bridge")
         except Exception:
             _log.exception("mpv render context creation failed")
             self._failed = True
             return False
         finally:
-            bridge.gv_video_bridge_end(ctypes.c_void_p(self._bridge))
+            bridge.gv_video_bridge_end(ctypes.c_void_p(session.bridge))
         return True
 
-    def _render_frame(self, bridge: Any) -> bool:
-        if self._bridge is None or self._ctx is None:
+    def _render_frame(self, bridge: Any, session: _Session) -> bool:
+        if session.ctx is None:
             return False
-        if not bridge.gv_video_bridge_begin(ctypes.c_void_p(self._bridge)):
+        if not bridge.gv_video_bridge_begin(ctypes.c_void_p(session.bridge)):
             return False
         try:
-            fbo = bridge.gv_video_bridge_fbo(ctypes.c_void_p(self._bridge))
+            fbo = bridge.gv_video_bridge_fbo(ctypes.c_void_p(session.bridge))
             if not fbo:
                 return False
-            width, height = self._size
+            width, height = session.size
             # Without internal_format mpv assumes an 8-bit target and dithers
             # 10-bit video down to it -- which is exactly the precision the
             # surface exists to preserve.
             internal_format = bridge.gv_video_bridge_gl_internal_format(
-                ctypes.c_void_p(self._bridge)
+                ctypes.c_void_p(session.bridge)
             )
-            self._ctx.render(
+            session.ctx.render(
                 # No flip: the GL framebuffer's bottom-left origin and the way
                 # Metal samples the IOSurface already agree. Asking mpv to flip
                 # renders the picture upside down (verified against a grab).
@@ -251,5 +306,5 @@ class MpvMetalVideoItem(QQuickItem):
             self._failed = True
             return False
         finally:
-            bridge.gv_video_bridge_end(ctypes.c_void_p(self._bridge))
+            bridge.gv_video_bridge_end(ctypes.c_void_p(session.bridge))
         return True
