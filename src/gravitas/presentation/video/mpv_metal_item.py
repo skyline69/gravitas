@@ -166,6 +166,14 @@ class MpvMetalVideoItem(QQuickItem):
         """
         key = getCppPointer(window)[0]
         existing = _BRIDGES.get(key)
+        if existing is not None and bridge.gv_video_bridge_stale(ctypes.c_void_p(existing)):
+            # The scene graph it belonged to is gone -- going fullscreen
+            # recreates it -- so its textures belong to a renderer that no
+            # longer exists. A new one is built against the new graph, and the
+            # old generation is released as part of that.
+            del _BRIDGES[key]
+            existing = None
+            self._size = (0, 0)
         if existing is not None:
             # Whichever item is on screen is the one to wake; the page is
             # rebuilt for every playback while the bridge stays.

@@ -365,6 +365,51 @@ bool buildSurface(GvVideoBridge *bridge, int width, int height, const SurfaceFor
     return true;
 }
 
+// GPU objects belonging to a scene graph that has been invalidated. They are
+// NOT freed at that moment: Qt's nodes still exist while the graph is being
+// torn down, they hold a pointer to our texture, and freeing it there leaves
+// the renderer sampling freed memory (which is what crashed on the first
+// fullscreen toggle). A new scene graph is proof the old nodes are gone, so
+// the previous generation is released when the next bridge is built.
+struct Grave {
+    CGLContextObj gl = nullptr;
+    Surface current;
+    std::vector<Surface> retired;
+};
+
+std::vector<Grave> g_graves;
+
+void buryLater(GvVideoBridge *bridge)
+{
+    Grave grave;
+    grave.gl = bridge->gl;
+    grave.current = bridge->current;
+    grave.retired = bridge->retired;
+    g_graves.push_back(grave);
+    bridge->gl = nullptr;
+    bridge->current = Surface{};
+    bridge->retired.clear();
+}
+
+// Called when a new scene graph exists, which cannot happen while any node of
+// the old one survives.
+void drainGraves()
+{
+    for (Grave &grave : g_graves) {
+        if (!grave.gl)
+            continue;
+        CGLContextObj previous = CGLGetCurrentContext();
+        CGLSetCurrentContext(grave.gl);
+        releaseSurface(grave.current);
+        for (Surface &surface : grave.retired)
+            releaseSurface(surface);
+        glFlush();
+        CGLSetCurrentContext(previous);
+        CGLDestroyContext(grave.gl);
+    }
+    g_graves.clear();
+}
+
 // The whole teardown, on the render thread, with nothing Python in sight.
 // Idempotent: Qt may say both "about to stop" and "invalidated".
 void teardown(GvVideoBridge *bridge)
@@ -383,18 +428,17 @@ void teardown(GvVideoBridge *bridge)
         makeCurrent(bridge);
         if (bridge->mpv) {
             // Detach first so no callback can be in flight, then free -- both
-            // with mpv's own GL context current, which libmpv requires.
+            // with mpv's own GL context current, which libmpv requires. This
+            // one IS safe to free here: it is not a scene-graph resource and
+            // no Qt node refers to it.
             g_mpv.setUpdateCallback(bridge->mpv, nullptr, nullptr);
             g_mpv.free(bridge->mpv);
             bridge->mpv = nullptr;
         }
-        releaseSurface(bridge->current);
-        for (Surface &surface : bridge->retired)
-            releaseSurface(surface);
-        bridge->retired.clear();
         doneCurrent(bridge);
-        CGLDestroyContext(bridge->gl);
-        bridge->gl = nullptr;
+        // Everything the scene graph might still be holding goes to the
+        // graveyard instead of being released here.
+        buryLater(bridge);
     }
     bridge->window = nullptr;
 }
@@ -446,6 +490,9 @@ GV_API GvVideoBridge *gv_video_bridge_create(void *windowPtr, void *mpvHandle)
         setError("no MTLDevice behind the QRhi");
         return nullptr;
     }
+
+    // A new scene graph exists, so no node of the previous one survives.
+    drainGraves();
 
     auto *bridge = new GvVideoBridge;
     bridge->window = window;
@@ -501,11 +548,12 @@ GV_API GvVideoBridge *gv_video_bridge_create(void *windowPtr, void *mpvHandle)
     // Teardown, in C++ and on the render thread, which is the entire reason
     // mpv's context lives on this side of the boundary. Both signals: only one
     // of them is reliable, and which one depends on how the app is quit.
-    // Measured across repeated runs, freeing here survives teardown more
-    // often than waiting for sceneGraphInvalidated (which does not always
-    // arrive). Neither is reliable yet -- see the note in metal_bridge.py.
+    // About to stop: STOP, never free. Nodes still exist here and they point
+    // at our texture, so releasing it now is what makes the renderer sample
+    // freed memory on the way down (seen as a crash the first time the window
+    // went fullscreen, which recreates the scene graph).
     bridge->aboutToStop = QObject::connect(window, &QQuickWindow::sceneGraphAboutToStop, window,
-                                           [bridge]() { teardown(bridge); },
+                                           [bridge]() { bridge->stopped = true; },
                                            Qt::DirectConnection);
     bridge->invalidated = QObject::connect(window, &QQuickWindow::sceneGraphInvalidated, window,
                                            [bridge]() { teardown(bridge); },
@@ -610,6 +658,14 @@ GV_API void gv_video_bridge_destroy(GvVideoBridge *bridge)
         return;
     teardown(bridge);
     delete bridge;
+}
+
+GV_API int gv_video_bridge_stale(GvVideoBridge *bridge)
+{
+    // The scene graph this bridge was built against is gone (a fullscreen
+    // toggle recreates it). The caller has to build a new one rather than
+    // draw through this.
+    return !bridge || bridge->torn ? 1 : 0;
 }
 
 GV_API void *gv_video_bridge_texture(GvVideoBridge *bridge)

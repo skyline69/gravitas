@@ -118,6 +118,9 @@ class _FakeBridge:
         self.created += 1
         return 0xBEEF00 + self.created
 
+    def gv_video_bridge_stale(self, _bridge: object) -> int:
+        return 1 if getattr(self, "stale", False) else 0
+
     def gv_video_bridge_set_item(self, _bridge: object, item: int) -> None:
         # Which item to wake when mpv has a frame; the page is rebuilt for
         # every playback, so this is re-pointed rather than recreated.
@@ -184,3 +187,30 @@ def test_mpv_pointer_survives_a_handle_that_is_not_mpv() -> None:
 
     assert mpv_pointer(object()) == 0
     assert mpv_pointer(None) == 0
+
+
+def test_a_recreated_scene_graph_gets_a_new_bridge(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Going fullscreen recreates the window's scene graph, and every texture
+    the old bridge made belongs to a renderer that no longer exists. Drawing
+    through it crashed the renderer; the item must build a new one."""
+    from PySide6.QtCore import QObject
+
+    from gravitas.presentation.video import mpv_metal_item
+
+    fake = _FakeBridge()
+    monkeypatch.setattr(mpv_metal_item, "library", lambda: fake)
+    monkeypatch.setattr(mpv_metal_item, "_BRIDGES", {})
+    monkeypatch.setattr(mpv_metal_item, "mpv_pointer", lambda _handle: 0x1234)
+
+    window = QObject()
+    item = mpv_metal_item.MpvMetalVideoItem()
+    item._handle = object()
+    first = item._bridge(fake, window)
+    assert fake.created == 1
+
+    # Same window, but its scene graph has been torn down and rebuilt.
+    fake.stale = True
+    second = item._bridge(fake, window)
+    assert second != first
+    assert fake.created == 2
+    assert item._size == (0, 0), "the new bridge has no surface yet"

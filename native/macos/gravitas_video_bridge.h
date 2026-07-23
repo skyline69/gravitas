@@ -35,7 +35,7 @@ extern "C" {
 
 // ABI version. The loader refuses a bridge whose number it does not know,
 // which is what keeps a stale build from being loaded against newer Python.
-#define GV_VIDEO_BRIDGE_ABI 6
+#define GV_VIDEO_BRIDGE_ABI 7
 
 // The library is built with -fvisibility=hidden so nothing but these entry
 // points is exported; each one has to opt back in.
@@ -78,6 +78,10 @@ GV_API int gv_video_bridge_set_size(GvVideoBridge *bridge, int width, int height
 // dirties the item. The item is woken through a named slot rather than
 // touched directly, since update() is protected.
 GV_API void gv_video_bridge_set_item(GvVideoBridge *bridge, void *item);
+
+// 1 once the scene graph this bridge belongs to has gone away -- a fullscreen
+// toggle recreates it. A stale bridge draws nothing and must be replaced.
+GV_API int gv_video_bridge_stale(GvVideoBridge *bridge);
 
 // Draw one mpv frame into the surface. Returns 1 if a frame was rendered.
 GV_API int gv_video_bridge_render(GvVideoBridge *bridge);
