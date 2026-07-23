@@ -141,6 +141,9 @@ class MpvMetalVideoItem(QQuickItem):
             _log.info("zero-copy video surface at %dx%d, %s", video_w, video_h, pixel_format)
 
         if not bridge.gv_video_bridge_render(ctypes.c_void_p(handle)):
+            # Routine while the scene graph is between generations: keep the
+            # node as it is and wait for the next frame.
+            _log.debug("no frame rendered (%s)", last_error(bridge))
             return node
         address = bridge.gv_video_bridge_texture(ctypes.c_void_p(handle))
         if not address:

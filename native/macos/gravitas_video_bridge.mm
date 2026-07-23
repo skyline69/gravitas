@@ -206,13 +206,20 @@ struct GvVideoBridge {
     std::vector<Surface> retired;
 
     QMetaObject::Connection aboutToStop;
+    QMetaObject::Connection initialized;
     QMetaObject::Connection invalidated;
     QMetaObject::Connection windowGone;
-    // Two flags, not one. `stopped` means draw nothing and post nothing, and
-    // can be set from any thread because it only stops work. `torn` means the
-    // GPU and mpv objects are gone, and may only be set on the render thread.
-    bool stopped = false;
+    // `torn` means this bridge is finished: its window is gone. There is
+    // deliberately no "stopped" latch -- sceneGraphAboutToStop sets one
+    // trivially, but nothing reliably clears it (a macOS fullscreen toggle
+    // stops the scene graph without emitting either sceneGraphInitialized or
+    // sceneGraphInvalidated), so the picture froze from the first toggle on.
+    // Qt simply stops calling updatePaintNode when the graph is not running,
+    // which is the same guarantee without a flag to get wrong.
     bool torn = false;
+    // The scene graph was replaced: Qt-side wrappers must be rebuilt before
+    // the next frame can be drawn.
+    bool qtDirty = false;
 };
 
 namespace {
@@ -223,7 +230,7 @@ namespace {
 void frameReady(void *opaque)
 {
     auto *bridge = static_cast<GvVideoBridge *>(opaque);
-    if (!bridge || bridge->stopped)
+    if (!bridge || bridge->torn)
         return;
     QCoreApplication *app = QCoreApplication::instance();
     if (!app)
@@ -238,7 +245,7 @@ void frameReady(void *opaque)
     QMetaObject::invokeMethod(
         app,
         [bridge]() {
-            if (bridge->stopped || !bridge->item)
+            if (bridge->torn || !bridge->item)
                 return;
             // Already on the GUI thread, so this is a plain call.
             QMetaObject::invokeMethod(bridge->item, "requestUpdate", Qt::DirectConnection);
@@ -260,6 +267,17 @@ void doneCurrent(GvVideoBridge *bridge)
     glFlush();
     CGLSetCurrentContext(bridge->previousContext);
     bridge->previousContext = nullptr;
+}
+
+// Drops only what belongs to Qt's scene graph, keeping the IOSurface and the
+// GL objects that draw into it. A fullscreen toggle recreates the scene graph
+// -- and with it the QRhi and possibly the MTLDevice -- but our surface and
+// mpv's view of it are untouched by that, so they are kept and re-wrapped.
+void releaseQtObjects(Surface &surface)
+{
+    delete surface.sceneTexture;  // owns the QRhiTexture
+    surface.sceneTexture = nullptr;
+    surface.metalTexture = nil;
 }
 
 // Frees one surface's objects. Must run on the render thread with the
@@ -410,15 +428,78 @@ void drainGraves()
     g_graves.clear();
 }
 
+// Re-wrap the existing surface for the scene graph that exists NOW. Returns
+// false if the window has no usable renderer yet.
+bool rewrapForCurrentSceneGraph(GvVideoBridge *bridge)
+{
+    if (!bridge->window)
+        return false;
+    QSGRendererInterface *renderer = bridge->window->rendererInterface();
+    if (!renderer || renderer->graphicsApi() != QSGRendererInterface::Metal)
+        return false;
+    auto *rhi = static_cast<QRhi *>(
+        renderer->getResource(bridge->window, QSGRendererInterface::RhiResource));
+    if (!rhi)
+        return false;
+    const auto *handles = static_cast<const QRhiMetalNativeHandles *>(rhi->nativeHandles());
+    if (!handles || !handles->dev)
+        return false;
+    bridge->rhi = rhi;
+    bridge->device = (id<MTLDevice>)handles->dev;
+
+    Surface &surface = bridge->current;
+    if (!surface.surface || !surface.format)
+        return true;  // nothing to re-wrap yet; the next set_size will build it
+
+    MTLTextureDescriptor *descriptor =
+        [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:surface.format->metal
+                                                           width:surface.width
+                                                          height:surface.height
+                                                       mipmapped:NO];
+    descriptor.usage = MTLTextureUsageShaderRead;
+    descriptor.storageMode = MTLStorageModeShared;
+    surface.metalTexture = [bridge->device newTextureWithDescriptor:descriptor
+                                                          iosurface:surface.surface
+                                                              plane:0];
+    if (!surface.metalTexture)
+        return false;
+    QRhiTexture *rhiTexture =
+        rhi->newTexture(surface.format->qt, QSize(surface.width, surface.height), 1);
+    if (!rhiTexture->createFrom({quint64((__bridge void *)surface.metalTexture), 0})) {
+        delete rhiTexture;
+        return false;
+    }
+    surface.sceneTexture =
+        bridge->window->createTextureFromRhiTexture(rhiTexture, QQuickWindow::TextureIsOpaque);
+    return surface.sceneTexture != nullptr;
+}
+
 // The whole teardown, on the render thread, with nothing Python in sight.
 // Idempotent: Qt may say both "about to stop" and "invalidated".
+void sceneGraphGone(GvVideoBridge *bridge)
+{
+    // The scene graph -- and its QRhi -- is gone, so every Qt-side wrapper is
+    // dead. Nodes are gone by now too, which is what makes dropping the
+    // texture safe here and unsafe at sceneGraphAboutToStop. Everything that
+    // is OURS (the surface, the GL context, mpv's render context) is
+    // untouched by any of this and stays, so playback survives a fullscreen
+    // toggle instead of having to be rebuilt -- which it could not be, since
+    // libmpv allows only one render context per core and this one is alive.
+    if (!bridge || bridge->qtDirty)
+        return;
+    bridge->qtDirty = true;
+    releaseQtObjects(bridge->current);
+    for (Surface &surface : bridge->retired)
+        releaseQtObjects(surface);
+}
+
 void teardown(GvVideoBridge *bridge)
 {
     if (!bridge || bridge->torn)
         return;
     bridge->torn = true;
-    bridge->stopped = true;
     QObject::disconnect(bridge->aboutToStop);
+    QObject::disconnect(bridge->initialized);
     QObject::disconnect(bridge->invalidated);
     QObject::disconnect(bridge->windowGone);
     QObject::disconnect(bridge->itemGone);
@@ -548,23 +629,24 @@ GV_API GvVideoBridge *gv_video_bridge_create(void *windowPtr, void *mpvHandle)
     // Teardown, in C++ and on the render thread, which is the entire reason
     // mpv's context lives on this side of the boundary. Both signals: only one
     // of them is reliable, and which one depends on how the app is quit.
-    // About to stop: STOP, never free. Nodes still exist here and they point
-    // at our texture, so releasing it now is what makes the renderer sample
-    // freed memory on the way down (seen as a crash the first time the window
-    // went fullscreen, which recreates the scene graph).
-    bridge->aboutToStop = QObject::connect(window, &QQuickWindow::sceneGraphAboutToStop, window,
-                                           [bridge]() { bridge->stopped = true; },
-                                           Qt::DirectConnection);
+    // Nothing is connected to sceneGraphAboutToStop. Freeing there is what
+    // made the renderer sample a dead texture (nodes still exist at that
+    // point), and merely flagging there froze playback, because nothing
+    // reliably signals the resume.
     bridge->invalidated = QObject::connect(window, &QQuickWindow::sceneGraphInvalidated, window,
-                                           [bridge]() { teardown(bridge); },
+                                           [bridge]() { sceneGraphGone(bridge); },
                                            Qt::DirectConnection);
+
     // The window can be destroyed without the scene graph ever announcing
     // anything -- and then mpv, which knows nothing about any of this, keeps
     // asking a half-destroyed window to repaint. That crashed in Qt's own
     // destructors. This hook only sets flags, which is all that is safe on
     // the GUI thread: whatever is left over is handed back with the process.
     bridge->windowGone = QObject::connect(window, &QObject::destroyed, [bridge]() {
-        bridge->stopped = true;
+        // The window is gone for good: nothing more will be drawn, and mpv
+        // must stop asking. Flags only -- freeing from this thread is what
+        // must not happen.
+        bridge->torn = true;
         bridge->window = nullptr;
     });
     // Quitting is the earliest reliable warning, and it arrives before the
@@ -574,7 +656,7 @@ GV_API GvVideoBridge *gv_video_bridge_create(void *windowPtr, void *mpvHandle)
     // Flag only: freeing anything from this thread is what must not happen.
     if (QCoreApplication *app = QCoreApplication::instance()) {
         QObject::connect(app, &QCoreApplication::aboutToQuit, app,
-                         [bridge]() { bridge->stopped = true; });
+                         [bridge]() { bridge->torn = true; });
     }
     return bridge;
 }
@@ -582,7 +664,7 @@ GV_API GvVideoBridge *gv_video_bridge_create(void *windowPtr, void *mpvHandle)
 GV_API int gv_video_bridge_set_size(GvVideoBridge *bridge, int width, int height)
 {
     setError("");
-    if (!bridge || bridge->stopped || width <= 0 || height <= 0) {
+    if (!bridge || bridge->torn || width <= 0 || height <= 0) {
         setError("bad arguments");
         return 0;
     }
@@ -630,8 +712,18 @@ GV_API void gv_video_bridge_set_item(GvVideoBridge *bridge, void *itemPtr)
 
 GV_API int gv_video_bridge_render(GvVideoBridge *bridge)
 {
-    if (!bridge || bridge->stopped || !bridge->mpv || !bridge->current.fbo)
-        return 0;
+    if (!bridge) { setError("no bridge"); return 0; }
+    if (bridge->torn) { setError("torn"); return 0; }
+    if (!bridge->mpv) { setError("no mpv context"); return 0; }
+    if (!bridge->current.fbo) { setError("no fbo"); return 0; }
+    if (bridge->qtDirty) {
+        if (!rewrapForCurrentSceneGraph(bridge)) {
+            setError("rewrap for new scene graph failed");
+            return 0;
+        }
+        bridge->qtDirty = false;
+    }
+
     makeCurrent(bridge);
     MpvOpenGLFBO fbo = {int(bridge->current.fbo), bridge->current.width, bridge->current.height,
                         int(bridge->current.format->glInternal)};
@@ -662,15 +754,15 @@ GV_API void gv_video_bridge_destroy(GvVideoBridge *bridge)
 
 GV_API int gv_video_bridge_stale(GvVideoBridge *bridge)
 {
-    // The scene graph this bridge was built against is gone (a fullscreen
-    // toggle recreates it). The caller has to build a new one rather than
-    // draw through this.
+    // Only true once the WINDOW is gone. A replaced scene graph is repaired in
+    // place instead, because mpv's render context cannot be rebuilt: libmpv
+    // allows one per core and the core outlives all of this.
     return !bridge || bridge->torn ? 1 : 0;
 }
 
 GV_API void *gv_video_bridge_texture(GvVideoBridge *bridge)
 {
-    if (!bridge || bridge->stopped || bridge->torn)
+    if (!bridge || bridge->torn || bridge->qtDirty)
         return nullptr;
     return bridge->current.sceneTexture;
 }
