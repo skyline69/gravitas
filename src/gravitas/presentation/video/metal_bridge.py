@@ -23,7 +23,7 @@ from PySide6.QtCore import qVersion
 _log = logging.getLogger(__name__)
 
 # Kept in step with GV_VIDEO_BRIDGE_ABI in the header.
-_ABI = 2
+_ABI = 4
 _LIBRARY = Path(__file__).parent / "libgravitas_video_bridge.dylib"
 
 
@@ -53,6 +53,10 @@ def _bind(library: ctypes.CDLL) -> ctypes.CDLL:
     library.gv_video_bridge_end.restype = None
     library.gv_video_bridge_fbo.argtypes = [ctypes.c_void_p]
     library.gv_video_bridge_fbo.restype = ctypes.c_uint
+    library.gv_video_bridge_format.argtypes = [ctypes.c_void_p]
+    library.gv_video_bridge_format.restype = ctypes.c_char_p
+    library.gv_video_bridge_gl_internal_format.argtypes = [ctypes.c_void_p]
+    library.gv_video_bridge_gl_internal_format.restype = ctypes.c_uint
     library.gv_video_bridge_texture.argtypes = [ctypes.c_void_p]
     library.gv_video_bridge_texture.restype = ctypes.c_void_p
     return library

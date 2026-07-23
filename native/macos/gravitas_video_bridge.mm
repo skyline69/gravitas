@@ -41,6 +41,31 @@ void setError(const char *message)
     g_error = message ? message : "";
 }
 
+// The pixel formats the surface can take, best first. Every layer has to
+// agree -- IOSurface, Metal, Qt and GL all describe the same memory -- so they
+// travel together rather than as four constants that can drift apart.
+//
+// 10-bit first: HEVC Main 10 is ordinary for film and TV now, and an 8-bit
+// surface throws that precision away before Qt ever sees it (visible as
+// banding in gradients). 8-bit content loses nothing by going through a
+// 10-bit surface, so there is no reason to choose by content.
+struct SurfaceFormat {
+    unsigned iosurface;
+    MTLPixelFormat metal;
+    QRhiTexture::Format qt;
+    GLenum glInternal;
+    GLenum glFormat;
+    GLenum glType;
+    const char *name;
+};
+
+const SurfaceFormat kSurfaceFormats[] = {
+    {'l10r', MTLPixelFormatBGR10A2Unorm, QRhiTexture::RGB10A2, GL_RGB10_A2, GL_BGRA,
+     GL_UNSIGNED_INT_2_10_10_10_REV, "BGR10A2 (10-bit)"},
+    {'BGRA', MTLPixelFormatBGRA8Unorm, QRhiTexture::BGRA8, GL_RGBA, GL_BGRA,
+     GL_UNSIGNED_INT_8_8_8_8_REV, "BGRA8 (8-bit)"},
+};
+
 // One video resolution's worth of GPU objects. Replaced when the resolution
 // changes; never freed before the bridge itself.
 struct Surface {
@@ -51,6 +76,7 @@ struct Surface {
     GLuint fbo = 0;
     int width = 0;
     int height = 0;
+    const SurfaceFormat *format = nullptr;
 };
 
 } // namespace
@@ -94,15 +120,17 @@ void releaseSurface(Surface &surface)
     surface.glTexture = 0;
 }
 
-bool buildSurface(GvVideoBridge *bridge, int width, int height, Surface &out)
+bool buildSurface(GvVideoBridge *bridge, int width, int height, const SurfaceFormat &format,
+                  Surface &out)
 {
+    out.format = &format;
     const size_t bytesPerRow = IOSurfaceAlignProperty(kIOSurfaceBytesPerRow, size_t(width) * 4);
     NSDictionary *properties = @{
         (id)kIOSurfaceWidth : @(width),
         (id)kIOSurfaceHeight : @(height),
         (id)kIOSurfaceBytesPerElement : @4,
         (id)kIOSurfaceBytesPerRow : @(bytesPerRow),
-        (id)kIOSurfacePixelFormat : @((unsigned)'BGRA'),
+        (id)kIOSurfacePixelFormat : @(format.iosurface),
     };
     out.surface = IOSurfaceCreate((__bridge CFDictionaryRef)properties);
     if (!out.surface) {
@@ -115,7 +143,7 @@ bool buildSurface(GvVideoBridge *bridge, int width, int height, Surface &out)
     // Metal's view of it, on QT'S device -- a texture from any other device
     // cannot be sampled by Qt's renderer.
     MTLTextureDescriptor *descriptor =
-        [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+        [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:format.metal
                                                            width:width
                                                           height:height
                                                        mipmapped:NO];
@@ -132,7 +160,7 @@ bool buildSurface(GvVideoBridge *bridge, int width, int height, Surface &out)
     // Qt's view of it. createFrom() does NOT retain the MTLTexture; the
     // Surface holds the only strong reference and outlives the QRhiTexture.
     QRhiTexture *rhiTexture =
-        bridge->rhi->newTexture(QRhiTexture::BGRA8, QSize(width, height), 1);
+        bridge->rhi->newTexture(format.qt, QSize(width, height), 1);
     if (!rhiTexture->createFrom({quint64((__bridge void *)out.metalTexture), 0})) {
         delete rhiTexture;
         setError("QRhiTexture::createFrom failed");
@@ -153,8 +181,8 @@ bool buildSurface(GvVideoBridge *bridge, int width, int height, Surface &out)
     glBindTexture(GL_TEXTURE_RECTANGLE, out.glTexture);
     // GL_TEXTURE_RECTANGLE is what CGL can back with an IOSurface; mpv does not
     // care what the attachment is, only that the framebuffer is complete.
-    if (CGLTexImageIOSurface2D(bridge->gl, GL_TEXTURE_RECTANGLE, GL_RGBA, width, height, GL_BGRA,
-                               GL_UNSIGNED_INT_8_8_8_8_REV, out.surface, 0) != kCGLNoError) {
+    if (CGLTexImageIOSurface2D(bridge->gl, GL_TEXTURE_RECTANGLE, format.glInternal, width, height,
+                               format.glFormat, format.glType, out.surface, 0) != kCGLNoError) {
         setError("CGLTexImageIOSurface2D failed");
         return false;
     }
@@ -266,14 +294,17 @@ GV_API int gv_video_bridge_set_size(GvVideoBridge *bridge, int width, int height
         bridge->retired.push_back(bridge->current);
         bridge->current = Surface{};
     }
-    Surface fresh;
-    const bool ok = buildSurface(bridge, width, height, fresh);
-    if (!ok) {
+    bool ok = false;
+    for (const SurfaceFormat &format : kSurfaceFormats) {
+        Surface fresh;
+        if (buildSurface(bridge, width, height, format, fresh)) {
+            bridge->current = fresh;
+            ok = true;
+            break;
+        }
         // A half-built surface is ours alone -- nothing has seen it, so it can
-        // be released here and now.
+        // be released here and now, and the next format tried.
         releaseSurface(fresh);
-    } else {
-        bridge->current = fresh;
     }
     glFlush();
     CGLSetCurrentContext(previous);
@@ -325,6 +356,20 @@ GV_API void gv_video_bridge_end(GvVideoBridge *bridge)
 GV_API unsigned int gv_video_bridge_fbo(GvVideoBridge *bridge)
 {
     return bridge ? bridge->current.fbo : 0;
+}
+
+GV_API const char *gv_video_bridge_format(GvVideoBridge *bridge)
+{
+    if (!bridge || !bridge->current.format)
+        return "";
+    return bridge->current.format->name;
+}
+
+GV_API unsigned int gv_video_bridge_gl_internal_format(GvVideoBridge *bridge)
+{
+    if (!bridge || !bridge->current.format)
+        return 0;
+    return bridge->current.format->glInternal;
 }
 
 GV_API void *gv_video_bridge_texture(GvVideoBridge *bridge)

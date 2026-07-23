@@ -156,7 +156,10 @@ class MpvMetalVideoItem(QQuickItem):
                 self._fail(f"zero-copy surface failed ({last_error(bridge)})")
                 return node
             self._size = (video_w, video_h)
-            _log.info("zero-copy video surface at %dx%d", video_w, video_h)
+            pixel_format = (
+                bridge.gv_video_bridge_format(ctypes.c_void_p(self._bridge)) or b""
+            ).decode()
+            _log.info("zero-copy video surface at %dx%d, %s", video_w, video_h, pixel_format)
 
         if not self._render_frame(bridge):
             return node
@@ -222,12 +225,23 @@ class MpvMetalVideoItem(QQuickItem):
             if not fbo:
                 return False
             width, height = self._size
+            # Without internal_format mpv assumes an 8-bit target and dithers
+            # 10-bit video down to it -- which is exactly the precision the
+            # surface exists to preserve.
+            internal_format = bridge.gv_video_bridge_gl_internal_format(
+                ctypes.c_void_p(self._bridge)
+            )
             self._ctx.render(
                 # No flip: the GL framebuffer's bottom-left origin and the way
                 # Metal samples the IOSurface already agree. Asking mpv to flip
                 # renders the picture upside down (verified against a grab).
                 flip_y=False,
-                opengl_fbo={"fbo": int(fbo), "w": width, "h": height},
+                opengl_fbo={
+                    "fbo": int(fbo),
+                    "w": width,
+                    "h": height,
+                    "internal_format": int(internal_format),
+                },
                 # Never sleep until the frame's presentation time: this is
                 # Qt's render thread and the whole UI would wait with it.
                 block_for_target_time=False,

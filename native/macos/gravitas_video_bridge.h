@@ -32,7 +32,7 @@ extern "C" {
 
 // ABI version. The loader refuses a bridge whose number it does not know,
 // which is what keeps a stale build from being loaded against newer Python.
-#define GV_VIDEO_BRIDGE_ABI 2
+#define GV_VIDEO_BRIDGE_ABI 4
 
 // The library is built with -fvisibility=hidden so nothing but these entry
 // points is exported; each one has to opt back in.
@@ -73,6 +73,15 @@ GV_API void gv_video_bridge_end(GvVideoBridge *bridge);
 
 // The framebuffer object mpv renders into, or 0 before a size is set.
 GV_API unsigned int gv_video_bridge_fbo(GvVideoBridge *bridge);
+
+// Which pixel format the surface ended up with, for logging. "" before a
+// size is set.
+GV_API const char *gv_video_bridge_format(GvVideoBridge *bridge);
+
+// The framebuffer's GL internal format (e.g. GL_RGB10_A2). mpv needs this to
+// know how much precision the target has: told nothing, it assumes 8 bits and
+// dithers away the extra depth a 10-bit surface exists to keep.
+GV_API unsigned int gv_video_bridge_gl_internal_format(GvVideoBridge *bridge);
 
 // The QSGTexture* for a QSGSimpleTextureNode, or NULL before a size is set.
 // Never freed by the caller; see LIFETIME above.
