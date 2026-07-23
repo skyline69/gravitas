@@ -34,6 +34,7 @@
 #include <dlfcn.h>
 
 #include <cstdio>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -217,6 +218,9 @@ struct GvVideoBridge {
     // Qt simply stops calling updatePaintNode when the graph is not running,
     // which is the same guarantee without a flag to get wrong.
     bool torn = false;
+    // Serialises rendering against the destruction below: they run on
+    // different threads and both make the GL context current.
+    std::mutex lock;
     // The scene graph was replaced: Qt-side wrappers must be rebuilt before
     // the next frame can be drawn.
     bool qtDirty = false;
@@ -655,8 +659,32 @@ GV_API GvVideoBridge *gv_video_bridge_create(void *windowPtr, void *mpvHandle)
     // the software path has always torn down in, and it does not crash.
     // Flag only: freeing anything from this thread is what must not happen.
     if (QCoreApplication *app = QCoreApplication::instance()) {
-        QObject::connect(app, &QCoreApplication::aboutToQuit, app,
-                         [bridge]() { bridge->torn = true; });
+        // Quitting: take everything down while Qt is still whole. Leaving the
+        // GL context alive into the interpreter's teardown made the QML
+        // engine's destructor crash about half the time (measured; a
+        // software-rendered control never did). The lock is what makes this
+        // safe from the GUI thread -- a frame cannot be in flight.
+        QObject::connect(app, &QCoreApplication::aboutToQuit, app, [bridge]() {
+            std::lock_guard<std::mutex> guard(bridge->lock);
+            if (bridge->torn)
+                return;
+            bridge->torn = true;
+            if (bridge->gl) {
+                makeCurrent(bridge);
+                if (bridge->mpv) {
+                    g_mpv.setUpdateCallback(bridge->mpv, nullptr, nullptr);
+                    g_mpv.free(bridge->mpv);
+                    bridge->mpv = nullptr;
+                }
+                releaseSurface(bridge->current);
+                for (Surface &surface : bridge->retired)
+                    releaseSurface(surface);
+                bridge->retired.clear();
+                doneCurrent(bridge);
+                CGLDestroyContext(bridge->gl);
+                bridge->gl = nullptr;
+            }
+        });
     }
     return bridge;
 }
@@ -713,6 +741,7 @@ GV_API void gv_video_bridge_set_item(GvVideoBridge *bridge, void *itemPtr)
 GV_API int gv_video_bridge_render(GvVideoBridge *bridge)
 {
     if (!bridge) { setError("no bridge"); return 0; }
+    std::lock_guard<std::mutex> guard(bridge->lock);
     if (bridge->torn) { setError("torn"); return 0; }
     if (!bridge->mpv) { setError("no mpv context"); return 0; }
     if (!bridge->current.fbo) { setError("no fbo"); return 0; }
