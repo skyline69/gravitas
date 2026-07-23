@@ -184,3 +184,87 @@ def test_a_rebuilt_mpv_core_drops_the_stale_render_context(
     assert replacement._session(fake, window) is session
     assert session.ctx is None, "the old core's render context must be dropped"
     assert freed == [True]
+
+
+def test_reusing_a_session_never_reinstalls_the_mpv_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assigning update_cb builds a new ctypes closure and drops the old one.
+
+    mpv's VO thread calls that closure from outside Python, so replacing it
+    while frames are flowing is a use-after-free -- it crashed a second into
+    playback, in _CallPythonObject on mpv's vo thread. The session installs one
+    callback at creation and re-points a plain attribute instead.
+    """
+    from PySide6.QtCore import QObject
+
+    from gravitas.presentation.video import mpv_metal_item
+
+    class Context:
+        def __init__(self) -> None:
+            self.assignments = 0
+            self._cb = None
+
+        @property
+        def update_cb(self) -> object:
+            return self._cb
+
+        @update_cb.setter
+        def update_cb(self, value: object) -> None:
+            self.assignments += 1
+            self._cb = value
+
+    fake = _FakeBridge()
+    monkeypatch.setattr(mpv_metal_item, "library", lambda: fake)
+    monkeypatch.setattr(mpv_metal_item, "_SESSIONS", {})
+
+    window = QObject()
+    first = mpv_metal_item.MpvMetalVideoItem()
+    first._handle = object()
+    session = first._session(fake, window)
+    assert session is not None
+    session.ctx = Context()
+    session.ctx.update_cb = session.notify  # what context creation does, once
+    assert session.ctx.assignments == 1
+
+    # Many frames, then a new item takes over, then many more frames.
+    for _ in range(5):
+        assert first._ensure_render_context(fake, session) is True
+    second = mpv_metal_item.MpvMetalVideoItem()
+    second._handle = first._handle
+    for _ in range(5):
+        assert second._ensure_render_context(fake, session) is True
+
+    assert session.ctx.assignments == 1, "the callback must be installed exactly once"
+    assert session._owner is not None and session._owner() is second
+
+
+def test_frame_notifications_follow_the_item_on_screen() -> None:
+    from gravitas.presentation.video import mpv_metal_item
+
+    woken: list[str] = []
+
+    class Item:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        def scheduleUpdate(self) -> None:
+            woken.append(self.name)
+
+    session = mpv_metal_item._Session(1, object())
+    session.notify()  # nobody owns it yet
+    assert woken == []
+
+    first = Item("first")
+    session.set_owner(first)
+    session.notify()
+    second = Item("second")
+    session.set_owner(second)
+    session.notify()
+    assert woken == ["first", "second"]
+
+    # The owning item is held weakly: a destroyed page must not keep it alive,
+    # and a notification arriving after it is gone must be a no-op.
+    del second
+    session.notify()
+    assert woken == ["first", "second"]

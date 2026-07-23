@@ -40,9 +40,11 @@ from __future__ import annotations
 import contextlib
 import ctypes
 import logging
+import weakref
 from typing import Any
 
-from PySide6.QtCore import Property, QRectF, Qt
+from PySide6.QtCore import Property, QRectF
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtQuick import QQuickItem, QQuickWindow, QSGNode, QSGSimpleTextureNode, QSGTexture
 from shiboken6 import getCppPointer, wrapInstance
 
@@ -78,22 +80,60 @@ class _Session:
         self.mpv_handle = mpv_handle
         self.ctx: Any = None
         self.size: tuple[int, int] = (0, 0)
-        # mpv calls this for as long as its render context lives, so the ctypes
-        # trampoline has to outlive the call that installs it.
+        # mpv calls these for as long as its render context lives, so the
+        # ctypes trampolines have to outlive the call that installs them.
         self.proc_resolver: Any = None
+        self._owner: weakref.ReferenceType[Any] | None = None
+        # Set when the scene graph is about to stop. Rendering one more frame
+        # into a scene that is being dismantled is what crashes.
+        self.stopped = False
 
-    def free_render_context(self) -> None:
+    def set_owner(self, item: Any) -> None:
+        """Point frame notifications at the item currently on screen.
+
+        Plain attribute assignment, deliberately: re-installing the mpv
+        callback instead would build a new ctypes closure and drop the old one
+        while mpv's VO thread may be inside it -- a use-after-free that
+        crashed a second into playback.
+        """
+        self._owner = weakref.ref(item)
+
+    def silence(self) -> None:
+        """Drop the owner so nothing is woken again. Safe from any thread: it
+        replaces a reference, it does not free anything."""
+        self._owner = None
+
+    def notify(self) -> None:
+        """mpv's VO thread: wake whichever item is drawing this session."""
+        reference = self._owner
+        item = reference() if reference is not None else None
+        if item is not None:
+            item.scheduleUpdate()
+
+    def free_render_context(self, bridge: Any) -> None:
+        """Hand mpv's render context back. Render thread only.
+
+        libmpv requires ITS GL context to be current for this, the same as for
+        rendering -- freeing without it hangs waiting on a context that is not
+        there.
+        """
         ctx, self.ctx = self.ctx, None
         if ctx is None:
             return
-        with contextlib.suppress(Exception):
-            # Detach first: no callback can be in flight while free() runs.
-            ctx.update_cb = None
-        with contextlib.suppress(Exception):
-            ctx.free()
+        self.silence()
+        current = bool(bridge.gv_video_bridge_begin(ctypes.c_void_p(self.bridge)))
+        try:
+            with contextlib.suppress(Exception):
+                # Detach first: no callback can be in flight while free() runs.
+                ctx.update_cb = None
+            with contextlib.suppress(Exception):
+                ctx.free()
+        finally:
+            if current:
+                bridge.gv_video_bridge_end(ctypes.c_void_p(self.bridge))
 
     def destroy(self, bridge: Any) -> None:
-        self.free_render_context()
+        self.free_render_context(bridge)
         handle, self.bridge = self.bridge, 0
         if handle:
             bridge.gv_video_bridge_destroy(ctypes.c_void_p(handle))
@@ -135,23 +175,43 @@ class MpvMetalVideoItem(QQuickItem):
     # --- teardown ---
 
     def _connect_window(self, window: QQuickWindow) -> None:
+        """Arrange for playback to stop at quit -- and nothing more.
+
+        There is deliberately no scene-graph teardown hook here, and it cost
+        several attempts to learn why. The scene-graph signals are emitted on
+        the RENDER thread, so a Python slot on them has to take the GIL; at
+        shutdown the GUI thread is inside Qt holding the GIL and waiting for
+        the render thread to finish. The render thread then blocks in
+        PyGILState_Ensure and neither side moves again -- a hang, reproduced
+        eight times out of eight and confirmed by sampling the stacks.
+
+        So nothing is freed on the way out. The session's GL context,
+        IOSurface and mpv render context are handed back to the operating
+        system with the process, which costs nothing at that point. What DOES
+        matter is that mpv stops being asked for frames while Qt dismantles
+        the scene, and that is a plain flag set from the GUI thread.
+        """
         if self._connected_window is window:
             return
         self._connected_window = window
-        # Direct connection so this runs ON the render thread, where the
-        # resources live; a queued one would land on the GUI thread and crash.
-        window.sceneGraphInvalidated.connect(self._release, Qt.ConnectionType.DirectConnection)
+        app = QGuiApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(self._stop)
 
-    def _release(self) -> None:
-        """Render thread, scene graph gone: the one moment freeing is safe."""
+    def _stop(self) -> None:
+        """Quitting: ask mpv for nothing more.
+
+        GUI thread, and it touches no GL, mpv or scene-graph resource -- it
+        sets two flags. mpv only draws when asked, so not asking is enough to
+        keep the teardown quiet.
+        """
         window = self._connected_window
         if window is None:
             return
-        session = _SESSIONS.pop(getCppPointer(window)[0], None)
-        if session is None:
-            return
-        with contextlib.suppress(BridgeUnavailable):
-            session.destroy(library())
+        session = _SESSIONS.get(getCppPointer(window)[0])
+        if session is not None:
+            session.stopped = True
+            session.silence()
 
     # --- rendering ---
 
@@ -229,7 +289,7 @@ class MpvMetalVideoItem(QQuickItem):
                 return session
             # A different mpv core (the player was rebuilt): its render context
             # belongs to the old one and cannot be reused.
-            session.free_render_context()
+            session.free_render_context(bridge)
             session.mpv_handle = self._handle
             return session
         handle = bridge.gv_video_bridge_create(key)
@@ -241,10 +301,8 @@ class MpvMetalVideoItem(QQuickItem):
         return session
 
     def _ensure_render_context(self, bridge: Any, session: _Session) -> bool:
+        session.set_owner(self)
         if session.ctx is not None:
-            # Frames must wake THIS item; the one that created the context may
-            # be long gone.
-            session.ctx.update_cb = self.scheduleUpdate
             return True
         import mpv  # type: ignore[import-untyped]
 
@@ -260,7 +318,9 @@ class MpvMetalVideoItem(QQuickItem):
                 "opengl",
                 opengl_init_params={"get_proc_address": session.proc_resolver},
             )
-            session.ctx.update_cb = self.scheduleUpdate
+            # Installed ONCE, and never replaced: the session dispatches to
+            # whichever item currently owns it.
+            session.ctx.update_cb = session.notify
             _log.info("mpv render context created on the zero-copy bridge")
         except Exception:
             _log.exception("mpv render context creation failed")
@@ -271,7 +331,7 @@ class MpvMetalVideoItem(QQuickItem):
         return True
 
     def _render_frame(self, bridge: Any, session: _Session) -> bool:
-        if session.ctx is None:
+        if session.ctx is None or session.stopped:
             return False
         if not bridge.gv_video_bridge_begin(ctypes.c_void_p(session.bridge)):
             return False
