@@ -22,7 +22,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QFont, QFontDatabase, QGuiApplication, QIcon, QSurfaceFormat
 from PySide6.QtQml import QQmlApplicationEngine, qmlRegisterType
-from PySide6.QtQuick import QQuickWindow, QSGRendererInterface
+from PySide6.QtQuick import QQuickItem, QQuickWindow, QSGRendererInterface
 from PySide6.QtQuickControls2 import QQuickStyle
 
 from gravitas.application.addon_repository import AddonRepository
@@ -53,6 +53,7 @@ from gravitas.infrastructure.desktop.url_scheme import (
     DeepLinkListener,
     forward_to_running_instance,
 )
+from gravitas.infrastructure.graphics import metal_scene_graph
 from gravitas.infrastructure.metadata.mdblist_resolver import MdbListResolver
 from gravitas.infrastructure.metadata.tmdb_resolver import TmdbResolver
 from gravitas.infrastructure.player.mpv_player import MpvPlayer
@@ -231,10 +232,14 @@ def build_app(
     # customizable. Must be set before any Controls type is instantiated.
     QQuickStyle.setStyle("Basic")
 
-    # The in-scene mpv renderer (QQuickFramebufferObject + MpvRenderContext)
-    # only works on the OpenGL scene-graph backend; don't let Qt pick another
-    # RHI. Must run before the first QQuickWindow is created.
-    QQuickWindow.setGraphicsApi(QSGRendererInterface.GraphicsApi.OpenGL)
+    # Everywhere but macOS: pin the RHI to OpenGL, which is the only backend
+    # the zero-copy video item (QQuickFramebufferObject + MpvRenderContext)
+    # can render into. macOS is left on Metal for the threaded render loop and
+    # renders video in software instead — see infrastructure/graphics.py for
+    # why that trade goes the way it does on each platform. Must run before
+    # the first QQuickWindow is created.
+    if not metal_scene_graph():
+        QQuickWindow.setGraphicsApi(QSGRendererInterface.GraphicsApi.OpenGL)
 
     # Bundle a clean UI font (Inter) and make it the application default so
     # every QML Text inherits it without per-component wiring.
@@ -365,9 +370,20 @@ def build_app(
     )
 
     # Must be registered before the engine parses any QML that mentions it.
-    from gravitas.presentation.video.mpv_item import MpvVideoItem
+    # Two implementations answer to the same QML name: the OpenGL one renders
+    # into a scene-graph FBO (zero copies, the default), the software one goes
+    # through a CPU buffer and works on any RHI. Player.qml is written against
+    # the shared `handle` property and never learns which it got.
+    video_item: type[QQuickItem]
+    if metal_scene_graph():
+        from gravitas.presentation.video.mpv_sw_item import MpvSwVideoItem
 
-    qmlRegisterType(MpvVideoItem, "Gravitas", 1, 0, "MpvVideo")  # type: ignore[call-overload]
+        video_item = MpvSwVideoItem
+    else:
+        from gravitas.presentation.video.mpv_item import MpvVideoItem
+
+        video_item = MpvVideoItem
+    qmlRegisterType(video_item, "Gravitas", 1, 0, "MpvVideo")  # type: ignore[call-overload]
 
     engine = QQmlApplicationEngine()
 
@@ -609,12 +625,20 @@ def main() -> int:
     # rectangle texture support"). 3.2 core is the floor of what macOS offers
     # beyond 2.1 and Qt Quick's RHI is core-profile safe. Must be set before
     # the QGuiApplication exists. Left untouched elsewhere: Linux/Windows
-    # already get modern compatibility contexts where none of this bites.
-    if sys.platform == "darwin":
+    # already get modern compatibility contexts where none of this bites, and
+    # on a Metal scene graph there is no GL context for it to describe.
+    if sys.platform == "darwin" and not metal_scene_graph():
         fmt = QSurfaceFormat()
         fmt.setVersion(3, 2)
         fmt.setProfile(QSurfaceFormat.OpenGLContextProfile.CoreProfile)
         QSurfaceFormat.setDefaultFormat(fmt)
+    if sys.platform == "darwin":
+        _log.info(
+            "scene graph on %s",
+            "Metal (video renders in software; GRAVITAS_GRAPHICS=opengl to switch back)"
+            if metal_scene_graph()
+            else "OpenGL (GRAVITAS_GRAPHICS=opengl)",
+        )
 
     app = QGuiApplication(sys.argv)
 

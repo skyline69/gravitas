@@ -18,6 +18,7 @@ from typing import Any
 
 from gravitas.domain.errors import PlaybackFailed
 from gravitas.domain.models import SubtitleStyle
+from gravitas.infrastructure.graphics import video_needs_system_memory
 from gravitas.logging_setup import abbreviate_url
 
 _log = logging.getLogger(__name__)
@@ -204,14 +205,17 @@ def _default_factory() -> Any:
     # `vdpau` (NVIDIA's decode API, works from GLX with no CUDA) or `vaapi` --
     # without a rebuild. Any mpv hwdec value is accepted; empty falls back.
     #
-    # Windows is the exception. Its decode APIs hand back D3D11/DXVA2 surfaces,
-    # and this VO renders through OpenGL, which cannot import those directly --
-    # so the zero-copy backends auto-safe would pick are unusable here and the
-    # fallback is software decoding of 4K HEVC on the CPU. `auto-copy` picks
-    # the best backend that copies frames back to system memory instead: a
-    # readback per frame, still an order of magnitude cheaper than decoding in
-    # software. mpv falls back to software on its own if none initialises.
-    default_hwdec = "auto-copy" if sys.platform == _WINDOWS else "auto-safe"
+    # Windows and macOS are the exceptions, for reasons that meet in the same
+    # place: the frames have to be in system memory. Windows decodes to
+    # D3D11/DXVA2 surfaces the OpenGL VO cannot import; macOS renders video
+    # through libmpv's software render API (its scene graph is on Metal), which
+    # reads frames from the CPU. Either way the zero-copy backends auto-safe
+    # would pick are unusable, and the fallback would be software decoding of
+    # 4K HEVC on the CPU. `auto-copy` picks the best backend that copies frames
+    # back instead: a readback per frame, still an order of magnitude cheaper
+    # than decoding in software. mpv falls back to software on its own if none
+    # initialises. See infrastructure/graphics.py.
+    default_hwdec = "auto-copy" if video_needs_system_memory() else "auto-safe"
     hwdec = os.environ.get("GRAVITAS_HWDEC", "").strip() or default_hwdec
 
     return mpv.MPV(

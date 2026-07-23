@@ -72,9 +72,12 @@ class _UpdateBridge(QObject):
     across the item's death. It holds the item weakly and re-checks it in
     _fire(), which runs on the GUI thread -- the same thread QML deletes items
     on, so the item cannot go away between the check and update().
+
+    Shared with the software-render item (mpv_sw_item.py), which has the same
+    callback-outlives-the-item problem.
     """
 
-    def __init__(self, item: MpvVideoItem) -> None:
+    def __init__(self, item: QQuickItem) -> None:
         # Deliberately parentless: a parented QObject would be deleted along
         # with the item, which is the very thing this must outlive. Constructed
         # on the GUI thread, so queued calls land there too.
