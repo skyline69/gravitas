@@ -37,6 +37,7 @@ import os
 import sys
 from collections.abc import Mapping
 
+LINUX = "linux"
 MACOS = "darwin"
 WINDOWS = "win32"
 
@@ -73,3 +74,20 @@ def video_needs_system_memory(
     if platform == WINDOWS:
         return True
     return metal_scene_graph(environ, platform)
+
+
+def vulkan_scene_graph(
+    environ: Mapping[str, str] | None = None,
+    platform: str | None = None,
+) -> bool:
+    """True when Qt Quick should run on the Vulkan RHI (Linux opt-in only).
+
+    Intent only -- whether the native bridge can actually be loaded is decided
+    in main.py, which commits the RHI only if it can. Off Linux this is always
+    False: macOS chooses between Metal and OpenGL, Windows is OpenGL-only.
+    """
+    environ = os.environ if environ is None else environ
+    platform = sys.platform if platform is None else platform
+    if platform != LINUX:
+        return False
+    return environ.get(_VARIABLE, "").strip().lower() == "vulkan"
