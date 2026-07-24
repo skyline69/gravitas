@@ -53,7 +53,7 @@ from gravitas.infrastructure.desktop.url_scheme import (
     DeepLinkListener,
     forward_to_running_instance,
 )
-from gravitas.infrastructure.graphics import metal_scene_graph
+from gravitas.infrastructure.graphics import metal_scene_graph, vulkan_scene_graph
 from gravitas.infrastructure.metadata.mdblist_resolver import MdbListResolver
 from gravitas.infrastructure.metadata.tmdb_resolver import TmdbResolver
 from gravitas.infrastructure.player.mpv_player import MpvPlayer
@@ -83,6 +83,7 @@ from gravitas.presentation.models.poster_grid_proxy import PosterGridProxy
 from gravitas.presentation.models.search_results_model import SearchResultsModel
 from gravitas.presentation.models.stream_list_model import StreamListModel
 from gravitas.presentation.models.watched_list_model import WatchedListModel
+from gravitas.presentation.video.backend import choose_video_backend
 
 _log = logging.getLogger(__name__)
 
@@ -232,14 +233,61 @@ def build_app(
     # customizable. Must be set before any Controls type is instantiated.
     QQuickStyle.setStyle("Basic")
 
-    # Everywhere but macOS: pin the RHI to OpenGL, which is the only backend
-    # the zero-copy video item (QQuickFramebufferObject + MpvRenderContext)
-    # can render into. macOS is left on Metal for the threaded render loop and
-    # renders video in software instead — see infrastructure/graphics.py for
-    # why that trade goes the way it does on each platform. Must run before
-    # the first QQuickWindow is created.
-    if not metal_scene_graph():
+    # Decide the video backend before pinning the RHI: a Vulkan opt-in is only
+    # honoured if its native bridge actually loads, so a failure never leaves
+    # the app on a worse path than today's OpenGL zero-copy one.
+    want_vulkan = vulkan_scene_graph()
+    vulkan_available = False
+    if want_vulkan:
+        from gravitas.presentation.video import vulkan_bridge
+
+        vulkan_available = vulkan_bridge.available()
+
+    want_metal = metal_scene_graph()
+    metal_available = False
+    if want_metal:
+        from gravitas.presentation.video import metal_bridge
+
+        metal_available = metal_bridge.available()
+
+    backend = choose_video_backend(want_vulkan, vulkan_available, want_metal, metal_available)
+
+    # Pin the RHI to match the chosen backend. Vulkan and OpenGL are set
+    # explicitly; Metal is Qt's macOS default, so it is left unset. Must run
+    # before the first QQuickWindow is created.
+    if backend == "vulkan":
+        QQuickWindow.setGraphicsApi(QSGRendererInterface.GraphicsApi.Vulkan)
+    elif backend == "opengl":
         QQuickWindow.setGraphicsApi(QSGRendererInterface.GraphicsApi.OpenGL)
+
+    # Must be registered before the engine parses any QML that mentions it.
+    # Multiple implementations answer to the same QML name: the OpenGL one
+    # renders into a scene-graph FBO (zero copies, the default off macOS), the
+    # Vulkan one is the Linux opt-in, the Metal ones are macOS's zero-copy and
+    # software fallback. Player.qml is written against the shared `handle`
+    # property and never learns which it got.
+    video_item: type[QQuickItem]
+    zero_copy_video = backend == "metal-zero-copy"
+    if backend == "vulkan":
+        from gravitas.presentation.video.mpv_vulkan_item import MpvVulkanVideoItem
+
+        video_item = MpvVulkanVideoItem
+        _log.info("video renders zero-copy on Vulkan (Linux opt-in)")
+    elif backend == "metal-zero-copy":
+        from gravitas.presentation.video.mpv_metal_item import MpvMetalVideoItem
+
+        video_item = MpvMetalVideoItem
+        _log.info("video renders zero-copy: mpv on the GPU, no frame copies")
+    elif backend == "metal-software":
+        from gravitas.presentation.video.mpv_sw_item import MpvSwVideoItem
+
+        video_item = MpvSwVideoItem
+        _log.info("video renders in software: frames are copied back and uploaded")
+    else:
+        from gravitas.presentation.video.mpv_item import MpvVideoItem
+
+        video_item = MpvVideoItem
+    qmlRegisterType(video_item, "Gravitas", 1, 0, "MpvVideo")  # type: ignore[call-overload]
 
     # Bundle a clean UI font (Inter) and make it the application default so
     # every QML Text inherits it without per-component wiring.
@@ -368,37 +416,6 @@ def build_app(
         search_page_model,
         repo.search_stream,
     )
-
-    # Must be registered before the engine parses any QML that mentions it.
-    # Two implementations answer to the same QML name: the OpenGL one renders
-    # into a scene-graph FBO (zero copies, the default), the software one goes
-    # through a CPU buffer and works on any RHI. Player.qml is written against
-    # the shared `handle` property and never learns which it got.
-    video_item: type[QQuickItem]
-    zero_copy_video = False
-    if metal_scene_graph():
-        # Zero-copy where the native bridge is present and matches this Qt;
-        # libmpv's software render path everywhere else. The loader logs which
-        # and why, and never raises: a missing bridge is a slower player, not
-        # a broken one.
-        from gravitas.presentation.video import metal_bridge
-
-        zero_copy_video = metal_bridge.available()
-        if zero_copy_video:
-            from gravitas.presentation.video.mpv_metal_item import MpvMetalVideoItem
-
-            video_item = MpvMetalVideoItem
-            _log.info("video renders zero-copy: mpv on the GPU, no frame copies")
-        else:
-            from gravitas.presentation.video.mpv_sw_item import MpvSwVideoItem
-
-            video_item = MpvSwVideoItem
-            _log.info("video renders in software: frames are copied back and uploaded")
-    else:
-        from gravitas.presentation.video.mpv_item import MpvVideoItem
-
-        video_item = MpvVideoItem
-    qmlRegisterType(video_item, "Gravitas", 1, 0, "MpvVideo")  # type: ignore[call-overload]
 
     engine = QQmlApplicationEngine()
 
