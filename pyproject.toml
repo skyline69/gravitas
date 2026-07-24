@@ -8,7 +8,15 @@ license-files = ["LICENSE"]
 authors = [{ name = "Ö. Efe D. (skyline69)" }]
 requires-python = ">=3.12"
 dependencies = [
-    "pyside6>=6.11",
+    # Pinned to the patch, not floating. The macOS video bridge
+    # (native/macos/) is a binary compiled against Qt's headers, and one of the
+    # APIs it needs -- QRhi -- carries no source or binary compatibility
+    # guarantee between Qt releases. A floating pin means a `uv sync` can hand
+    # the app a Qt the bridge was not built for, which the loader can only
+    # answer by falling back to software rendering. Raising this pin and
+    # rebuilding the bridge belong in the same commit; see docs and the release
+    # workflow's macOS job.
+    "pyside6==6.11.1",
     "python-mpv>=1.0.8",
     "httpx[http2]>=0.28",
     "qasync>=0.28",

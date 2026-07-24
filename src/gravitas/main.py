@@ -375,10 +375,25 @@ def build_app(
     # through a CPU buffer and works on any RHI. Player.qml is written against
     # the shared `handle` property and never learns which it got.
     video_item: type[QQuickItem]
+    zero_copy_video = False
     if metal_scene_graph():
-        from gravitas.presentation.video.mpv_sw_item import MpvSwVideoItem
+        # Zero-copy where the native bridge is present and matches this Qt;
+        # libmpv's software render path everywhere else. The loader logs which
+        # and why, and never raises: a missing bridge is a slower player, not
+        # a broken one.
+        from gravitas.presentation.video import metal_bridge
 
-        video_item = MpvSwVideoItem
+        zero_copy_video = metal_bridge.available()
+        if zero_copy_video:
+            from gravitas.presentation.video.mpv_metal_item import MpvMetalVideoItem
+
+            video_item = MpvMetalVideoItem
+            _log.info("video renders zero-copy: mpv on the GPU, no frame copies")
+        else:
+            from gravitas.presentation.video.mpv_sw_item import MpvSwVideoItem
+
+            video_item = MpvSwVideoItem
+            _log.info("video renders in software: frames are copied back and uploaded")
     else:
         from gravitas.presentation.video.mpv_item import MpvVideoItem
 
@@ -396,7 +411,9 @@ def build_app(
     engine.setNetworkAccessManagerFactory(nam_factory)
 
     def make_player() -> MediaPlayer:
-        return MpvPlayer()
+        # Frames may stay on the GPU only if the video item can read them
+        # there; otherwise mpv has to copy them back to system memory.
+        return MpvPlayer(zero_copy_video=zero_copy_video)
 
     watched_model = WatchedListModel()
     progress_controller = ProgressController(progress_repo, watched_model)
@@ -633,11 +650,14 @@ def main() -> int:
         fmt.setProfile(QSurfaceFormat.OpenGLContextProfile.CoreProfile)
         QSurfaceFormat.setDefaultFormat(fmt)
     if sys.platform == "darwin":
+        # Which video path this becomes is decided later, once the native
+        # bridge has been probed -- metal_bridge logs that, and saying it here
+        # would only be a guess.
         _log.info(
             "scene graph on %s",
-            "Metal (video renders in software; GRAVITAS_GRAPHICS=opengl to switch back)"
+            "Metal (GRAVITAS_GRAPHICS=opengl for the OpenGL scene graph)"
             if metal_scene_graph()
-            else "OpenGL (GRAVITAS_GRAPHICS=opengl)",
+            else "OpenGL (GRAVITAS_GRAPHICS)",
         )
 
     app = QGuiApplication(sys.argv)

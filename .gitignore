@@ -8,3 +8,6 @@ dist/
 uv.lock
 build/
 packaging/.cache/
+
+# Built by scripts/build_video_bridge.py; a binary, and Qt-version specific.
+src/gravitas/presentation/video/libgravitas_video_bridge.dylib

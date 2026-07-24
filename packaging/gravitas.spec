@@ -237,6 +237,18 @@ ytdlp = fetch_ytdlp()
 if ytdlp is not None:
     binaries.append((ytdlp, "."))
 
+# The macOS zero-copy video bridge, if it has been built (see
+# scripts/build_video_bridge.py). It must land beside the Python module that
+# ctypes-loads it, which looks next to itself rather than on any search path.
+# Absent, the app renders video through libmpv's software path instead, so a
+# build without it is degraded rather than broken.
+if sys.platform == "darwin":
+    _bridge = ROOT / "src/gravitas/presentation/video/libgravitas_video_bridge.dylib"
+    if _bridge.is_file():
+        binaries.append((str(_bridge), "gravitas/presentation/video"))
+    else:
+        print("note: no video bridge built; macOS video will render in software")
+
 # PySide6 ships every Qt module in one wheel and PyInstaller's hook collects
 # the lot. Gravitas imports exactly seven of them (QtCore, QtGui, QtNetwork,
 # QtOpenGL, QtQml, QtQuick, QtQuickControls2) plus QtWidgets, which qasync

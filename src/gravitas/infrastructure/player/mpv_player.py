@@ -8,6 +8,7 @@ presentation layer's MpvVideoItem through render_handle().
 from __future__ import annotations
 
 import contextlib
+import functools
 import locale
 import logging
 import os
@@ -185,7 +186,7 @@ def _mpv_log_handler(level: str, prefix: str, text: str) -> None:
     )
 
 
-def _default_factory() -> Any:
+def _default_factory(*, zero_copy_video: bool = False) -> Any:
     # libmpv needs the C numeric locale; Qt may have changed it. Must run
     # right before mpv.MPV() construction (after QGuiApplication init),
     # not at import time.
@@ -215,7 +216,13 @@ def _default_factory() -> Any:
     # back instead: a readback per frame, still an order of magnitude cheaper
     # than decoding in software. mpv falls back to software on its own if none
     # initialises. See infrastructure/graphics.py.
-    default_hwdec = "auto-copy" if video_needs_system_memory() else "auto-safe"
+    #
+    # zero_copy_video is the macOS escape from that: when the native video
+    # bridge is in use, mpv renders through OpenGL into a surface Metal reads
+    # directly, so a GPU frame has somewhere to go after all and the readback
+    # is pure waste.
+    copy_back = video_needs_system_memory() and not zero_copy_video
+    default_hwdec = "auto-copy" if copy_back else "auto-safe"
     hwdec = os.environ.get("GRAVITAS_HWDEC", "").strip() or default_hwdec
 
     return mpv.MPV(
@@ -382,7 +389,9 @@ def _track_label(track: dict[str, Any]) -> str:
 
 
 class MpvPlayer:
-    def __init__(self, factory: MpvFactory = _default_factory) -> None:
+    def __init__(self, factory: MpvFactory | None = None, *, zero_copy_video: bool = False) -> None:
+        if factory is None:
+            factory = functools.partial(_default_factory, zero_copy_video=zero_copy_video)
         self._tracks_changed_callback: Callable[[], None] | None = None
         self._state_changed_callback: Callable[[], None] | None = None
         self._track_observer_registered = False
