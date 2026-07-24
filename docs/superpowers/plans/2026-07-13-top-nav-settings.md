@@ -118,16 +118,17 @@ Replace the existing `install` method with:
 Add after `installed`:
 
 ```python
-    def uninstall(self, addon_id: str) -> None:
-        if addon_id in self._protected:
-            raise AddonRemovalError(f"{addon_id} is protected and cannot be removed")
-        remaining = [m for m in self._manifests if m.id != addon_id]
-        if len(remaining) == len(self._manifests):
-            raise AddonRemovalError(f"no installed addon with id {addon_id}")
-        self._manifests = remaining
+def uninstall(self, addon_id: str) -> None:
+    if addon_id in self._protected:
+        raise AddonRemovalError(f"{addon_id} is protected and cannot be removed")
+    remaining = [m for m in self._manifests if m.id != addon_id]
+    if len(remaining) == len(self._manifests):
+        raise AddonRemovalError(f"no installed addon with id {addon_id}")
+    self._manifests = remaining
 
-    def is_protected(self, addon_id: str) -> bool:
-        return addon_id in self._protected
+
+def is_protected(self, addon_id: str) -> bool:
+    return addon_id in self._protected
 ```
 
 - [ ] **Step 5: Run tests + gates to verify pass**
@@ -269,8 +270,7 @@ _ROWS = [
 
 def _titles(model: CatalogRowsModel) -> list[str]:
     return [
-        model.data(model.index(i, 0), CatalogRowsModel.TitleRole)
-        for i in range(model.rowCount())
+        model.data(model.index(i, 0), CatalogRowsModel.TitleRole) for i in range(model.rowCount())
     ]
 
 
@@ -345,37 +345,35 @@ In `src/gravitas/presentation/models/catalog_rows_model.py`, replace `__init__` 
 New `set_rows`:
 
 ```python
-    def set_rows(self, rows: list[CatalogRow]) -> None:
-        self.beginResetModel()
-        built: list[tuple[str, str, str, str, PosterGridModel]] = []
-        for row in rows:
-            poster_model = PosterGridModel()
-            poster_model.set_items(row.items)
-            built.append((row.title, row.addon_id, row.type, row.catalog_id, poster_model))
-        self._all_rows = built
-        self._rows = self._filtered(self._all_rows, self._filter)
-        self.endResetModel()
+def set_rows(self, rows: list[CatalogRow]) -> None:
+    self.beginResetModel()
+    built: list[tuple[str, str, str, str, PosterGridModel]] = []
+    for row in rows:
+        poster_model = PosterGridModel()
+        poster_model.set_items(row.items)
+        built.append((row.title, row.addon_id, row.type, row.catalog_id, poster_model))
+    self._all_rows = built
+    self._rows = self._filtered(self._all_rows, self._filter)
+    self.endResetModel()
 
-    def set_filter(self, mode: str) -> None:
-        self.beginResetModel()
-        self._filter = mode
-        self._rows = self._filtered(self._all_rows, mode)
-        self.endResetModel()
 
-    @staticmethod
-    def _filtered(
-        rows: list[tuple[str, str, str, str, PosterGridModel]], mode: str
-    ) -> list[tuple[str, str, str, str, PosterGridModel]]:
-        if mode in ("movie", "series"):
-            return [r for r in rows if r[2] == mode]
-        if mode == "trending":
-            keywords = ("top", "trending", "popular")
-            return [
-                r
-                for r in rows
-                if any(k in r[0].lower() or k in r[3].lower() for k in keywords)
-            ]
-        return list(rows)
+def set_filter(self, mode: str) -> None:
+    self.beginResetModel()
+    self._filter = mode
+    self._rows = self._filtered(self._all_rows, mode)
+    self.endResetModel()
+
+
+@staticmethod
+def _filtered(
+    rows: list[tuple[str, str, str, str, PosterGridModel]], mode: str
+) -> list[tuple[str, str, str, str, PosterGridModel]]:
+    if mode in ("movie", "series"):
+        return [r for r in rows if r[2] == mode]
+    if mode == "trending":
+        keywords = ("top", "trending", "popular")
+        return [r for r in rows if any(k in r[0].lower() or k in r[3].lower() for k in keywords)]
+    return list(rows)
 ```
 
 (`rowCount`/`data`/`roleNames` are unchanged — they already read `self._rows`.)
@@ -495,9 +493,7 @@ class AddonListModel(QAbstractListModel):
         # (name, id, removable)
         self._rows: list[tuple[str, str, bool]] = []
 
-    def set_addons(
-        self, manifests: list[AddonManifest], protected_ids: set[str]
-    ) -> None:
+    def set_addons(self, manifests: list[AddonManifest], protected_ids: set[str]) -> None:
         self.beginResetModel()
         self._rows = [(m.name, m.id, m.id not in protected_ids) for m in manifests]
         self.endResetModel()
@@ -576,7 +572,9 @@ class FakeCatalogController:
         self.refresh_calls += 1
 
 
-def _build(repo: AddonRepository) -> tuple[SettingsController, AddonListModel, FakeCatalogController]:
+def _build(
+    repo: AddonRepository,
+) -> tuple[SettingsController, AddonListModel, FakeCatalogController]:
     model = AddonListModel()
     catalog = FakeCatalogController()
     controller = SettingsController(UninstallAddon(repo), repo, model, catalog)  # type: ignore[arg-type]
@@ -741,15 +739,13 @@ from gravitas.presentation.models.addon_list_model import AddonListModel
 In `build_app`, after `addon_controller = AddonController(...)`, add:
 
 ```python
-    install_addon = InstallAddon(repo)
-    addon_list_model = AddonListModel()
-    settings_controller = SettingsController(
-        UninstallAddon(repo), repo, addon_list_model, catalog_controller
-    )
-    # Keep the Settings list in sync after a user installs a new addon.
-    addon_controller.addonInstalled.connect(
-        lambda _name: settings_controller.refreshAddons()
-    )
+install_addon = InstallAddon(repo)
+addon_list_model = AddonListModel()
+settings_controller = SettingsController(
+    UninstallAddon(repo), repo, addon_list_model, catalog_controller
+)
+# Keep the Settings list in sync after a user installs a new addon.
+addon_controller.addonInstalled.connect(lambda _name: settings_controller.refreshAddons())
 ```
 
 Note: `addon_controller` is currently built as `AddonController(InstallAddon(repo), catalog_controller)`. Change it to reuse the shared `install_addon` — move the `install_addon = InstallAddon(repo)` line **above** the `addon_controller = ...` line and build it as `AddonController(install_addon, catalog_controller)`.

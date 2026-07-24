@@ -52,10 +52,11 @@ class ExtraSpec:
     options: tuple[str, ...] = ()
     options_limit: int = 1
 
+
 @dataclass(frozen=True, slots=True)
 class ResourceSpec:
     name: str
-    types: tuple[str, ...] = ()        # empty = inherit manifest.types
+    types: tuple[str, ...] = ()  # empty = inherit manifest.types
     id_prefixes: tuple[str, ...] = ()  # empty = inherit manifest.id_prefixes
 ```
 

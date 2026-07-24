@@ -24,7 +24,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libegl1 libopengl0 libgl1 libxkbcommon0 libglib2.0-0
-      - run: uv sync
+      - run: uv sync --frozen
       - name: Lint
         if: runner.os == 'Linux'
         run: uv run ruff check .

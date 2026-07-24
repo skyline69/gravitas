@@ -71,6 +71,7 @@ string tuples, skipping non-strings. A small helper:
 def _str_or_none(v: Any) -> str | None:
     return str(v) if isinstance(v, (str, int, float)) and str(v) else None
 
+
 def _str_tuple(v: Any) -> tuple[str, ...]:
     return tuple(str(x) for x in v if isinstance(x, str)) if isinstance(v, list) else ()
 ```

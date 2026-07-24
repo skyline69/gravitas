@@ -40,7 +40,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libmpv-dev libfuse2
-      - run: uv sync
+      - run: uv sync --frozen
       - name: Build one-dir bundle
         run: uv run --with pyinstaller pyinstaller packaging/gravitas.spec --noconfirm
       - name: Build AppImage
@@ -58,7 +58,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - name: Install libmpv
         run: brew install mpv
-      - run: uv sync
+      - run: uv sync --frozen
       # The zero-copy video bridge is ObjC++ compiled against Qt's headers,
       # which the PySide6 wheel does not ship -- and the versions must match
       # exactly, because QRhi (how a Metal texture reaches the scene graph)
@@ -130,7 +130,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv sync
+      - run: uv sync --frozen
       # No libmpv package exists for Windows, so the spec downloads the
       # official mpv-dev build itself (and yt-dlp.exe with it). py7zr is the
       # in-process fallback for the extraction if the runner ever loses 7z.
@@ -187,7 +187,7 @@ jobs:
             https://dl.flathub.org/repo/flathub.flatpakrepo
           sudo flatpak install -y flathub \
             org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08
-      - run: uv sync
+      - run: uv sync --frozen
       - name: Build the same one-dir bundle the manifest packages
         run: uv run --with pyinstaller pyinstaller packaging/gravitas.spec --noconfirm
       - name: Build the Flatpak and export a single-file bundle

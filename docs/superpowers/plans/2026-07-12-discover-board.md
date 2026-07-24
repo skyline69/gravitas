@@ -191,7 +191,10 @@ def test_catalog_path_extra() -> None:
     assert catalog_path_extra(ref, "Action", 0) == "catalog/movie/top/genre=Action.json"
     assert catalog_path_extra(ref, None, 100) == "catalog/movie/top/skip=100.json"
     assert catalog_path_extra(ref, "Action", 100) == "catalog/movie/top/genre=Action&skip=100.json"
-    assert catalog_path_extra(ref, "Sci-Fi & Fantasy", 0) == "catalog/movie/top/genre=Sci-Fi%20%26%20Fantasy.json"
+    assert (
+        catalog_path_extra(ref, "Sci-Fi & Fantasy", 0)
+        == "catalog/movie/top/genre=Sci-Fi%20%26%20Fantasy.json"
+    )
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -252,11 +255,18 @@ Add to `tests/infrastructure/addons/test_client.py` (follow the existing `respx`
 @respx.mock
 async def test_fetch_catalog_builds_extra_path() -> None:
     respx.get("https://a/catalog/movie/top/genre=Action&skip=100.json").mock(
-        return_value=httpx.Response(200, json={"metas": [{"id": "tt1", "type": "movie", "name": "A"}]})
+        return_value=httpx.Response(
+            200, json={"metas": [{"id": "tt1", "type": "movie", "name": "A"}]}
+        )
     )
     manifest = AddonManifest(
-        id="a", name="A", version="1", resources=("catalog",), types=("movie",),
-        catalogs=(CatalogRef(type="movie", id="top", name="T"),), base_url="https://a/",
+        id="a",
+        name="A",
+        version="1",
+        resources=("catalog",),
+        types=("movie",),
+        catalogs=(CatalogRef(type="movie", id="top", name="T"),),
+        base_url="https://a/",
     )
     async with httpx.AsyncClient() as http:
         client = AddonClient(http)
@@ -363,7 +373,11 @@ class FakeSource:
 
     async def fetch_manifest(self, url: str) -> AddonManifest:
         return AddonManifest(
-            id="a", name="Addon A", version="1", resources=("catalog",), types=("movie",),
+            id="a",
+            name="Addon A",
+            version="1",
+            resources=("catalog",),
+            types=("movie",),
             catalogs=(CatalogRef(type="movie", id="top", name="Top", genres=("Action",)),),
             base_url=url,
         )
@@ -444,33 +458,34 @@ class CatalogOption:
 ```
 
 ```python
-    def resolve_catalog(
-        self, addon_id: str, type: MediaType, catalog_id: str
-    ) -> tuple[AddonManifest, CatalogRef] | None:
-        for manifest in self._manifests:
-            if manifest.id != addon_id:
-                continue
-            for ref in manifest.catalogs:
-                if ref.type == type and ref.id == catalog_id:
-                    return manifest, ref
-        return None
+def resolve_catalog(
+    self, addon_id: str, type: MediaType, catalog_id: str
+) -> tuple[AddonManifest, CatalogRef] | None:
+    for manifest in self._manifests:
+        if manifest.id != addon_id:
+            continue
+        for ref in manifest.catalogs:
+            if ref.type == type and ref.id == catalog_id:
+                return manifest, ref
+    return None
 
-    def catalog_options(self) -> list[CatalogOption]:
-        name_counts = Counter(ref.name for m in self._manifests for ref in m.catalogs)
-        options: list[CatalogOption] = []
-        for manifest in self._manifests:
-            for ref in manifest.catalogs:
-                label = ref.name if name_counts[ref.name] == 1 else f"{ref.name} ({manifest.name})"
-                options.append(
-                    CatalogOption(
-                        addon_id=manifest.id,
-                        type=ref.type,
-                        catalog_id=ref.id,
-                        label=label,
-                        genres=ref.genres,
-                    )
+
+def catalog_options(self) -> list[CatalogOption]:
+    name_counts = Counter(ref.name for m in self._manifests for ref in m.catalogs)
+    options: list[CatalogOption] = []
+    for manifest in self._manifests:
+        for ref in manifest.catalogs:
+            label = ref.name if name_counts[ref.name] == 1 else f"{ref.name} ({manifest.name})"
+            options.append(
+                CatalogOption(
+                    addon_id=manifest.id,
+                    type=ref.type,
+                    catalog_id=ref.id,
+                    label=label,
+                    genres=ref.genres,
                 )
-        return options
+            )
+    return options
 ```
 
 - [ ] **Step 4: Create `BrowseBoard`**
@@ -765,13 +780,18 @@ from gravitas.presentation.models.poster_grid_model import PosterGridModel
 
 
 def _items(n: int, offset: int = 0) -> list[MediaItem]:
-    return [MediaItem(id=f"tt{offset + i}", type="movie", name=str(offset + i), poster=None) for i in range(n)]
+    return [
+        MediaItem(id=f"tt{offset + i}", type="movie", name=str(offset + i), poster=None)
+        for i in range(n)
+    ]
 
 
 class FakeRepo:
     def catalog_options(self) -> list[CatalogOption]:
         return [
-            CatalogOption(addon_id="a", type="movie", catalog_id="top", label="Top", genres=("Action",)),
+            CatalogOption(
+                addon_id="a", type="movie", catalog_id="top", label="Top", genres=("Action",)
+            ),
             CatalogOption(addon_id="a", type="series", catalog_id="pop", label="Pop", genres=()),
         ]
 
@@ -868,9 +888,7 @@ class DiscoverController(QObject):
     loadingChanged = Signal(bool)
     optionsChanged = Signal()
 
-    def __init__(
-        self, browse: BrowseBoard, repo: AddonRepository, model: object
-    ) -> None:
+    def __init__(self, browse: BrowseBoard, repo: AddonRepository, model: object) -> None:
         super().__init__()
         self._browse = browse
         self._repo = repo
@@ -930,7 +948,11 @@ class DiscoverController(QObject):
         self._type = "series" if type == "series" else "movie"
         cats = self._catalogs_for_type()
         self._catalog_idx = next(
-            (i for i, opt in enumerate(cats) if opt.addon_id == addon_id and opt.catalog_id == catalog_id),
+            (
+                i
+                for i, opt in enumerate(cats)
+                if opt.addon_id == addon_id and opt.catalog_id == catalog_id
+            ),
             0,
         )
         self._genre = None

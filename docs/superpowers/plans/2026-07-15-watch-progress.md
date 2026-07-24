@@ -295,9 +295,7 @@ def test_schema_version_recorded(tmp_path: Path) -> None:
     conn.close()
 
 
-def test_default_path_follows_xdg_data_home(
-    tmp_path: Path, monkeypatch: MonkeyPatch
-) -> None:
+def test_default_path_follows_xdg_data_home(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     assert default_progress_path() == tmp_path / "gravitas" / "progress.db"
 ```
@@ -356,9 +354,7 @@ CREATE TABLE IF NOT EXISTS progress (
 ) WITHOUT ROWID
 """
 
-_COLUMNS = (
-    "media_id, video_id, type, name, poster, label, position, duration, watched, updated_at"
-)
+_COLUMNS = "media_id, video_id, type, name, poster, label, position, duration, watched, updated_at"
 
 
 def default_progress_path() -> Path:
@@ -548,9 +544,7 @@ class FakeStore:
         self.cleared = True
 
 
-def entry(
-    media_id: str = "tt1", video_id: str = "", **kw: object
-) -> PlaybackProgress:
+def entry(media_id: str = "tt1", video_id: str = "", **kw: object) -> PlaybackProgress:
     base: dict[str, object] = {
         "media_id": media_id,
         "video_id": video_id,
@@ -585,8 +579,14 @@ def test_record_below_floor_is_ignored() -> None:
     store = FakeStore()
     r = repo(store)
     r.record(
-        media_id="tt1", video_id="", type="movie", name="M", poster=None,
-        label="", position=29.9, duration=600.0,
+        media_id="tt1",
+        video_id="",
+        type="movie",
+        name="M",
+        poster=None,
+        label="",
+        position=29.9,
+        duration=600.0,
     )
     assert store.saved == []
     assert r.get("tt1") is None
@@ -596,8 +596,14 @@ def test_record_at_floor_is_kept() -> None:
     store = FakeStore()
     r = repo(store)
     r.record(
-        media_id="tt1", video_id="", type="movie", name="M", poster=None,
-        label="", position=30.0, duration=600.0,
+        media_id="tt1",
+        video_id="",
+        type="movie",
+        name="M",
+        poster=None,
+        label="",
+        position=30.0,
+        duration=600.0,
     )
     assert len(store.saved) == 1
     assert r.get("tt1") is not None
@@ -607,8 +613,14 @@ def test_record_past_ninety_percent_marks_watched_and_zeroes_position() -> None:
     store = FakeStore()
     r = repo(store)
     r.record(
-        media_id="tt1", video_id="", type="movie", name="M", poster=None,
-        label="", position=540.0, duration=600.0,
+        media_id="tt1",
+        video_id="",
+        type="movie",
+        name="M",
+        poster=None,
+        label="",
+        position=540.0,
+        duration=600.0,
     )
     saved = store.saved[0]
     assert saved.watched is True
@@ -621,8 +633,14 @@ def test_record_with_unknown_duration_never_marks_watched() -> None:
     store = FakeStore()
     r = repo(store)
     r.record(
-        media_id="tt1", video_id="", type="movie", name="M", poster=None,
-        label="", position=100.0, duration=0.0,
+        media_id="tt1",
+        video_id="",
+        type="movie",
+        name="M",
+        poster=None,
+        label="",
+        position=100.0,
+        duration=0.0,
     )
     assert store.saved[0].watched is False
 
@@ -630,8 +648,14 @@ def test_record_with_unknown_duration_never_marks_watched() -> None:
 def test_record_stamps_the_clock() -> None:
     store = FakeStore()
     repo(store, now=777).record(
-        media_id="tt1", video_id="", type="movie", name="M", poster=None,
-        label="", position=100.0, duration=600.0,
+        media_id="tt1",
+        video_id="",
+        type="movie",
+        name="M",
+        poster=None,
+        label="",
+        position=100.0,
+        duration=600.0,
     )
     assert store.saved[0].updated_at == 777
 
@@ -641,21 +665,25 @@ def test_resume_position_returns_saved_position() -> None:
 
 
 def test_latest_for_picks_highest_updated_at() -> None:
-    store = FakeStore([
-        entry("tt9", "tt9:1:1", type="series", updated_at=100, label="S1E1"),
-        entry("tt9", "tt9:1:3", type="series", updated_at=300, label="S1E3"),
-        entry("tt9", "tt9:1:2", type="series", updated_at=200, label="S1E2"),
-    ])
+    store = FakeStore(
+        [
+            entry("tt9", "tt9:1:1", type="series", updated_at=100, label="S1E1"),
+            entry("tt9", "tt9:1:3", type="series", updated_at=300, label="S1E3"),
+            entry("tt9", "tt9:1:2", type="series", updated_at=200, label="S1E2"),
+        ]
+    )
     latest = repo(store).latest_for("tt9")
     assert latest is not None
     assert latest.label == "S1E3"
 
 
 def test_forget_one_episode_rebuilds_latest() -> None:
-    store = FakeStore([
-        entry("tt9", "tt9:1:1", type="series", updated_at=100, label="S1E1"),
-        entry("tt9", "tt9:1:3", type="series", updated_at=300, label="S1E3"),
-    ])
+    store = FakeStore(
+        [
+            entry("tt9", "tt9:1:1", type="series", updated_at=100, label="S1E1"),
+            entry("tt9", "tt9:1:3", type="series", updated_at=300, label="S1E3"),
+        ]
+    )
     r = repo(store)
     r.forget("tt9", "tt9:1:3")
     latest = r.latest_for("tt9")
@@ -672,10 +700,12 @@ def test_forget_last_episode_drops_latest_entirely() -> None:
 
 
 def test_forget_whole_media_drops_every_episode() -> None:
-    store = FakeStore([
-        entry("tt9", "tt9:1:1", type="series"),
-        entry("tt9", "tt9:1:2", type="series"),
-    ])
+    store = FakeStore(
+        [
+            entry("tt9", "tt9:1:1", type="series"),
+            entry("tt9", "tt9:1:2", type="series"),
+        ]
+    )
     r = repo(store)
     r.forget("tt9")
     assert r.latest_for("tt9") is None
@@ -684,12 +714,14 @@ def test_forget_whole_media_drops_every_episode() -> None:
 
 
 def test_in_progress_is_latest_per_media_newest_first_unwatched_only() -> None:
-    store = FakeStore([
-        entry("tt1", "", updated_at=100),
-        entry("tt9", "tt9:1:1", type="series", updated_at=400),
-        entry("tt9", "tt9:1:2", type="series", updated_at=500),
-        entry("tt5", "", updated_at=900, watched=True),
-    ])
+    store = FakeStore(
+        [
+            entry("tt1", "", updated_at=100),
+            entry("tt9", "tt9:1:1", type="series", updated_at=400),
+            entry("tt9", "tt9:1:2", type="series", updated_at=500),
+            entry("tt5", "", updated_at=900, watched=True),
+        ]
+    )
     rows = repo(store).in_progress()
     assert [(e.media_id, e.video_id) for e in rows] == [("tt9", "tt9:1:2"), ("tt1", "")]
 
@@ -698,8 +730,12 @@ def test_mark_watched_without_prior_entry() -> None:
     store = FakeStore()
     r = repo(store)
     r.mark_watched(
-        media_id="tt9", video_id="tt9:1:1", type="series", name="Show",
-        poster=None, label="S1E1",
+        media_id="tt9",
+        video_id="tt9:1:1",
+        type="series",
+        name="Show",
+        poster=None,
+        label="S1E1",
     )
     assert r.is_watched("tt9", "tt9:1:1") is True
     assert store.saved[0].position == 0.0
@@ -1078,16 +1114,18 @@ def test_records_context_on_flush(qapp: object) -> None:
     controller.play("http://s/v.mkv")
     player.seek(300.0)
     controller.flushProgress()
-    assert progress.records == [{
-        "media_id": "tt9",
-        "video_id": "tt9:1:1",
-        "type": "series",
-        "name": "The Show",
-        "poster": "http://p/9.jpg",
-        "label": "S1E1 · Pilot",
-        "position": 300.0,
-        "duration": 100.0,
-    }]
+    assert progress.records == [
+        {
+            "media_id": "tt9",
+            "video_id": "tt9:1:1",
+            "type": "series",
+            "name": "The Show",
+            "poster": "http://p/9.jpg",
+            "label": "S1E1 · Pilot",
+            "position": 300.0,
+            "duration": 100.0,
+        }
+    ]
 
 
 def test_no_context_means_no_record(qapp: object) -> None:
@@ -1198,118 +1236,126 @@ Add the two signals next to the existing ones:
 Replace `__init__`:
 
 ```python
-    # Frequent enough that a hard kill costs seconds, not minutes; rare enough
-    # that a two-hour film writes ~1400 rows' worth of UPSERTs, not 7 million.
-    SAVE_INTERVAL_MS = 5000
+# Frequent enough that a hard kill costs seconds, not minutes; rare enough
+# that a two-hour film writes ~1400 rows' worth of UPSERTs, not 7 million.
+SAVE_INTERVAL_MS = 5000
 
-    def __init__(
-        self,
-        player_factory: Callable[[], MediaPlayer],
-        style_provider: Callable[[], SubtitleStyle] | None = None,
-        progress: WatchProgressRepository | None = None,
-    ) -> None:
-        super().__init__()
-        self._factory = player_factory
-        self._style_provider = style_provider
-        self._progress = progress
-        self._player: MediaPlayer | None = None
-        self._context: dict[str, str] = {}
-        self._save_timer = QTimer(self)
-        self._save_timer.setInterval(PlayerController.SAVE_INTERVAL_MS)
-        self._save_timer.timeout.connect(self._on_tick)
+
+def __init__(
+    self,
+    player_factory: Callable[[], MediaPlayer],
+    style_provider: Callable[[], SubtitleStyle] | None = None,
+    progress: WatchProgressRepository | None = None,
+) -> None:
+    super().__init__()
+    self._factory = player_factory
+    self._style_provider = style_provider
+    self._progress = progress
+    self._player: MediaPlayer | None = None
+    self._context: dict[str, str] = {}
+    self._save_timer = QTimer(self)
+    self._save_timer.setInterval(PlayerController.SAVE_INTERVAL_MS)
+    self._save_timer.timeout.connect(self._on_tick)
 ```
 
 Replace `play`, `stop` and `pause`:
 
 ```python
-    @Slot(str)
-    def play(self, url: str) -> None:
-        player = self._ensure()
-        if player is None:
-            return
-        start = self._resume_position()
-        try:
-            player.play(url, start=start)
-        except PlaybackFailed as exc:
-            self.errorOccurred.emit(str(exc))
-            return
-        if start > 0:
-            self.resumed.emit(start)
-        self._save_timer.start()
-        self.stateChanged.emit()
+@Slot(str)
+def play(self, url: str) -> None:
+    player = self._ensure()
+    if player is None:
+        return
+    start = self._resume_position()
+    try:
+        player.play(url, start=start)
+    except PlaybackFailed as exc:
+        self.errorOccurred.emit(str(exc))
+        return
+    if start > 0:
+        self.resumed.emit(start)
+    self._save_timer.start()
+    self.stateChanged.emit()
 
-    @Slot()
-    def stop(self) -> None:
-        if self._player is not None:
-            self._record()
-            self._save_timer.stop()
-            self._player.stop()
 
-    @Slot()
-    def pause(self) -> None:
-        if self._player is not None:
-            self._player.pause()
-            self._record()
+@Slot()
+def stop(self) -> None:
+    if self._player is not None:
+        self._record()
+        self._save_timer.stop()
+        self._player.stop()
+
+
+@Slot()
+def pause(self) -> None:
+    if self._player is not None:
+        self._player.pause()
+        self._record()
 ```
 
 Add the progress block after the `# --- controls ---` methods:
 
 ```python
-    # --- watch progress ---
+# --- watch progress ---
 
-    @Slot("QVariantMap")
-    def setMediaContext(self, context: dict[str, object]) -> None:
-        """Identify what is about to play. QML calls this immediately before
-        play(url); without it nothing is recorded and nothing resumes.
 
-        Keys: mediaId, videoId, type, name, poster, label.
-        """
-        self._context = {
-            str(key): "" if value is None else str(value)
-            for key, value in context.items()
-        }
+@Slot("QVariantMap")
+def setMediaContext(self, context: dict[str, object]) -> None:
+    """Identify what is about to play. QML calls this immediately before
+    play(url); without it nothing is recorded and nothing resumes.
 
-    @Slot()
-    def flushProgress(self) -> None:
-        """Record now. Wired to aboutToQuit so the last seconds survive."""
+    Keys: mediaId, videoId, type, name, poster, label.
+    """
+    self._context = {
+        str(key): "" if value is None else str(value) for key, value in context.items()
+    }
+
+
+@Slot()
+def flushProgress(self) -> None:
+    """Record now. Wired to aboutToQuit so the last seconds survive."""
+    self._record()
+
+
+def is_recording(self) -> bool:
+    """True while the autosave timer is live. Not a Slot — QML has no use
+    for it; it exists so a test can assert the timer's lifecycle without
+    waiting out a real interval."""
+    return self._save_timer.isActive()
+
+
+def _on_tick(self) -> None:
+    if self._player is not None and not self._player.is_paused():
         self._record()
 
-    def is_recording(self) -> bool:
-        """True while the autosave timer is live. Not a Slot — QML has no use
-        for it; it exists so a test can assert the timer's lifecycle without
-        waiting out a real interval."""
-        return self._save_timer.isActive()
 
-    def _on_tick(self) -> None:
-        if self._player is not None and not self._player.is_paused():
-            self._record()
+def _resume_position(self) -> float:
+    media_id = self._context.get("mediaId", "")
+    if self._progress is None or not media_id:
+        return 0.0
+    return self._progress.resume_position(media_id, self._context.get("videoId", ""))
 
-    def _resume_position(self) -> float:
-        media_id = self._context.get("mediaId", "")
-        if self._progress is None or not media_id:
-            return 0.0
-        return self._progress.resume_position(media_id, self._context.get("videoId", ""))
 
-    def _record(self) -> None:
-        media_id = self._context.get("mediaId", "")
-        if self._progress is None or self._player is None or not media_id:
-            return
-        duration = self._player.duration()
-        if duration <= 0:
-            # mpv has not parsed the file yet; a fraction against 0 is noise.
-            return
-        media_type: MediaType = "series" if self._context.get("type") == "series" else "movie"
-        self._progress.record(
-            media_id=media_id,
-            video_id=self._context.get("videoId", ""),
-            type=media_type,
-            name=self._context.get("name", ""),
-            poster=self._context.get("poster") or None,
-            label=self._context.get("label", ""),
-            position=self._player.position(),
-            duration=duration,
-        )
-        self.progressRecorded.emit()
+def _record(self) -> None:
+    media_id = self._context.get("mediaId", "")
+    if self._progress is None or self._player is None or not media_id:
+        return
+    duration = self._player.duration()
+    if duration <= 0:
+        # mpv has not parsed the file yet; a fraction against 0 is noise.
+        return
+    media_type: MediaType = "series" if self._context.get("type") == "series" else "movie"
+    self._progress.record(
+        media_id=media_id,
+        video_id=self._context.get("videoId", ""),
+        type=media_type,
+        name=self._context.get("name", ""),
+        poster=self._context.get("poster") or None,
+        label=self._context.get("label", ""),
+        position=self._player.position(),
+        duration=duration,
+    )
+    self.progressRecorded.emit()
 ```
 
 - [ ] **Step 5: Run tests and gates**
@@ -1403,13 +1449,14 @@ In `DetailController.__init__`, add next to `self._selected_episode = ""`:
 Add these Properties next to the other `metaChanged` ones:
 
 ```python
-    @Property(str, notify=metaChanged)
-    def mediaId(self) -> str:
-        return self._media_id
+@Property(str, notify=metaChanged)
+def mediaId(self) -> str:
+    return self._media_id
 
-    @Property(str, notify=metaChanged)
-    def mediaType(self) -> str:
-        return self._media_type
+
+@Property(str, notify=metaChanged)
+def mediaType(self) -> str:
+    return self._media_type
 ```
 
 Add this slot after `selectedEpisodeId`:
@@ -1515,17 +1562,23 @@ def _entry(media_id: str, video_id: str, **kw: object) -> PlaybackProgress:
 
 
 def test_episode_model_exposes_progress_roles(qapp: object) -> None:
-    repo = WatchProgressRepository(_Store([
-        _entry("tt9", "tt9:1:1", type="series", position=150.0),
-        _entry("tt9", "tt9:1:2", type="series", watched=True, position=0.0),
-    ]))
+    repo = WatchProgressRepository(
+        _Store(
+            [
+                _entry("tt9", "tt9:1:1", type="series", position=150.0),
+                _entry("tt9", "tt9:1:2", type="series", watched=True, position=0.0),
+            ]
+        )
+    )
     model = EpisodeListModel(repo)
     model.set_media_id("tt9")
-    model.set_videos([
-        Video(id="tt9:1:1", title="One", season=1, episode=1),
-        Video(id="tt9:1:2", title="Two", season=1, episode=2),
-        Video(id="tt9:1:3", title="Three", season=1, episode=3),
-    ])
+    model.set_videos(
+        [
+            Video(id="tt9:1:1", title="One", season=1, episode=1),
+            Video(id="tt9:1:2", title="Two", season=1, episode=2),
+            Video(id="tt9:1:3", title="Three", season=1, episode=3),
+        ]
+    )
     frac = EpisodeListModel.ProgressFractionRole
     watched = EpisodeListModel.WatchedRole
     assert model.data(model.index(0, 0), frac) == 0.25
@@ -1550,19 +1603,27 @@ def test_poster_model_movie_reads_its_own_entry(qapp: object) -> None:
 
 
 def test_poster_model_series_reads_the_latest_episode(qapp: object) -> None:
-    repo = WatchProgressRepository(_Store([
-        _entry("tt9", "tt9:1:1", type="series", position=60.0, updated_at=100),
-        _entry("tt9", "tt9:1:2", type="series", position=300.0, updated_at=200),
-    ]))
+    repo = WatchProgressRepository(
+        _Store(
+            [
+                _entry("tt9", "tt9:1:1", type="series", position=60.0, updated_at=100),
+                _entry("tt9", "tt9:1:2", type="series", position=300.0, updated_at=200),
+            ]
+        )
+    )
     model = PosterGridModel(repo)
     model.set_items([MediaItem(id="tt9", type="series", name="S", poster=None)])
     assert model.data(model.index(0, 0), PosterGridModel.ProgressFractionRole) == 0.5
 
 
 def test_poster_model_series_never_reports_watched(qapp: object) -> None:
-    repo = WatchProgressRepository(_Store([
-        _entry("tt9", "tt9:1:1", type="series", watched=True, position=0.0),
-    ]))
+    repo = WatchProgressRepository(
+        _Store(
+            [
+                _entry("tt9", "tt9:1:1", type="series", watched=True, position=0.0),
+            ]
+        )
+    )
     model = PosterGridModel(repo)
     model.set_items([MediaItem(id="tt9", type="series", name="S", poster=None)])
     # One finished episode does not finish the show.
@@ -1653,29 +1714,32 @@ from gravitas.domain.models import Video
 Replace `__init__` and add the two methods:
 
 ```python
-    def __init__(self, progress: WatchProgressRepository | None = None) -> None:
-        super().__init__()
-        self._videos: list[Video] = []
-        self._progress = progress
-        self._media_id = ""
+def __init__(self, progress: WatchProgressRepository | None = None) -> None:
+    super().__init__()
+    self._videos: list[Video] = []
+    self._progress = progress
+    self._media_id = ""
 
-    @property
-    def media_id(self) -> str:
-        return self._media_id
 
-    def set_media_id(self, media_id: str) -> None:
-        """The series these episodes belong to — progress is keyed by it."""
-        self._media_id = media_id
+@property
+def media_id(self) -> str:
+    return self._media_id
 
-    def refresh_progress(self) -> None:
-        """Re-read the progress roles for every row (the underlying dict moved)."""
-        if not self._videos:
-            return
-        self.dataChanged.emit(
-            self.index(0, 0, _ROOT_INDEX),
-            self.index(len(self._videos) - 1, 0, _ROOT_INDEX),
-            [EpisodeListModel.ProgressFractionRole, EpisodeListModel.WatchedRole],
-        )
+
+def set_media_id(self, media_id: str) -> None:
+    """The series these episodes belong to — progress is keyed by it."""
+    self._media_id = media_id
+
+
+def refresh_progress(self) -> None:
+    """Re-read the progress roles for every row (the underlying dict moved)."""
+    if not self._videos:
+        return
+    self.dataChanged.emit(
+        self.index(0, 0, _ROOT_INDEX),
+        self.index(len(self._videos) - 1, 0, _ROOT_INDEX),
+        [EpisodeListModel.ProgressFractionRole, EpisodeListModel.WatchedRole],
+    )
 ```
 
 Add to the `match role:` block in `data`:
@@ -1717,19 +1781,20 @@ Add the roles:
 Replace `__init__` and add `refresh_progress`:
 
 ```python
-    def __init__(self, progress: WatchProgressRepository | None = None) -> None:
-        super().__init__()
-        self._items: list[MediaItem] = []
-        self._progress = progress
+def __init__(self, progress: WatchProgressRepository | None = None) -> None:
+    super().__init__()
+    self._items: list[MediaItem] = []
+    self._progress = progress
 
-    def refresh_progress(self) -> None:
-        if not self._items:
-            return
-        self.dataChanged.emit(
-            self.index(0, 0, _ROOT_INDEX),
-            self.index(len(self._items) - 1, 0, _ROOT_INDEX),
-            [PosterGridModel.ProgressFractionRole, PosterGridModel.WatchedRole],
-        )
+
+def refresh_progress(self) -> None:
+    if not self._items:
+        return
+    self.dataChanged.emit(
+        self.index(0, 0, _ROOT_INDEX),
+        self.index(len(self._items) - 1, 0, _ROOT_INDEX),
+        [PosterGridModel.ProgressFractionRole, PosterGridModel.WatchedRole],
+    )
 ```
 
 Add to `data`'s `match role:` block:
@@ -1764,29 +1829,31 @@ Apply the same treatment to `src/gravitas/presentation/models/search_results_mod
 In `src/gravitas/presentation/models/catalog_rows_model.py`, add the import, then replace `__init__` and `set_rows`, and add `refresh_progress`:
 
 ```python
-    def __init__(self, progress: WatchProgressRepository | None = None) -> None:
-        super().__init__()
-        self._progress = progress
-        self._all_rows: list[tuple[str, str, str, str, PosterGridModel]] = []
-        self._rows: list[tuple[str, str, str, str, PosterGridModel]] = []
-        self._filter = "all"
+def __init__(self, progress: WatchProgressRepository | None = None) -> None:
+    super().__init__()
+    self._progress = progress
+    self._all_rows: list[tuple[str, str, str, str, PosterGridModel]] = []
+    self._rows: list[tuple[str, str, str, str, PosterGridModel]] = []
+    self._filter = "all"
 
-    def set_rows(self, rows: list[CatalogRow]) -> None:
-        self.beginResetModel()
-        built: list[tuple[str, str, str, str, PosterGridModel]] = []
-        for row in rows:
-            poster_model = PosterGridModel(self._progress)
-            poster_model.set_items(row.items)
-            built.append((row.title, row.addon_id, row.type, row.catalog_id, poster_model))
-        self._all_rows = built
-        self._rows = self._filtered(self._all_rows, self._filter)
-        self.endResetModel()
 
-    def refresh_progress(self) -> None:
-        # The nested poster models own the visible cells; refresh every row's,
-        # not just the filtered subset — a filter switch must not show stale bars.
-        for row in self._all_rows:
-            row[4].refresh_progress()
+def set_rows(self, rows: list[CatalogRow]) -> None:
+    self.beginResetModel()
+    built: list[tuple[str, str, str, str, PosterGridModel]] = []
+    for row in rows:
+        poster_model = PosterGridModel(self._progress)
+        poster_model.set_items(row.items)
+        built.append((row.title, row.addon_id, row.type, row.catalog_id, poster_model))
+    self._all_rows = built
+    self._rows = self._filtered(self._all_rows, self._filter)
+    self.endResetModel()
+
+
+def refresh_progress(self) -> None:
+    # The nested poster models own the visible cells; refresh every row's,
+    # not just the filtered subset — a filter switch must not show stale bars.
+    for row in self._all_rows:
+        row[4].refresh_progress()
 ```
 
 - [ ] **Step 8: Run tests and gates**
@@ -2062,14 +2129,16 @@ def test_mutations_refresh_the_settings_model(qapp: object) -> None:
 
 def test_mark_watched_from_a_context_map(qapp: object) -> None:
     controller, _, _ = build([])
-    controller.markWatched({
-        "mediaId": "tt9",
-        "videoId": "tt9:1:1",
-        "type": "series",
-        "name": "Show",
-        "poster": "",
-        "label": "S1E1",
-    })
+    controller.markWatched(
+        {
+            "mediaId": "tt9",
+            "videoId": "tt9:1:1",
+            "type": "series",
+            "name": "Show",
+            "poster": "",
+            "label": "S1E1",
+        }
+    )
     assert controller.isWatched("tt9", "tt9:1:1") is True
 
 
@@ -2204,7 +2273,9 @@ git commit -m "feat(progress): controller and Settings list model"
 Append to `tests/test_composition.py`. Mirror the existing test's loop scaffolding — `build_app` stays asyncio-free but the file sets a loop up around it, and `assert engine.rootObjects()` is what catches a QML parse error:
 
 ```python
-def test_build_app_wires_watch_progress(qapp: object, tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+def test_build_app_wires_watch_progress(
+    qapp: object, tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
     # Never touch the developer's real progress database from a test.
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     loop = asyncio.new_event_loop()
@@ -2277,27 +2348,29 @@ Pass it to the models — replace the existing constructions:
 Build the progress controller and pass the repo to the player, replacing the `player_controller = ...` line:
 
 ```python
-    watched_model = WatchedListModel()
-    progress_controller = ProgressController(progress_repo, watched_model)
+watched_model = WatchedListModel()
+progress_controller = ProgressController(progress_repo, watched_model)
 
-    player_controller = PlayerController(make_player, lambda: sub_style.style, progress_repo)
-    # Live-apply subtitle style edits to an active player.
-    settings_controller.subtitleStyleChanged.connect(player_controller.applySubtitleStyle)
+player_controller = PlayerController(make_player, lambda: sub_style.style, progress_repo)
+# Live-apply subtitle style edits to an active player.
+settings_controller.subtitleStyleChanged.connect(player_controller.applySubtitleStyle)
 
-    # Bars are model roles, so every surface showing progress must re-read them
-    # when the underlying index moves — whether the player advanced it or the
-    # user forgot something.
-    def _refresh_progress_bars() -> None:
-        rows_model.refresh_progress()
-        discover_model.refresh_progress()
-        episode_model.refresh_progress()
-        search_results_model.refresh_progress()
-        search_page_model.refresh_progress()
 
-    progress_controller.progressChanged.connect(_refresh_progress_bars)
-    player_controller.progressRecorded.connect(_refresh_progress_bars)
-    # The final seconds of a session would otherwise die with the process.
-    app.aboutToQuit.connect(player_controller.flushProgress)
+# Bars are model roles, so every surface showing progress must re-read them
+# when the underlying index moves — whether the player advanced it or the
+# user forgot something.
+def _refresh_progress_bars() -> None:
+    rows_model.refresh_progress()
+    discover_model.refresh_progress()
+    episode_model.refresh_progress()
+    search_results_model.refresh_progress()
+    search_page_model.refresh_progress()
+
+
+progress_controller.progressChanged.connect(_refresh_progress_bars)
+player_controller.progressRecorded.connect(_refresh_progress_bars)
+# The final seconds of a session would otherwise die with the process.
+app.aboutToQuit.connect(player_controller.flushProgress)
 ```
 
 Add the context properties next to the others:
@@ -2310,8 +2383,8 @@ Add the context properties next to the others:
 Add both to the keep-alive tuple in `engine._gravitas_refs`:
 
 ```python
-        progress_controller,
-        watched_model,
+(progress_controller,)
+(watched_model,)
 ```
 
 - [ ] **Step 4: Bind the episode model to its series**

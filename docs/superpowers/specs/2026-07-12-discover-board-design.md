@@ -85,8 +85,12 @@ The genre value is URL-encoded (spaces etc.) before joining. The existing
 
 ```python
 async def fetch_catalog(
-    self, manifest: AddonManifest, ref: CatalogRef,
-    *, genre: str | None = None, skip: int = 0,
+    self,
+    manifest: AddonManifest,
+    ref: CatalogRef,
+    *,
+    genre: str | None = None,
+    skip: int = 0,
 ) -> list[MediaItem]: ...
 ```
 
@@ -129,8 +133,9 @@ class CatalogOption:
     addon_id: str
     type: MediaType
     catalog_id: str
-    label: str          # catalog name, + " (addon name)" only on collision
+    label: str  # catalog name, + " (addon name)" only on collision
     genres: tuple[str, ...]
+
 
 def catalog_options(self) -> list[CatalogOption]: ...
 ```

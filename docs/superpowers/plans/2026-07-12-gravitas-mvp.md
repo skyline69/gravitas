@@ -522,9 +522,7 @@ from gravitas.domain.models import (
 class AddonSource(Protocol):
     async def fetch_manifest(self, url: str) -> AddonManifest: ...
     async def fetch_catalog(self, manifest: AddonManifest, ref: CatalogRef) -> list[MediaItem]: ...
-    async def fetch_meta(
-        self, manifest: AddonManifest, type: MediaType, id: str
-    ) -> MetaDetail: ...
+    async def fetch_meta(self, manifest: AddonManifest, type: MediaType, id: str) -> MetaDetail: ...
     async def fetch_streams(
         self, manifest: AddonManifest, type: MediaType, id: str
     ) -> list[Stream]: ...
@@ -857,8 +855,14 @@ async def test_fetch_manifest_strips_suffix() -> None:
     respx.get("https://cin.strem.io/manifest.json").mock(
         return_value=httpx.Response(
             200,
-            json={"id": "c", "name": "Cinemeta", "version": "3.0", "types": ["movie"],
-                  "resources": ["catalog"], "catalogs": []},
+            json={
+                "id": "c",
+                "name": "Cinemeta",
+                "version": "3.0",
+                "types": ["movie"],
+                "resources": ["catalog"],
+                "catalogs": [],
+            },
         )
     )
     async with httpx.AsyncClient() as http:
@@ -872,13 +876,20 @@ async def test_fetch_catalog_builds_path() -> None:
     respx.get("https://cin.strem.io/manifest.json").mock(
         return_value=httpx.Response(
             200,
-            json={"id": "c", "name": "C", "version": "1", "types": ["movie"],
-                  "resources": ["catalog"], "catalogs": [{"type": "movie", "id": "top", "name": "T"}]},
+            json={
+                "id": "c",
+                "name": "C",
+                "version": "1",
+                "types": ["movie"],
+                "resources": ["catalog"],
+                "catalogs": [{"type": "movie", "id": "top", "name": "T"}],
+            },
         )
     )
     respx.get("https://cin.strem.io/catalog/movie/top.json").mock(
-        return_value=httpx.Response(200, json={"metas": [
-            {"id": "tt1", "type": "movie", "name": "A", "poster": "p"}]})
+        return_value=httpx.Response(
+            200, json={"metas": [{"id": "tt1", "type": "movie", "name": "A", "poster": "p"}]}
+        )
     )
     async with httpx.AsyncClient() as http:
         client = AddonClient(http)
@@ -940,15 +951,11 @@ class AddonClient:
         base_url = url[: -len(_MANIFEST_SUFFIX)] if url.endswith(_MANIFEST_SUFFIX) else url
         return parsing.parse_manifest(data, base_url=base_url)
 
-    async def fetch_catalog(
-        self, manifest: AddonManifest, ref: CatalogRef
-    ) -> list[MediaItem]:
+    async def fetch_catalog(self, manifest: AddonManifest, ref: CatalogRef) -> list[MediaItem]:
         data = await self._get_json(manifest.base_url + parsing.catalog_path(ref))
         return parsing.parse_catalog(data)
 
-    async def fetch_meta(
-        self, manifest: AddonManifest, type: MediaType, id: str
-    ) -> MetaDetail:
+    async def fetch_meta(self, manifest: AddonManifest, type: MediaType, id: str) -> MetaDetail:
         data = await self._get_json(manifest.base_url + parsing.meta_path(type, id))
         return parsing.parse_meta(data)
 
@@ -1007,7 +1014,14 @@ git commit -m "feat(addons): add httpx AddonClient"
 `tests/infrastructure/addons/test_repository.py`:
 ```python
 from gravitas.domain.errors import AddonUnreachable
-from gravitas.domain.models import AddonManifest, CatalogRef, MediaItem, MediaType, MetaDetail, Stream
+from gravitas.domain.models import (
+    AddonManifest,
+    CatalogRef,
+    MediaItem,
+    MediaType,
+    MetaDetail,
+    Stream,
+)
 from gravitas.infrastructure.addons.repository import AddonRepository
 
 
@@ -1017,8 +1031,13 @@ class FakeSource:
 
     async def fetch_manifest(self, url: str) -> AddonManifest:
         return AddonManifest(
-            id=url, name="Fake", version="1", resources=("catalog",), types=("movie",),
-            catalogs=(CatalogRef(type="movie", id="top", name="Top"),), base_url=url,
+            id=url,
+            name="Fake",
+            version="1",
+            resources=("catalog",),
+            types=("movie",),
+            catalogs=(CatalogRef(type="movie", id="top", name="Top"),),
+            base_url=url,
         )
 
     async def fetch_catalog(self, manifest: AddonManifest, ref: CatalogRef) -> list[MediaItem]:
@@ -1029,7 +1048,9 @@ class FakeSource:
     async def fetch_meta(self, manifest: AddonManifest, type: MediaType, id: str) -> MetaDetail:
         raise NotImplementedError
 
-    async def fetch_streams(self, manifest: AddonManifest, type: MediaType, id: str) -> list[Stream]:
+    async def fetch_streams(
+        self, manifest: AddonManifest, type: MediaType, id: str
+    ) -> list[Stream]:
         raise NotImplementedError
 
 
@@ -1096,9 +1117,7 @@ class AddonRepository:
     def catalog_refs(self) -> list[tuple[AddonManifest, CatalogRef]]:
         return [(m, ref) for m in self._manifests for ref in m.catalogs]
 
-    async def aggregate_catalog(
-        self, ref_owner: AddonManifest, ref: CatalogRef
-    ) -> list[MediaItem]:
+    async def aggregate_catalog(self, ref_owner: AddonManifest, ref: CatalogRef) -> list[MediaItem]:
         try:
             return await self._source.fetch_catalog(ref_owner, ref)
         except GravitasError as exc:
@@ -1168,8 +1187,12 @@ from gravitas.infrastructure.addons.repository import AddonRepository
 class FakeSource:
     async def fetch_manifest(self, url: str) -> AddonManifest:
         return AddonManifest(
-            id="fake", name="Fake", version="1", resources=("catalog", "meta", "stream"),
-            types=("movie",), catalogs=(CatalogRef(type="movie", id="top", name="Top"),),
+            id="fake",
+            name="Fake",
+            version="1",
+            resources=("catalog", "meta", "stream"),
+            types=("movie",),
+            catalogs=(CatalogRef(type="movie", id="top", name="Top"),),
             base_url=url,
         )
 
@@ -1177,10 +1200,13 @@ class FakeSource:
         return [MediaItem(id="tt1", type="movie", name="A", poster=None)]
 
     async def fetch_meta(self, manifest: AddonManifest, type: MediaType, id: str) -> MetaDetail:
-        return MetaDetail(id=id, type=type, name="A", description="d",
-                          poster=None, background=None, videos=())
+        return MetaDetail(
+            id=id, type=type, name="A", description="d", poster=None, background=None, videos=()
+        )
 
-    async def fetch_streams(self, manifest: AddonManifest, type: MediaType, id: str) -> list[Stream]:
+    async def fetch_streams(
+        self, manifest: AddonManifest, type: MediaType, id: str
+    ) -> list[Stream]:
         return [
             Stream(name="1080p", title="web", url="http://s/v.mkv", info_hash=None, file_idx=None),
             Stream(name="720p", title="torr", url=None, info_hash="abc", file_idx=0),
@@ -1202,7 +1228,9 @@ async def test_install_addon() -> None:
 async def test_browse_catalog_builds_rows() -> None:
     repo = await _repo()
     rows = await BrowseCatalog(repo)()
-    assert rows == [CatalogRow(title="Top", items=[MediaItem(id="tt1", type="movie", name="A", poster=None)])]
+    assert rows == [
+        CatalogRow(title="Top", items=[MediaItem(id="tt1", type="movie", name="A", poster=None)])
+    ]
 
 
 async def test_get_detail() -> None:
@@ -1302,19 +1330,18 @@ class GetDetail:
     def __init__(self, repo: AddonRepository) -> None:
         self._repo = repo
 
-    async def __call__(
-        self, manifest: AddonManifest, type: MediaType, id: str
-    ) -> MetaDetail:
+    async def __call__(self, manifest: AddonManifest, type: MediaType, id: str) -> MetaDetail:
         return await self._repo._source.fetch_meta(manifest, type, id)
 ```
 
 Note: `GetDetail` and `ResolveStream` need direct access to the source's `fetch_meta`/`fetch_streams`. Rather than reach into `repo._source`, add two thin pass-throughs on `AddonRepository` — update `repository.py` to add:
 ```python
-    async def meta(self, manifest: AddonManifest, type: "MediaType", id: str) -> "MetaDetail":
-        return await self._source.fetch_meta(manifest, type, id)
+async def meta(self, manifest: AddonManifest, type: "MediaType", id: str) -> "MetaDetail":
+    return await self._source.fetch_meta(manifest, type, id)
 
-    async def streams(self, manifest: AddonManifest, type: "MediaType", id: str) -> list["Stream"]:
-        return await self._source.fetch_streams(manifest, type, id)
+
+async def streams(self, manifest: AddonManifest, type: "MediaType", id: str) -> list["Stream"]:
+    return await self._source.fetch_streams(manifest, type, id)
 ```
 and add `MediaType, MetaDetail, Stream` to `repository.py`'s imports from `gravitas.domain.models`. Then implement `GetDetail.__call__` as `return await self._repo.meta(manifest, type, id)`.
 
@@ -1333,9 +1360,7 @@ class ResolveStream:
     def __init__(self, repo: AddonRepository) -> None:
         self._repo = repo
 
-    async def __call__(
-        self, manifest: AddonManifest, type: MediaType, id: str
-    ) -> list[Stream]:
+    async def __call__(self, manifest: AddonManifest, type: MediaType, id: str) -> list[Stream]:
         streams = await self._repo.streams(manifest, type, id)
         direct = [s for s in streams if s.is_direct]
         if not direct:
@@ -1681,9 +1706,11 @@ def test_poster_model_role_names_are_stringified(qapp: object) -> None:
 
 def test_stream_model(qapp: object) -> None:
     model = StreamListModel()
-    model.set_streams([
-        Stream(name="1080p", title="web", url="http://s/v.mkv", info_hash=None, file_idx=None),
-    ])
+    model.set_streams(
+        [
+            Stream(name="1080p", title="web", url="http://s/v.mkv", info_hash=None, file_idx=None),
+        ]
+    )
     index = model.index(0, 0)
     assert model.data(index, StreamListModel.NameRole) == "1080p"
     assert model.stream_at(0).url == "http://s/v.mkv"

@@ -66,9 +66,9 @@ New frozen, slotted dataclass — the value object a `RatingsResolver` returns:
 ```python
 @dataclass(frozen=True, slots=True)
 class Ratings:
-    rotten_tomatoes: str | None = None       # e.g. "87" (percent, no sign)
-    rotten_tomatoes_fresh: bool | None = None # True if >= 60, else False; None if absent
-    letterboxd: str | None = None            # e.g. "4.1" (out of 5)
+    rotten_tomatoes: str | None = None  # e.g. "87" (percent, no sign)
+    rotten_tomatoes_fresh: bool | None = None  # True if >= 60, else False; None if absent
+    letterboxd: str | None = None  # e.g. "4.1" (out of 5)
 ```
 
 `Ratings()` (all `None`) is the empty/fallback value.
@@ -165,7 +165,7 @@ inline reuse is fine, matching today's inline IMDb pill).
 ## main.py wiring
 
 ```python
-mdblist_key = _KeyHolder(persisted.mdblist_key)          # same holder type as tmdb_key
+mdblist_key = _KeyHolder(persisted.mdblist_key)  # same holder type as tmdb_key
 mdblist_resolver = MdbListResolver(http, lambda: mdblist_key.key)
 get_ratings = GetRatings(mdblist_resolver)
 detail_controller = DetailController(..., get_ratings=get_ratings)

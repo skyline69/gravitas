@@ -36,8 +36,13 @@ Add to `tests/domain/test_models.py`:
 ```python
 def test_meta_detail_enriched_defaults() -> None:
     meta = MetaDetail(
-        id="tt1", type="movie", name="A", description="d",
-        poster=None, background=None, videos=(),
+        id="tt1",
+        type="movie",
+        name="A",
+        description="d",
+        poster=None,
+        background=None,
+        videos=(),
     )
     assert meta.logo is None
     assert meta.year is None
@@ -50,10 +55,20 @@ def test_meta_detail_enriched_defaults() -> None:
 
 def test_meta_detail_enriched_values() -> None:
     meta = MetaDetail(
-        id="tt1", type="movie", name="A", description="d",
-        poster=None, background=None, videos=(),
-        logo="l", year="2026", runtime="102 min", imdb_rating="7.5",
-        genres=("Animation", "Comedy"), cast=("Tom Hanks",), directors=("Dir",),
+        id="tt1",
+        type="movie",
+        name="A",
+        description="d",
+        poster=None,
+        background=None,
+        videos=(),
+        logo="l",
+        year="2026",
+        runtime="102 min",
+        imdb_rating="7.5",
+        genres=("Animation", "Comedy"),
+        cast=("Tom Hanks",),
+        directors=("Dir",),
     )
     assert meta.year == "2026"
     assert meta.genres == ("Animation", "Comedy")
@@ -235,24 +250,41 @@ from gravitas.presentation.models.stream_list_model import StreamListModel
 
 def _manifest() -> AddonManifest:
     return AddonManifest(
-        id="fake", name="F", version="1", resources=("meta", "stream"),
-        types=("movie",), catalogs=(), base_url="https://a/",
+        id="fake",
+        name="F",
+        version="1",
+        resources=("meta", "stream"),
+        types=("movie",),
+        catalogs=(),
+        base_url="https://a/",
     )
 
 
 class FakeGetDetail:
     async def __call__(self, manifest, type, item_id):  # noqa: ANN001, ANN002
         return MetaDetail(
-            id=item_id, type="movie", name="Film", description="d",
-            poster="p", background="b", videos=(),
-            logo="l", year="2026", runtime="102 min", imdb_rating="7.5",
-            genres=("Animation", "Comedy"), cast=("Tom Hanks",), directors=("Dir",),
+            id=item_id,
+            type="movie",
+            name="Film",
+            description="d",
+            poster="p",
+            background="b",
+            videos=(),
+            logo="l",
+            year="2026",
+            runtime="102 min",
+            imdb_rating="7.5",
+            genres=("Animation", "Comedy"),
+            cast=("Tom Hanks",),
+            directors=("Dir",),
         )
 
 
 class FakeResolve:
     async def __call__(self, manifest, type, item_id):  # noqa: ANN001
-        return [Stream(name="1080p", title="web", url="http://s/v.mkv", info_hash=None, file_idx=None)]
+        return [
+            Stream(name="1080p", title="web", url="http://s/v.mkv", info_hash=None, file_idx=None)
+        ]
 
 
 class FailGetDetail:

@@ -281,9 +281,7 @@ def _parse_ratings(payload: dict[str, Any]) -> Ratings:
 
 
 class MdbListResolver:
-    def __init__(
-        self, client: httpx.AsyncClient, get_key: Callable[[], str | None]
-    ) -> None:
+    def __init__(self, client: httpx.AsyncClient, get_key: Callable[[], str | None]) -> None:
         self._client = client
         self._get_key = get_key
         self._cache: TtlCache[Ratings] = TtlCache()
@@ -298,9 +296,7 @@ class MdbListResolver:
             return cached
 
         try:
-            resp = await self._client.get(
-                _API, params={"apikey": key, "i": imdb_id}, timeout=15.0
-            )
+            resp = await self._client.get(_API, params={"apikey": key, "i": imdb_id}, timeout=15.0)
             resp.raise_for_status()
             data = resp.json()
         except (httpx.HTTPError, ValueError) as exc:
@@ -530,22 +526,28 @@ def test_set_mdblist_key_updates_and_persists():
     from gravitas.presentation.controllers.settings_controller import SettingsController
 
     # reuse this file's existing fakes for uninstall/repo/model/catalog/store
-    tmdb_holder = _KeyHolder()          # existing helper in this test module
+    tmdb_holder = _KeyHolder()  # existing helper in this test module
     mdb_holder = _KeyHolder()
-    store = _RecordingStore()           # existing helper capturing saved PersistedSettings
+    store = _RecordingStore()  # existing helper capturing saved PersistedSettings
     ctrl = SettingsController(
-        _FakeUninstall(), _FakeRepo(), _FakeModel(), _FakeCatalog(),
-        tmdb_holder, store, _FakeStyleHolder(), mdb_holder,
+        _FakeUninstall(),
+        _FakeRepo(),
+        _FakeModel(),
+        _FakeCatalog(),
+        tmdb_holder,
+        store,
+        _FakeStyleHolder(),
+        mdb_holder,
     )
 
     assert ctrl.mdblistKey == ""
     ctrl.setMdblistKey("  key-xyz  ")
-    assert mdb_holder.key == "key-xyz"          # trimmed
+    assert mdb_holder.key == "key-xyz"  # trimmed
     assert ctrl.mdblistKey == "key-xyz"
     assert store.saved[-1].mdblist_key == "key-xyz"
 
     ctrl.setMdblistKey("")
-    assert mdb_holder.key is None               # empty clears
+    assert mdb_holder.key is None  # empty clears
 ```
 
 > If the existing test module lacks a matching `_KeyHolder`/`_RecordingStore`/fakes, adapt to whatever doubles it already defines (they exist for the `tmdbKey` tests). Keep the assertions above.
@@ -568,7 +570,7 @@ Add signal in the class body next to the others:
 Add constructor param (after `style_holder`) and store it:
 
 ```python
-        mdblist_key_holder: _KeyHolder | None = None,
+mdblist_key_holder: _KeyHolder | None = (None,)
 ```
 ```python
         self._mdblist_key_holder = mdblist_key_holder
@@ -577,18 +579,19 @@ Add constructor param (after `style_holder`) and store it:
 Add property + slot (mirroring `tmdbKey`):
 
 ```python
-    @Property(str, notify=mdblistKeyChanged)
-    def mdblistKey(self) -> str:
-        if self._mdblist_key_holder is not None and self._mdblist_key_holder.key:
-            return self._mdblist_key_holder.key
-        return ""
+@Property(str, notify=mdblistKeyChanged)
+def mdblistKey(self) -> str:
+    if self._mdblist_key_holder is not None and self._mdblist_key_holder.key:
+        return self._mdblist_key_holder.key
+    return ""
 
-    @Slot(str)
-    def setMdblistKey(self, key: str) -> None:
-        if self._mdblist_key_holder is not None:
-            self._mdblist_key_holder.key = key.strip() or None
-            self.mdblistKeyChanged.emit()
-        self.persist()
+
+@Slot(str)
+def setMdblistKey(self, key: str) -> None:
+    if self._mdblist_key_holder is not None:
+        self._mdblist_key_holder.key = key.strip() or None
+        self.mdblistKeyChanged.emit()
+    self.persist()
 ```
 
 In `persist()`, read the mdblist key and include it in the saved `PersistedSettings`:
@@ -650,6 +653,7 @@ class FakeGetRatings:
 @pytest.mark.asyncio
 async def test_loads_ratings_after_meta(qapp):
     from gravitas.domain.models import Ratings
+
     # FakeGetDetail here must return meta with id="tt123" (imdb id).
     ratings = Ratings(rotten_tomatoes="87", rotten_tomatoes_fresh=True, letterboxd="4.1")
     get_ratings = FakeGetRatings(ratings)
@@ -714,7 +718,7 @@ Add signal beside the others:
 Add constructor parameter (after `progress`) and initialise state:
 
 ```python
-        get_ratings: GetRatings | None = None,
+get_ratings: GetRatings | None = (None,)
 ```
 ```python
         self._get_ratings = get_ratings
@@ -725,17 +729,19 @@ Add constructor parameter (after `progress`) and initialise state:
 Add properties (near `imdbRating`):
 
 ```python
-    @Property(str, notify=ratingsChanged)
-    def rottenTomatoes(self) -> str:
-        return self._ratings.rotten_tomatoes or ""
+@Property(str, notify=ratingsChanged)
+def rottenTomatoes(self) -> str:
+    return self._ratings.rotten_tomatoes or ""
 
-    @Property(bool, notify=ratingsChanged)
-    def rottenTomatoesFresh(self) -> bool:
-        return bool(self._ratings.rotten_tomatoes_fresh)
 
-    @Property(str, notify=ratingsChanged)
-    def letterboxd(self) -> str:
-        return self._ratings.letterboxd or ""
+@Property(bool, notify=ratingsChanged)
+def rottenTomatoesFresh(self) -> bool:
+    return bool(self._ratings.rotten_tomatoes_fresh)
+
+
+@Property(str, notify=ratingsChanged)
+def letterboxd(self) -> str:
+    return self._ratings.letterboxd or ""
 ```
 
 In `load()`, in the reset block (right after `self.metaChanged.emit()` near line 266) add:
