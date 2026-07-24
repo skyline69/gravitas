@@ -26,6 +26,7 @@
 #include <QtGui/QVulkanInstance>
 #include <QtQuick/QQuickWindow>
 #include <QtQuick/QSGRendererInterface>
+#include <QtQuick/QSGTexture>
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -203,7 +204,25 @@ struct GlExt {
     }
 };
 
+// One video resolution's worth of GPU objects: a VkImage (allocated on Qt's
+// device, exportable) that OpenGL imports by FD and renders into, wrapped as a
+// QSGTexture Qt samples. Replaced when the resolution changes; retired rather
+// than freed while the renderer may still hold it.
+struct Surface {
+    VkImage image = VK_NULL_HANDLE;
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+    GLuint glMemory = 0;  // GL memory object importing `memory`'s FD
+    GLuint glTexture = 0;
+    GLuint fbo = 0;
+    QRhiTexture *rhiTexture = nullptr;  // owned by sceneTexture
+    QSGTexture *sceneTexture = nullptr;
+    int width = 0;
+    int height = 0;
+};
+
 }  // namespace
+
+constexpr int kRingSize = 3;
 
 struct GvVideoBridgeVk {
     QQuickWindow *window = nullptr;
@@ -222,17 +241,160 @@ struct GvVideoBridgeVk {
     EGLContext eglContext = EGL_NO_CONTEXT;
     GlExt gl;
 
+    // External-memory / -semaphore FD entry points, loaded from Qt's device.
+    PFN_vkGetMemoryFdKHR getMemoryFd = nullptr;
+    PFN_vkGetSemaphoreFdKHR getSemaphoreFd = nullptr;  // for the sync task
+
     MpvRenderContext *mpv = nullptr;
     // The item to wake when mpv has a frame. Read and written only on the GUI
     // thread -- mpv's thread never touches it (see on_mpv_update).
     QObject *item = nullptr;
     QMetaObject::Connection itemGone;
 
+    // The surface ring and the resolution it was built for. `current` is the
+    // slot last rendered and handed to the node.
+    Surface ring[kRingSize];
+    int current = 0;
+    int surfaceWidth = 0;
+    int surfaceHeight = 0;
+    // Surfaces the batch renderer may still be sampling. Qt gives no way to
+    // ask, so they wait here until the scene graph is gone.
+    std::vector<Surface> retired;
+
     QMetaObject::Connection invalidated;
     bool torn = false;
 };
 
 namespace {
+
+uint32_t pick_memory_type(GvVideoBridgeVk *bridge, uint32_t typeBits, VkMemoryPropertyFlags want)
+{
+    VkPhysicalDeviceMemoryProperties mp;
+    vkGetPhysicalDeviceMemoryProperties(bridge->physicalDevice, &mp);
+    for (uint32_t i = 0; i < mp.memoryTypeCount; ++i) {
+        if ((typeBits & (1u << i)) && (mp.memoryTypes[i].propertyFlags & want) == want)
+            return i;
+    }
+    return UINT32_MAX;
+}
+
+void destroy_surface(GvVideoBridgeVk *bridge, Surface &s)
+{
+    delete s.sceneTexture;  // frees the QRhiTexture it owns
+    if (s.fbo)
+        bridge->gl.deleteFramebuffers(1, &s.fbo);
+    if (s.glTexture)
+        glDeleteTextures(1, &s.glTexture);
+    if (s.glMemory)
+        bridge->gl.deleteMemoryObjects(1, &s.glMemory);
+    if (s.image)
+        vkDestroyImage(bridge->device, s.image, nullptr);
+    if (s.memory)
+        vkFreeMemory(bridge->device, s.memory, nullptr);
+    s = Surface{};
+}
+
+// Allocate one exportable VkImage on Qt's device, import it into GL by FD, wrap
+// it in a GL FBO for mpv and as a QSGTexture for Qt. The EGL context must be
+// current. Returns false with g_error set on any failure.
+bool make_surface(GvVideoBridgeVk *bridge, int width, int height, Surface &out)
+{
+    VkExternalMemoryImageCreateInfo extImage{};
+    extImage.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
+    extImage.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+
+    VkImageCreateInfo ici{};
+    ici.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    ici.pNext = &extImage;
+    ici.imageType = VK_IMAGE_TYPE_2D;
+    ici.format = VK_FORMAT_R8G8B8A8_UNORM;
+    ici.extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
+    ici.mipLevels = 1;
+    ici.arrayLayers = 1;
+    ici.samples = VK_SAMPLE_COUNT_1_BIT;
+    ici.tiling = VK_IMAGE_TILING_OPTIMAL;
+    ici.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+        | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    ici.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (vkCreateImage(bridge->device, &ici, nullptr, &out.image) != VK_SUCCESS) {
+        set_error("vkCreateImage failed");
+        return false;
+    }
+
+    VkMemoryRequirements req;
+    vkGetImageMemoryRequirements(bridge->device, out.image, &req);
+    uint32_t typeIdx =
+        pick_memory_type(bridge, req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (typeIdx == UINT32_MAX) {
+        set_error("no device-local memory type for the surface");
+        return false;
+    }
+
+    VkMemoryDedicatedAllocateInfo dedicated{};
+    dedicated.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
+    dedicated.image = out.image;
+    VkExportMemoryAllocateInfo exportInfo{};
+    exportInfo.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO;
+    exportInfo.pNext = &dedicated;
+    exportInfo.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+    VkMemoryAllocateInfo mai{};
+    mai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    mai.pNext = &exportInfo;
+    mai.allocationSize = req.size;
+    mai.memoryTypeIndex = typeIdx;
+    if (vkAllocateMemory(bridge->device, &mai, nullptr, &out.memory) != VK_SUCCESS) {
+        set_error("vkAllocateMemory failed");
+        return false;
+    }
+    vkBindImageMemory(bridge->device, out.image, out.memory, 0);
+
+    VkMemoryGetFdInfoKHR getFd{};
+    getFd.sType = VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR;
+    getFd.memory = out.memory;
+    getFd.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+    int fd = -1;
+    if (bridge->getMemoryFd(bridge->device, &getFd, &fd) != VK_SUCCESS || fd < 0) {
+        set_error("vkGetMemoryFdKHR failed");
+        return false;
+    }
+
+    // GL imports the FD (taking ownership of it) and backs a texture with that
+    // memory. Tiling must match the VkImage (OPTIMAL) or the sample is garbage.
+    bridge->gl.createMemoryObjects(1, &out.glMemory);
+    bridge->gl.importMemoryFd(out.glMemory, req.size, GL_HANDLE_TYPE_OPAQUE_FD_EXT, fd);
+    bridge->gl.createTextures(GL_TEXTURE_2D, 1, &out.glTexture);
+    bridge->gl.textureParameteri(out.glTexture, GL_TEXTURE_TILING_EXT, GL_OPTIMAL_TILING_EXT);
+    bridge->gl.textureStorageMem2D(out.glTexture, 1, GL_RGBA8, width, height, out.glMemory, 0);
+    if (GLenum err = glGetError()) {
+        char msg[64];
+        std::snprintf(msg, sizeof(msg), "GL memory import failed (0x%x)", err);
+        set_error(msg);
+        return false;
+    }
+    bridge->gl.createFramebuffers(1, &out.fbo);
+    bridge->gl.namedFramebufferTexture(out.fbo, GL_COLOR_ATTACHMENT0, out.glTexture, 0);
+
+    out.rhiTexture = bridge->rhi->newTexture(QRhiTexture::RGBA8, QSize(width, height), 1);
+    QRhiTexture::NativeTexture native{quint64(out.image), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    if (!out.rhiTexture->createFrom(native)) {
+        delete out.rhiTexture;
+        out.rhiTexture = nullptr;
+        set_error("QRhiTexture::createFrom failed");
+        return false;
+    }
+    out.sceneTexture =
+        bridge->window->createTextureFromRhiTexture(out.rhiTexture, QQuickWindow::TextureIsOpaque);
+    if (!out.sceneTexture) {
+        delete out.rhiTexture;
+        out.rhiTexture = nullptr;
+        set_error("createTextureFromRhiTexture failed");
+        return false;
+    }
+    out.width = width;
+    out.height = height;
+    return true;
+}
 
 // mpv's update callback, on mpv's thread. It must NOT read bridge->item here:
 // the item can start dying between the check and the post, a race the item's
@@ -263,6 +425,14 @@ void tear_down(GvVideoBridgeVk *bridge)
     if (bridge->torn)
         return;
     bridge->torn = true;
+    // Freeing the GL and QRhi objects needs our context current.
+    if (bridge->egl != EGL_NO_DISPLAY)
+        eglMakeCurrent(bridge->egl, EGL_NO_SURFACE, EGL_NO_SURFACE, bridge->eglContext);
+    for (Surface &s : bridge->ring)
+        destroy_surface(bridge, s);
+    for (Surface &s : bridge->retired)
+        destroy_surface(bridge, s);
+    bridge->retired.clear();
     if (bridge->mpv) {
         g_mpv.setUpdateCallback(bridge->mpv, nullptr, nullptr);
         g_mpv.free(bridge->mpv);
@@ -414,6 +584,15 @@ GvVideoBridgeVk *gv_video_bridge_vk_create(void *window, void *mpv)
         return nullptr;
     }
 
+    // FD export entry points, valid only if main.py requested the matching
+    // device extensions before the scene graph came up.
+    bridge->getMemoryFd =
+        (PFN_vkGetMemoryFdKHR)vkGetDeviceProcAddr(bridge->device, "vkGetMemoryFdKHR");
+    bridge->getSemaphoreFd =
+        (PFN_vkGetSemaphoreFdKHR)vkGetDeviceProcAddr(bridge->device, "vkGetSemaphoreFdKHR");
+    if (!bridge->getMemoryFd)
+        logf("warning: VK_KHR_external_memory_fd not enabled on Qt's device; set_size will fail");
+
     MpvOpenGLInitParams glInit{gl_symbol, nullptr};
     MpvRenderParam params[] = {
         {MPV_RENDER_PARAM_API_TYPE, const_cast<char *>("opengl")},
@@ -452,11 +631,37 @@ void gv_video_bridge_vk_destroy(GvVideoBridgeVk *bridge)
 
 int gv_video_bridge_vk_set_size(GvVideoBridgeVk *bridge, int width, int height)
 {
-    (void)bridge;
-    (void)width;
-    (void)height;
-    set_error("not implemented");
-    return 0;
+    if (!bridge || bridge->torn) {
+        set_error("bridge is not usable");
+        return 0;
+    }
+    if (width <= 0 || height <= 0) {
+        set_error("bad surface size");
+        return 0;
+    }
+    if (width == bridge->surfaceWidth && height == bridge->surfaceHeight)
+        return 1;
+    if (!bridge->getMemoryFd) {
+        set_error("VK_KHR_external_memory_fd not enabled on Qt's device");
+        return 0;
+    }
+    eglMakeCurrent(bridge->egl, EGL_NO_SURFACE, EGL_NO_SURFACE, bridge->eglContext);
+
+    // Retire the old ring rather than freeing it: the batch renderer may still
+    // be sampling last frame's texture. They are released at teardown.
+    for (Surface &s : bridge->ring) {
+        if (s.sceneTexture || s.image)
+            bridge->retired.push_back(s);
+        s = Surface{};
+    }
+    for (int i = 0; i < kRingSize; ++i) {
+        if (!make_surface(bridge, width, height, bridge->ring[i]))
+            return 0;
+    }
+    bridge->surfaceWidth = width;
+    bridge->surfaceHeight = height;
+    bridge->current = 0;
+    return 1;
 }
 
 void gv_video_bridge_vk_set_item(GvVideoBridgeVk *bridge, void *itemPtr)
@@ -482,21 +687,40 @@ int gv_video_bridge_vk_stale(GvVideoBridgeVk *bridge)
 
 int gv_video_bridge_vk_render(GvVideoBridgeVk *bridge)
 {
-    (void)bridge;
-    set_error("not implemented");
-    return 0;
+    if (!bridge || bridge->torn || !bridge->mpv || bridge->surfaceWidth == 0)
+        return 0;
+    eglMakeCurrent(bridge->egl, EGL_NO_SURFACE, EGL_NO_SURFACE, bridge->eglContext);
+
+    int next = (bridge->current + 1) % kRingSize;
+    Surface &s = bridge->ring[next];
+
+    MpvOpenGLFBO fbo{static_cast<int>(s.fbo), s.width, s.height, GL_RGBA8};
+    int flipY = 0;
+    int block = 0;
+    MpvRenderParam params[] = {
+        {MPV_RENDER_PARAM_OPENGL_FBO, &fbo},
+        {MPV_RENDER_PARAM_FLIP_Y, &flipY},
+        {MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME, &block},
+        {MPV_RENDER_PARAM_INVALID, nullptr},
+    };
+    g_mpv.render(bridge->mpv, params);
+    // Task 7 uses a full GL flush to guarantee the frame is visible before Qt
+    // samples it. The sync task replaces this with cross-API semaphores.
+    glFinish();
+    bridge->current = next;
+    return 1;
 }
 
 void *gv_video_bridge_vk_texture(GvVideoBridgeVk *bridge)
 {
-    (void)bridge;
-    return nullptr;
+    if (!bridge || bridge->surfaceWidth == 0)
+        return nullptr;
+    return bridge->ring[bridge->current].sceneTexture;
 }
 
 const char *gv_video_bridge_vk_format(GvVideoBridgeVk *bridge)
 {
-    (void)bridge;
-    return "";
+    return (bridge && bridge->surfaceWidth) ? "rgba8" : "";
 }
 
 }  // extern "C"

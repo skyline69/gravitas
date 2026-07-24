@@ -598,6 +598,27 @@ def build_app(
     # Windows, and the engine then loads nothing at all.
     engine.load(QUrl.fromLocalFile(str(_QML_DIR / "Main.qml")))
 
+    if backend == "vulkan":
+        # Qt does not enable the external-memory / external-semaphore FD device
+        # extensions the zero-copy bridge needs to export a VkImage and a
+        # semaphore to OpenGL, so request them now -- after the window exists but
+        # before the scene graph initialises (on first expose, in the event loop
+        # main() runs). The core VK_KHR_external_memory / _semaphore are already
+        # part of Vulkan 1.1, so only the _fd extensions have to be named.
+        from PySide6.QtCore import QByteArray
+        from PySide6.QtQuick import QQuickGraphicsConfiguration
+
+        vk_config = QQuickGraphicsConfiguration()
+        vk_config.setDeviceExtensions(
+            [
+                QByteArray(b"VK_KHR_external_memory_fd"),
+                QByteArray(b"VK_KHR_external_semaphore_fd"),
+            ]
+        )
+        for _root in engine.rootObjects():
+            if isinstance(_root, QQuickWindow):
+                _root.setGraphicsConfiguration(vk_config)
+
     # setContextProperty does not take ownership of the QObject in PySide6: if
     # no Python reference to these controllers/models survives past this
     # function, they are garbage-collected and the QML context properties
