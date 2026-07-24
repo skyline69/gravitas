@@ -216,6 +216,11 @@ struct Surface {
     GLuint fbo = 0;
     QRhiTexture *rhiTexture = nullptr;  // owned by sceneTexture
     QSGTexture *sceneTexture = nullptr;
+    // "GL is done writing this slot": signalled by GL after mpv renders, waited
+    // by Qt's Vulkan queue before it samples. The wait carries the memory of
+    // the GL writes across to Vulkan -- glFinish alone does not.
+    VkSemaphore glDoneVk = VK_NULL_HANDLE;
+    GLuint glDoneGl = 0;
     int width = 0;
     int height = 0;
 };
@@ -243,7 +248,13 @@ struct GvVideoBridgeVk {
 
     // External-memory / -semaphore FD entry points, loaded from Qt's device.
     PFN_vkGetMemoryFdKHR getMemoryFd = nullptr;
-    PFN_vkGetSemaphoreFdKHR getSemaphoreFd = nullptr;  // for the sync task
+    PFN_vkGetSemaphoreFdKHR getSemaphoreFd = nullptr;
+
+    // For the per-frame acquire barrier that makes GL's writes visible to Qt's
+    // sampler. Reused every frame; owned by the bridge.
+    VkCommandPool cmdPool = VK_NULL_HANDLE;
+    VkCommandBuffer cmdBuffer = VK_NULL_HANDLE;
+    VkFence fence = VK_NULL_HANDLE;
 
     MpvRenderContext *mpv = nullptr;
     // The item to wake when mpv has a frame. Read and written only on the GUI
@@ -281,6 +292,10 @@ uint32_t pick_memory_type(GvVideoBridgeVk *bridge, uint32_t typeBits, VkMemoryPr
 void destroy_surface(GvVideoBridgeVk *bridge, Surface &s)
 {
     delete s.sceneTexture;  // frees the QRhiTexture it owns
+    if (s.glDoneGl)
+        bridge->gl.deleteSemaphores(1, &s.glDoneGl);
+    if (s.glDoneVk)
+        vkDestroySemaphore(bridge->device, s.glDoneVk, nullptr);
     if (s.fbo)
         bridge->gl.deleteFramebuffers(1, &s.fbo);
     if (s.glTexture)
@@ -391,6 +406,30 @@ bool make_surface(GvVideoBridgeVk *bridge, int width, int height, Surface &out)
         set_error("createTextureFromRhiTexture failed");
         return false;
     }
+
+    // The GL-done semaphore: an exportable binary VkSemaphore imported into GL.
+    VkExportSemaphoreCreateInfo exportSem{};
+    exportSem.sType = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO;
+    exportSem.handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
+    VkSemaphoreCreateInfo sci{};
+    sci.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    sci.pNext = &exportSem;
+    if (vkCreateSemaphore(bridge->device, &sci, nullptr, &out.glDoneVk) != VK_SUCCESS) {
+        set_error("vkCreateSemaphore failed");
+        return false;
+    }
+    VkSemaphoreGetFdInfoKHR semFdInfo{};
+    semFdInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR;
+    semFdInfo.semaphore = out.glDoneVk;
+    semFdInfo.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
+    int semFd = -1;
+    if (bridge->getSemaphoreFd(bridge->device, &semFdInfo, &semFd) != VK_SUCCESS || semFd < 0) {
+        set_error("vkGetSemaphoreFdKHR failed");
+        return false;
+    }
+    bridge->gl.genSemaphores(1, &out.glDoneGl);
+    bridge->gl.importSemaphoreFd(out.glDoneGl, GL_HANDLE_TYPE_OPAQUE_FD_EXT, semFd);
+
     out.width = width;
     out.height = height;
     return true;
@@ -433,6 +472,14 @@ void tear_down(GvVideoBridgeVk *bridge)
     for (Surface &s : bridge->retired)
         destroy_surface(bridge, s);
     bridge->retired.clear();
+    if (bridge->fence) {
+        vkDestroyFence(bridge->device, bridge->fence, nullptr);
+        bridge->fence = VK_NULL_HANDLE;
+    }
+    if (bridge->cmdPool) {
+        vkDestroyCommandPool(bridge->device, bridge->cmdPool, nullptr);
+        bridge->cmdPool = VK_NULL_HANDLE;
+    }
     if (bridge->mpv) {
         g_mpv.setUpdateCallback(bridge->mpv, nullptr, nullptr);
         g_mpv.free(bridge->mpv);
@@ -593,6 +640,22 @@ GvVideoBridgeVk *gv_video_bridge_vk_create(void *window, void *mpv)
     if (!bridge->getMemoryFd)
         logf("warning: VK_KHR_external_memory_fd not enabled on Qt's device; set_size will fail");
 
+    // A command buffer + fence for the per-frame acquire barrier.
+    VkCommandPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    poolInfo.queueFamilyIndex = bridge->queueFamily;
+    vkCreateCommandPool(bridge->device, &poolInfo, nullptr, &bridge->cmdPool);
+    VkCommandBufferAllocateInfo cbInfo{};
+    cbInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    cbInfo.commandPool = bridge->cmdPool;
+    cbInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    cbInfo.commandBufferCount = 1;
+    vkAllocateCommandBuffers(bridge->device, &cbInfo, &bridge->cmdBuffer);
+    VkFenceCreateInfo fenceInfo{};
+    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    vkCreateFence(bridge->device, &fenceInfo, nullptr, &bridge->fence);
+
     MpvOpenGLInitParams glInit{gl_symbol, nullptr};
     MpvRenderParam params[] = {
         {MPV_RENDER_PARAM_API_TYPE, const_cast<char *>("opengl")},
@@ -641,8 +704,8 @@ int gv_video_bridge_vk_set_size(GvVideoBridgeVk *bridge, int width, int height)
     }
     if (width == bridge->surfaceWidth && height == bridge->surfaceHeight)
         return 1;
-    if (!bridge->getMemoryFd) {
-        set_error("VK_KHR_external_memory_fd not enabled on Qt's device");
+    if (!bridge->getMemoryFd || !bridge->getSemaphoreFd) {
+        set_error("VK_KHR_external_memory_fd/_semaphore_fd not enabled on Qt's device");
         return 0;
     }
     eglMakeCurrent(bridge->egl, EGL_NO_SURFACE, EGL_NO_SURFACE, bridge->eglContext);
@@ -704,9 +767,54 @@ int gv_video_bridge_vk_render(GvVideoBridgeVk *bridge)
         {MPV_RENDER_PARAM_INVALID, nullptr},
     };
     g_mpv.render(bridge->mpv, params);
-    // Task 7 uses a full GL flush to guarantee the frame is visible before Qt
-    // samples it. The sync task replaces this with cross-API semaphores.
-    glFinish();
+
+    // Signal "GL done" and transition the texture to shader-read layout so it
+    // is ready for Vulkan to sample. flush so the signal actually reaches the
+    // GPU.
+    GLenum dstLayout = GL_LAYOUT_SHADER_READ_ONLY_EXT;
+    bridge->gl.signalSemaphore(s.glDoneGl, 0, nullptr, 1, &s.glTexture, &dstLayout);
+    glFlush();
+
+    // Acquire the image on Qt's device: a barrier, waiting on the GL-done
+    // semaphore, that makes GL's writes AVAILABLE and VISIBLE to Qt's sampler.
+    // glFinish alone could not do this -- it orders GL's own timeline but leaves
+    // the shared memory unacquired on the Vulkan side, which is what showed as a
+    // per-frame black flicker. Fence-waited here so the frame is complete and
+    // visible before this returns and Qt composites it.
+    vkResetCommandBuffer(bridge->cmdBuffer, 0);
+    VkCommandBufferBeginInfo begin{};
+    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(bridge->cmdBuffer, &begin);
+    VkImageMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.srcAccessMask = 0;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = s.image;
+    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(bridge->cmdBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1,
+                         &barrier);
+    vkEndCommandBuffer(bridge->cmdBuffer);
+
+    VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    VkSubmitInfo submit{};
+    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit.waitSemaphoreCount = 1;
+    submit.pWaitSemaphores = &s.glDoneVk;
+    submit.pWaitDstStageMask = &waitStage;
+    submit.commandBufferCount = 1;
+    submit.pCommandBuffers = &bridge->cmdBuffer;
+    // Same thread (render thread) owns every use of Qt's queue, so no external
+    // queue synchronisation is needed.
+    vkQueueSubmit(bridge->queue, 1, &submit, bridge->fence);
+    vkWaitForFences(bridge->device, 1, &bridge->fence, VK_TRUE, UINT64_MAX);
+    vkResetFences(bridge->device, 1, &bridge->fence);
+
     bridge->current = next;
     return 1;
 }
