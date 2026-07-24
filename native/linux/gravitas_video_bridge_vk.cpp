@@ -225,6 +225,23 @@ struct Surface {
     int height = 0;
 };
 
+// The one surface format, agreed across all four views of the same memory:
+// Vulkan (Qt's sampler), OpenGL storage, QRhi, and the FBO mpv renders into.
+// 8-bit unorm. Higher-precision surfaces (RGB10A2, RGBA16F) render correctly
+// but flicker black every other frame through Qt's scene-graph compositing --
+// on SDR content as much as HDR, with Vulkan synchronisation validation
+// reporting no hazard, so the fault is in Qt's handling of an imported
+// non-RGBA8 texture, not our sync. RGBA8 is rock solid. 10-bit / HDR is a
+// separate milestone that has to solve that Qt-side path first.
+struct SurfaceFormat {
+    VkFormat vk;
+    GLenum glInternal;
+    QRhiTexture::Format qt;
+    const char *name;
+};
+
+constexpr SurfaceFormat kSurface{VK_FORMAT_R8G8B8A8_UNORM, GL_RGBA8, QRhiTexture::RGBA8, "rgba8"};
+
 }  // namespace
 
 constexpr int kRingSize = 3;
@@ -322,7 +339,7 @@ bool make_surface(GvVideoBridgeVk *bridge, int width, int height, Surface &out)
     ici.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     ici.pNext = &extImage;
     ici.imageType = VK_IMAGE_TYPE_2D;
-    ici.format = VK_FORMAT_R8G8B8A8_UNORM;
+    ici.format = kSurface.vk;
     ici.extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
     ici.mipLevels = 1;
     ici.arrayLayers = 1;
@@ -380,7 +397,8 @@ bool make_surface(GvVideoBridgeVk *bridge, int width, int height, Surface &out)
     bridge->gl.importMemoryFd(out.glMemory, req.size, GL_HANDLE_TYPE_OPAQUE_FD_EXT, fd);
     bridge->gl.createTextures(GL_TEXTURE_2D, 1, &out.glTexture);
     bridge->gl.textureParameteri(out.glTexture, GL_TEXTURE_TILING_EXT, GL_OPTIMAL_TILING_EXT);
-    bridge->gl.textureStorageMem2D(out.glTexture, 1, GL_RGBA8, width, height, out.glMemory, 0);
+    bridge->gl.textureStorageMem2D(out.glTexture, 1, kSurface.glInternal, width, height,
+                                   out.glMemory, 0);
     if (GLenum err = glGetError()) {
         char msg[64];
         std::snprintf(msg, sizeof(msg), "GL memory import failed (0x%x)", err);
@@ -390,7 +408,7 @@ bool make_surface(GvVideoBridgeVk *bridge, int width, int height, Surface &out)
     bridge->gl.createFramebuffers(1, &out.fbo);
     bridge->gl.namedFramebufferTexture(out.fbo, GL_COLOR_ATTACHMENT0, out.glTexture, 0);
 
-    out.rhiTexture = bridge->rhi->newTexture(QRhiTexture::RGBA8, QSize(width, height), 1);
+    out.rhiTexture = bridge->rhi->newTexture(kSurface.qt, QSize(width, height), 1);
     QRhiTexture::NativeTexture native{quint64(out.image), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
     if (!out.rhiTexture->createFrom(native)) {
         delete out.rhiTexture;
@@ -757,7 +775,8 @@ int gv_video_bridge_vk_render(GvVideoBridgeVk *bridge)
     int next = (bridge->current + 1) % kRingSize;
     Surface &s = bridge->ring[next];
 
-    MpvOpenGLFBO fbo{static_cast<int>(s.fbo), s.width, s.height, GL_RGBA8};
+    MpvOpenGLFBO fbo{static_cast<int>(s.fbo), s.width, s.height,
+                     static_cast<int>(kSurface.glInternal)};
     int flipY = 0;
     int block = 0;
     MpvRenderParam params[] = {
@@ -828,7 +847,7 @@ void *gv_video_bridge_vk_texture(GvVideoBridgeVk *bridge)
 
 const char *gv_video_bridge_vk_format(GvVideoBridgeVk *bridge)
 {
-    return (bridge && bridge->surfaceWidth) ? "rgba8" : "";
+    return (bridge && bridge->surfaceWidth) ? kSurface.name : "";
 }
 
 }  // extern "C"
