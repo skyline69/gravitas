@@ -66,3 +66,55 @@ def test_loader_refuses_a_stale_abi(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ctypes, "CDLL", lambda _path: object())
     with pytest.raises(vulkan_bridge.BridgeUnavailable, match="rebuild the bridge"):
         vulkan_bridge.library()
+
+
+class _ProbingLibrary:
+    """A loadable, Qt-matching bridge whose driver probe answers as told."""
+
+    def __init__(self, works: bool) -> None:
+        self._works = works
+
+    def gv_video_bridge_vk_abi(self) -> int:
+        return vulkan_bridge._ABI
+
+    def gv_video_bridge_vk_qt_version(self) -> bytes:
+        from PySide6.QtCore import qVersion
+
+        return qVersion().encode()
+
+    def gv_video_bridge_vk_probe(self) -> int:
+        return 1 if self._works else 0
+
+    def gv_video_bridge_vk_error(self) -> bytes:
+        return b"GL memory import failed (0x505)"
+
+
+def _install(monkeypatch: pytest.MonkeyPatch, library: object) -> None:
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(vulkan_bridge, "_library", None)
+    monkeypatch.setattr(vulkan_bridge.Path, "is_file", lambda _self: True)
+    monkeypatch.setattr(vulkan_bridge, "_bind", lambda _lib: library)
+    monkeypatch.setattr(ctypes, "CDLL", lambda _path: object())
+
+
+def test_interop_is_supported_when_the_driver_does_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install(monkeypatch, _ProbingLibrary(works=True))
+    assert vulkan_bridge.interop_supported() is True
+
+
+def test_a_driver_that_advertises_but_refuses_is_not_supported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Mesa's llvmpipe loads fine, matches Qt, offers every extension the bridge
+    # needs, and then fails the import. Loading is not the same question.
+    _install(monkeypatch, _ProbingLibrary(works=False))
+    assert vulkan_bridge.available() is True
+    assert vulkan_bridge.interop_supported() is False
+
+
+def test_interop_is_unsupported_when_the_library_will_not_load(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(vulkan_bridge, "_library", None)
+    assert vulkan_bridge.interop_supported() is False

@@ -23,7 +23,7 @@ from PySide6.QtCore import qVersion
 _log = logging.getLogger(__name__)
 
 # Kept in step with GV_VIDEO_BRIDGE_ABI in the header.
-_ABI = 1
+_ABI = 2
 _LIBRARY = Path(__file__).parent / "libgravitas_video_bridge_vk.so"
 
 
@@ -41,6 +41,8 @@ def _bind(library: ctypes.CDLL) -> ctypes.CDLL:
     library.gv_video_bridge_vk_qt_version.restype = ctypes.c_char_p
     library.gv_video_bridge_vk_error.argtypes = []
     library.gv_video_bridge_vk_error.restype = ctypes.c_char_p
+    library.gv_video_bridge_vk_probe.argtypes = []
+    library.gv_video_bridge_vk_probe.restype = ctypes.c_int
     library.gv_video_bridge_vk_create.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
     library.gv_video_bridge_vk_create.restype = ctypes.c_void_p
     library.gv_video_bridge_vk_destroy.argtypes = [ctypes.c_void_p]
@@ -111,6 +113,29 @@ def available() -> bool:
     except BridgeUnavailable:
         return False
     return True
+
+
+def interop_supported() -> bool:
+    """Whether this machine's drivers actually do the GL/Vulkan interop.
+
+    Separate from `available()`, which only answers whether the library loaded
+    and matches Qt. A driver can advertise every extension the bridge needs and
+    still refuse the import -- Mesa's llvmpipe does exactly that, failing every
+    imported allocation with GL_OUT_OF_MEMORY -- so the only reliable question
+    is whether it works, which is what the native probe asks by doing it.
+
+    Must be answered before the scene graph is committed to Vulkan: after that
+    there is no way back to OpenGL, and the failure reaches the user as a black
+    video rather than as a slower one.
+    """
+    try:
+        bridge = library()
+    except BridgeUnavailable:
+        return False
+    if bridge.gv_video_bridge_vk_probe():
+        return True
+    _log.info("GPU cannot do zero-copy GL/Vulkan interop (%s)", last_error(bridge))
+    return False
 
 
 def last_error(library_: ctypes.CDLL) -> str:

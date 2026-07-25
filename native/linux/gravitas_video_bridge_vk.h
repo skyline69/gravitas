@@ -44,7 +44,7 @@ extern "C" {
 // which is what keeps a stale build from being loaded against newer Python.
 // Distinct from the macOS bridge's number and namespace so the two can never
 // be cross-loaded.
-#define GV_VIDEO_BRIDGE_VK_ABI 1
+#define GV_VIDEO_BRIDGE_VK_ABI 2
 
 // The library is built with -fvisibility=hidden so nothing but these entry
 // points is exported; each one has to opt back in.
@@ -60,6 +60,25 @@ GV_API const char *gv_video_bridge_vk_qt_version(void);
 
 // Why the last call that returned a failure failed. Thread-local.
 GV_API const char *gv_video_bridge_vk_error(void);
+
+// Whether this machine's drivers can actually do the GL/Vulkan interop, on
+// its own instance and device, before Qt exists. 1 if yes.
+//
+// Advertising the extensions is not the same as implementing them: Mesa's
+// llvmpipe offers all four of EXT_memory_object(_fd) and EXT_semaphore(_fd)
+// and then fails every imported allocation with GL_OUT_OF_MEMORY. Asking the
+// driver to do the thing is the only reliable question.
+//
+// This has to answer BEFORE QQuickWindow::setGraphicsApi, because that is the
+// last moment the caller can still choose OpenGL -- a bridge that fails later
+// leaves the scene graph on Vulkan with no way back and the user watching a
+// black rectangle. Hence its own throwaway VkInstance/VkDevice: Qt's are not
+// available yet, and the point is not to need them.
+//
+// It probes the FIRST physical device, which is the one Qt's QRhi takes unless
+// QT_VK_PHYSICAL_DEVICE_INDEX says otherwise. On a multi-GPU machine with that
+// variable set, this can answer for a different device than Qt will use.
+GV_API int gv_video_bridge_vk_probe(void);
 
 typedef struct GvVideoBridgeVk GvVideoBridgeVk;
 

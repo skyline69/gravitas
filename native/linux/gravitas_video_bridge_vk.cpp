@@ -444,24 +444,30 @@ bool make_shared_semaphore(GvVideoBridgeVk *bridge, VkSemaphore &vk, GLuint &gl)
 // Allocate one exportable VkImage on Qt's device, import it into GL by FD, wrap
 // it in a GL FBO for mpv and as a QSGTexture for Qt. The EGL context must be
 // current. Returns false with g_error set on any failure.
-bool make_surface(GvVideoBridgeVk *bridge, int width, int height, Surface &out)
+// Frees a half-built surface unless whoever is building it commits. Both
+// builders below have many more ways out than in, and most of them are past
+// the image allocation -- without this the caller keeps half a surface it has
+// no way to reach again, a VkImage and its dedicated memory, 28 MB of it at
+// 4K. destroy_surface is null-safe field by field, so it does the right thing
+// at any point in either sequence.
+struct SurfaceCleanup {
+    GvVideoBridgeVk *bridge;
+    Surface *surface;
+    bool armed = true;
+    ~SurfaceCleanup()
+    {
+        if (armed)
+            destroy_surface(bridge, *surface);
+    }
+};
+
+// The half of a surface that only needs a GPU: an exportable VkImage, its FD
+// imported into GL, and a framebuffer over it. This is where drivers actually
+// differ, so it is also what gv_video_bridge_vk_probe() runs on its own device
+// before Qt exists. The EGL context must be current.
+bool make_surface_gpu_only(GvVideoBridgeVk *bridge, int width, int height, Surface &out)
 {
-    // Any failure below has to leave `out` empty. There are seven ways out of
-    // this function and most of them are past the image allocation, so without
-    // this the caller keeps half a surface it has no way to reach again -- a
-    // VkImage and its dedicated memory, 28 MB of it at 4K, plus whatever GL
-    // objects had been imported. destroy_surface is null-safe field by field,
-    // so it does the right thing at any point in the sequence.
-    struct Cleanup {
-        GvVideoBridgeVk *bridge;
-        Surface *surface;
-        bool armed = true;
-        ~Cleanup()
-        {
-            if (armed)
-                destroy_surface(bridge, *surface);
-        }
-    } cleanup{bridge, &out};
+    SurfaceCleanup cleanup{bridge, &out};
 
     VkExternalMemoryImageCreateInfo extImage{};
     extImage.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
@@ -550,6 +556,20 @@ bool make_surface(GvVideoBridgeVk *bridge, int width, int height, Surface &out)
     bridge->gl.createFramebuffers(1, &out.fbo);
     bridge->gl.namedFramebufferTexture(out.fbo, GL_COLOR_ATTACHMENT0, out.glTexture, 0);
 
+    out.width = width;
+    out.height = height;
+    cleanup.armed = false;
+    return true;
+}
+
+// The whole thing: the GPU half above, plus Qt's view of the image and the two
+// semaphores that order GL against Qt's sampler.
+bool make_surface(GvVideoBridgeVk *bridge, int width, int height, Surface &out)
+{
+    if (!make_surface_gpu_only(bridge, width, height, out))
+        return false;
+    SurfaceCleanup cleanup{bridge, &out};
+
     out.rhiTexture = bridge->rhi->newTexture(surface_format().qt, QSize(width, height), 1);
     QRhiTexture::NativeTexture native{quint64(out.image), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
     if (!out.rhiTexture->createFrom(native)) {
@@ -576,6 +596,27 @@ bool make_surface(GvVideoBridgeVk *bridge, int width, int height, Surface &out)
     out.width = width;
     out.height = height;
     cleanup.armed = false;
+    return true;
+}
+
+// Actually perform the interop once, on a 64x64 throwaway, and report whether
+// the driver did it.
+//
+// Advertising the extensions is not the same as implementing them: Mesa's
+// llvmpipe exposes all four of EXT_memory_object(_fd) and EXT_semaphore(_fd)
+// and then fails glTextureStorageMem2DEXT with GL_OUT_OF_MEMORY on every
+// imported allocation. Without this probe that driver reaches set_size --
+// which happens once a video is already playing, long after main.py committed
+// the scene graph to Vulkan -- and the user gets a black player and a log
+// line, with no way back to OpenGL. Failing here instead is a fallback.
+//
+// Cheap enough to be unconditional: one small image, allocated and freed.
+bool interop_works(GvVideoBridgeVk *bridge)
+{
+    Surface probe;
+    if (!make_surface(bridge, 64, 64, probe))
+        return false;
+    destroy_surface(bridge, probe);
     return true;
 }
 
@@ -718,6 +759,98 @@ extern "C" {
 
 int gv_video_bridge_vk_abi(void) { return GV_VIDEO_BRIDGE_VK_ABI; }
 
+int gv_video_bridge_vk_probe(void)
+{
+    // A whole throwaway stack: instance, device, EGL context, one 64x64 image
+    // exported and imported. Everything is torn down before returning, and
+    // nothing here touches Qt -- the entire point is to answer while the
+    // caller can still choose OpenGL instead.
+    VkInstance instance = VK_NULL_HANDLE;
+    VkApplicationInfo appInfo{};
+    appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+    appInfo.apiVersion = VK_API_VERSION_1_1;  // for VkPhysicalDeviceIDProperties
+    VkInstanceCreateInfo instanceInfo{};
+    instanceInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    instanceInfo.pApplicationInfo = &appInfo;
+    if (vkCreateInstance(&instanceInfo, nullptr, &instance) != VK_SUCCESS) {
+        set_error("no Vulkan instance");
+        return 0;
+    }
+    // Everything below unwinds through this on the way out, in reverse.
+    GvVideoBridgeVk probe;
+    int verdict = 0;
+
+    uint32_t deviceCount = 0;
+    vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
+    std::vector<VkPhysicalDevice> devices(deviceCount);
+    if (deviceCount)
+        vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
+    if (!deviceCount) {
+        set_error("no Vulkan physical device");
+        vkDestroyInstance(instance, nullptr);
+        return 0;
+    }
+    probe.physicalDevice = devices[0];
+
+    VkPhysicalDeviceIDProperties idProps{};
+    idProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES;
+    VkPhysicalDeviceProperties2 props2{};
+    props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+    props2.pNext = &idProps;
+    vkGetPhysicalDeviceProperties2(probe.physicalDevice, &props2);
+    std::memcpy(probe.deviceUuid, idProps.deviceUUID, VK_UUID_SIZE);
+
+    float priority = 1.0f;
+    VkDeviceQueueCreateInfo queueInfo{};
+    queueInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+    queueInfo.queueCount = 1;
+    queueInfo.pQueuePriorities = &priority;
+    const char *deviceExts[] = {"VK_KHR_external_memory_fd", "VK_KHR_external_semaphore_fd"};
+    VkDeviceCreateInfo deviceInfo{};
+    deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    deviceInfo.queueCreateInfoCount = 1;
+    deviceInfo.pQueueCreateInfos = &queueInfo;
+    deviceInfo.enabledExtensionCount = 2;
+    deviceInfo.ppEnabledExtensionNames = deviceExts;
+    if (vkCreateDevice(probe.physicalDevice, &deviceInfo, nullptr, &probe.device) != VK_SUCCESS) {
+        set_error("driver has no VK_KHR_external_memory_fd/_semaphore_fd");
+        vkDestroyInstance(instance, nullptr);
+        return 0;
+    }
+    probe.getMemoryFd =
+        (PFN_vkGetMemoryFdKHR)vkGetDeviceProcAddr(probe.device, "vkGetMemoryFdKHR");
+    probe.getSemaphoreFd =
+        (PFN_vkGetSemaphoreFdKHR)vkGetDeviceProcAddr(probe.device, "vkGetSemaphoreFdKHR");
+
+    if (probe.getMemoryFd && probe.getSemaphoreFd && bring_up_egl(&probe) && probe.gl.load()) {
+        // make_surface needs a QRhi to wrap the image for the scene graph, and
+        // there is none yet. Everything before that wrap is what drivers
+        // actually differ on, so the probe stops there: allocate, export,
+        // import, give GL the storage, ask whether it complained.
+        Surface surface;
+        verdict = make_surface_gpu_only(&probe, 64, 64, surface) ? 1 : 0;
+        destroy_surface(&probe, surface);
+    } else if (!probe.getMemoryFd || !probe.getSemaphoreFd) {
+        set_error("vkGetMemoryFdKHR/vkGetSemaphoreFdKHR missing");
+    }
+
+    if (probe.egl != EGL_NO_DISPLAY) {
+        eglMakeCurrent(probe.egl, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        if (probe.eglContext != EGL_NO_CONTEXT)
+            eglDestroyContext(probe.egl, probe.eglContext);
+        eglTerminate(probe.egl);
+        probe.egl = EGL_NO_DISPLAY;
+        probe.eglContext = EGL_NO_CONTEXT;
+    }
+    vkDestroyDevice(probe.device, nullptr);
+    probe.device = VK_NULL_HANDLE;
+    vkDestroyInstance(instance, nullptr);
+    // `probe` has no destructor and nothing else in it was ever populated, so
+    // it simply goes out of scope. tear_down must NOT run here -- it would
+    // talk to a device this function has already destroyed.
+    return verdict;
+}
+
 const char *gv_video_bridge_vk_qt_version(void) { return qVersion(); }
 
 const char *gv_video_bridge_vk_error(void) { return g_error.c_str(); }
@@ -834,6 +967,14 @@ GvVideoBridgeVk *gv_video_bridge_vk_create(void *window, void *mpv)
         tear_down(bridge.get());
         return nullptr;
     }
+    // Last, because it needs everything above: the command buffer is not used
+    // here, but the FD entry points and the GL context are.
+    if (!interop_works(bridge.get())) {
+        // g_error already says which step the driver refused.
+        tear_down(bridge.get());
+        return nullptr;
+    }
+
     g_mpv.setUpdateCallback(bridge->mpv, on_mpv_update, bridge.get());
     logf("mpv render context created; bridge ready (no surface yet)");
 

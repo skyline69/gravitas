@@ -241,7 +241,12 @@ def build_app(
     if want_vulkan:
         from gravitas.presentation.video import vulkan_bridge
 
-        vulkan_available = vulkan_bridge.available()
+        # available() only says the library loaded and matches Qt. Whether the
+        # DRIVER can do the interop is a separate question, and it has to be
+        # asked HERE: past setGraphicsApi below there is no way back to OpenGL,
+        # so a driver that advertises the extensions and then refuses the
+        # import (Mesa's llvmpipe) would strand the user on a black video.
+        vulkan_available = vulkan_bridge.available() and vulkan_bridge.interop_supported()
 
     want_metal = metal_scene_graph()
     metal_available = False
