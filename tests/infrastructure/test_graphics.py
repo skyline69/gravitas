@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from gravitas.infrastructure.graphics import (
+    hdr_mode,
     metal_scene_graph,
     video_needs_system_memory,
     vulkan_scene_graph,
@@ -61,3 +62,33 @@ def test_vulkan_is_off_by_default_on_linux() -> None:
 def test_vulkan_is_never_selected_off_linux() -> None:
     for platform in (MACOS, WINDOWS):
         assert vulkan_scene_graph({"GRAVITAS_GRAPHICS": "vulkan"}, platform) is False
+
+
+VULKAN = {"GRAVITAS_GRAPHICS": "vulkan"}
+
+
+def test_hdr_names_the_whole_chain() -> None:
+    assert hdr_mode(VULKAN | {"GRAVITAS_HDR": "hdr10"}, LINUX) == "hdr10"
+    assert hdr_mode(VULKAN | {"GRAVITAS_HDR": " scRGB "}, LINUX) == "scrgb"
+
+
+def test_hdr_is_off_by_default() -> None:
+    assert hdr_mode(VULKAN, LINUX) is None
+
+
+def test_an_unrecognised_hdr_mode_costs_the_brightness_not_the_playback() -> None:
+    assert hdr_mode(VULKAN | {"GRAVITAS_HDR": "hdr"}, LINUX) is None
+    assert hdr_mode(VULKAN | {"GRAVITAS_HDR": "1"}, LINUX) is None
+
+
+def test_hdr_needs_the_vulkan_backend_under_it() -> None:
+    # The OpenGL path renders into a scene-graph FBO it does not own, and the
+    # swapchain format is only reachable through the RHI. Asking for HDR on it
+    # is a contradiction, not a partial win.
+    assert hdr_mode({"GRAVITAS_HDR": "hdr10"}, LINUX) is None
+    assert hdr_mode({"GRAVITAS_GRAPHICS": "opengl", "GRAVITAS_HDR": "hdr10"}, LINUX) is None
+
+
+def test_hdr_is_never_selected_off_linux() -> None:
+    for platform in (MACOS, WINDOWS):
+        assert hdr_mode(VULKAN | {"GRAVITAS_HDR": "hdr10"}, platform) is None

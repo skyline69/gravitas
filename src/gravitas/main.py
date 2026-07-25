@@ -53,7 +53,7 @@ from gravitas.infrastructure.desktop.url_scheme import (
     DeepLinkListener,
     forward_to_running_instance,
 )
-from gravitas.infrastructure.graphics import metal_scene_graph, vulkan_scene_graph
+from gravitas.infrastructure.graphics import hdr_mode, metal_scene_graph, vulkan_scene_graph
 from gravitas.infrastructure.metadata.mdblist_resolver import MdbListResolver
 from gravitas.infrastructure.metadata.tmdb_resolver import TmdbResolver
 from gravitas.infrastructure.player.mpv_player import MpvPlayer
@@ -619,9 +619,24 @@ def build_app(
                 QByteArray(b"VK_KHR_external_semaphore_fd"),
             ]
         )
+        # Qt Quick's HDR swapchain has no setter, but QSGRhiSupport reads a
+        # `_qt_sg_hdr_format` dynamic property off the window when QSG_RHI_HDR
+        # is unset -- so a plain setProperty selects it, no private headers and
+        # no environment variable leaking into child processes. It has to be on
+        # the window before the scene graph initialises, which is why it sits
+        # here beside the device extensions rather than anywhere later.
+        #
+        # Qt names the modes the same way we do, except that scRGB is spelled
+        # for the transfer function it really is.
+        hdr = hdr_mode()
+        hdr_property = {"hdr10": "hdr10", "scrgb": "extendedsrgblinear"}.get(hdr or "")
         for _root in engine.rootObjects():
             if isinstance(_root, QQuickWindow):
                 _root.setGraphicsConfiguration(vk_config)
+                if hdr_property is not None:
+                    _root.setProperty("_qt_sg_hdr_format", hdr_property)
+        if hdr_property is not None:
+            _log.info("requesting an HDR swapchain (%s)", hdr)
 
     # setContextProperty does not take ownership of the QObject in PySide6: if
     # no Python reference to these controllers/models survives past this

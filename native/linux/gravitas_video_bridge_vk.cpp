@@ -37,6 +37,7 @@
 
 #include <cstdarg>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -241,12 +242,13 @@ struct Surface {
     int height = 0;
 };
 
-// The one surface format, agreed across all four views of the same memory:
-// Vulkan (Qt's sampler), OpenGL storage, QRhi, and the FBO mpv renders into.
-// 8-bit unorm. (RGB10A2 and RGBA16F were once blamed for a black flicker that
-// turned out to be the missing GL_DEDICATED_MEMORY_OBJECT_EXT below, which hit
-// every format equally. Whether a higher-precision surface survives Qt Quick's
-// SDR swapchain is an open question again, not a settled no.)
+// The surface format, agreed across all four views of the same memory: Vulkan
+// (Qt's sampler), OpenGL storage, QRhi, and the FBO mpv renders into. All four
+// must name the same thing or the bytes are read as something they are not.
+//
+// (RGB10A2 and RGBA16F were once blamed for a black flicker that turned out to
+// be the missing GL_DEDICATED_MEMORY_OBJECT_EXT, which hit every format
+// equally. The formats were innocent.)
 struct SurfaceFormat {
     VkFormat vk;
     GLenum glInternal;
@@ -254,8 +256,29 @@ struct SurfaceFormat {
     const char *name;
 };
 
-constexpr SurfaceFormat kSurface{VK_FORMAT_A2B10G10R10_UNORM_PACK32, GL_RGB10_A2,
+// 10-bit unorm. The SDR default, and also what HDR10 wants: PQ spends its bits
+// perceptually, so 10 are enough to carry it without banding.
+constexpr SurfaceFormat kRgb10a2{VK_FORMAT_A2B10G10R10_UNORM_PACK32, GL_RGB10_A2,
                                  QRhiTexture::RGB10A2, "rgb10a2"};
+
+// Half float. What scRGB needs: linear light has to hold values above 1.0 for
+// anything brighter than SDR white, which a unorm format cannot represent at
+// all, and linear 10-bit would band in the shadows.
+constexpr SurfaceFormat kRgba16f{VK_FORMAT_R16G16B16A16_SFLOAT, GL_RGBA16F,
+                                 QRhiTexture::RGBA16F, "rgba16f"};
+
+// GRAVITAS_HDR names the chain; see infrastructure/graphics.py, which is what
+// decides whether it is honoured at all. Read here rather than passed through
+// the ABI because it is fixed for the life of the process and every layer that
+// needs it reads the same variable.
+const SurfaceFormat &surface_format()
+{
+    static const SurfaceFormat &chosen = [] () -> const SurfaceFormat & {
+        const char *mode = std::getenv("GRAVITAS_HDR");
+        return (mode && std::strcmp(mode, "scrgb") == 0) ? kRgba16f : kRgb10a2;
+    }();
+    return chosen;
+}
 
 }  // namespace
 
@@ -392,7 +415,7 @@ bool make_surface(GvVideoBridgeVk *bridge, int width, int height, Surface &out)
     ici.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     ici.pNext = &extImage;
     ici.imageType = VK_IMAGE_TYPE_2D;
-    ici.format = kSurface.vk;
+    ici.format = surface_format().vk;
     ici.extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
     ici.mipLevels = 1;
     ici.arrayLayers = 1;
@@ -457,7 +480,7 @@ bool make_surface(GvVideoBridgeVk *bridge, int width, int height, Surface &out)
     bridge->gl.importMemoryFd(out.glMemory, req.size, GL_HANDLE_TYPE_OPAQUE_FD_EXT, fd);
     bridge->gl.createTextures(GL_TEXTURE_2D, 1, &out.glTexture);
     bridge->gl.textureParameteri(out.glTexture, GL_TEXTURE_TILING_EXT, GL_OPTIMAL_TILING_EXT);
-    bridge->gl.textureStorageMem2D(out.glTexture, 1, kSurface.glInternal, width, height,
+    bridge->gl.textureStorageMem2D(out.glTexture, 1, surface_format().glInternal, width, height,
                                    out.glMemory, 0);
     if (GLenum err = glGetError()) {
         char msg[64];
@@ -468,7 +491,7 @@ bool make_surface(GvVideoBridgeVk *bridge, int width, int height, Surface &out)
     bridge->gl.createFramebuffers(1, &out.fbo);
     bridge->gl.namedFramebufferTexture(out.fbo, GL_COLOR_ATTACHMENT0, out.glTexture, 0);
 
-    out.rhiTexture = bridge->rhi->newTexture(kSurface.qt, QSize(width, height), 1);
+    out.rhiTexture = bridge->rhi->newTexture(surface_format().qt, QSize(width, height), 1);
     QRhiTexture::NativeTexture native{quint64(out.image), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
     if (!out.rhiTexture->createFrom(native)) {
         delete out.rhiTexture;
@@ -830,7 +853,7 @@ int gv_video_bridge_vk_render(GvVideoBridgeVk *bridge)
     }
 
     MpvOpenGLFBO fbo{static_cast<int>(s.fbo), s.width, s.height,
-                     static_cast<int>(kSurface.glInternal)};
+                     static_cast<int>(surface_format().glInternal)};
     int flipY = 0;
     int block = 0;
     MpvRenderParam params[] = {
@@ -907,7 +930,7 @@ void *gv_video_bridge_vk_texture(GvVideoBridgeVk *bridge)
 
 const char *gv_video_bridge_vk_format(GvVideoBridgeVk *bridge)
 {
-    return (bridge && bridge->surfaceWidth) ? kSurface.name : "";
+    return (bridge && bridge->surfaceWidth) ? surface_format().name : "";
 }
 
 }  // extern "C"

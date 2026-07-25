@@ -19,7 +19,7 @@ from typing import Any
 
 from gravitas.domain.errors import PlaybackFailed
 from gravitas.domain.models import SubtitleStyle
-from gravitas.infrastructure.graphics import video_needs_system_memory
+from gravitas.infrastructure.graphics import hdr_mode, video_needs_system_memory
 from gravitas.logging_setup import abbreviate_url
 
 _log = logging.getLogger(__name__)
@@ -186,6 +186,33 @@ def _mpv_log_handler(level: str, prefix: str, text: str) -> None:
     )
 
 
+def _hdr_options(mode: str | None) -> dict[str, object]:
+    """mpv options that stop it flattening HDR on its way to our surface.
+
+    Left to itself mpv tone-maps to SDR and dithers to 8 bits, because it
+    assumes it is drawing to an ordinary display. Neither is true here: the
+    surface it renders into is 10-bit or float, and Qt hands it to a swapchain
+    KWin drives in HDR. Both assumptions have to be corrected together --
+    correcting one alone gives either a dark, wrongly-mapped picture or a
+    correctly-mapped one that bands.
+
+    `target-peak` is deliberately left alone: mpv reads the display's real
+    capability, which beats any number hardcoded here. `hdr-compute-peak` stays
+    off because it measures each frame on the GPU and makes brightness drift
+    shot to shot -- passthrough should be passthrough.
+    """
+    if mode is None:
+        return {}
+    if mode == "scrgb":
+        # Linear light with sRGB primaries, values above 1.0 carrying anything
+        # brighter than SDR white. That is scRGB, and it is why this mode needs
+        # the float surface.
+        return {"target_prim": "bt.709", "target_trc": "linear", "dither_depth": "no"}
+    # HDR10: Rec. 2020 primaries, PQ curve, 10 bits -- the encoding the
+    # swapchain itself is asking for, handed over already in that form.
+    return {"target_prim": "bt.2020", "target_trc": "pq", "dither_depth": 10}
+
+
 def _default_factory(*, zero_copy_video: bool = False) -> Any:
     # libmpv needs the C numeric locale; Qt may have changed it. Must run
     # right before mpv.MPV() construction (after QGuiApplication init),
@@ -228,6 +255,7 @@ def _default_factory(*, zero_copy_video: bool = False) -> Any:
     return mpv.MPV(
         vo="libmpv",
         hwdec=hwdec,
+        **_hdr_options(hdr_mode()),
         osc=False,
         input_default_bindings=False,
         keep_open="yes",  # hold the last frame instead of tearing the surface down

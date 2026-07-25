@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from gravitas.infrastructure.player.mpv_player import MpvPlayer
+from gravitas.infrastructure.player.mpv_player import MpvPlayer, _hdr_options
 
 
 class FakeMpv:
@@ -447,3 +447,31 @@ def test_an_explicit_libmpv_beats_the_bundled_one(
     _ensure_libmpv_discoverable(env, platform="win32")
     _ensure_bundled_libmpv_findable(env, platform="win32")
     assert env["PATH"].split(os.pathsep)[0] == os.path.dirname(override)
+
+
+def test_hdr_options_are_absent_unless_hdr_is_asked_for() -> None:
+    assert _hdr_options(None) == {}
+
+
+def test_hdr10_hands_mpv_the_encoding_the_swapchain_wants() -> None:
+    options = _hdr_options("hdr10")
+    assert options["target_prim"] == "bt.2020"
+    assert options["target_trc"] == "pq"
+    # Dithering to 8 is mpv's default assumption about an ordinary display and
+    # would throw away exactly the precision the 10-bit surface exists to carry.
+    assert options["dither_depth"] == 10
+
+
+def test_scrgb_asks_for_linear_light_and_no_dither() -> None:
+    options = _hdr_options("scrgb")
+    assert options["target_prim"] == "bt.709"
+    assert options["target_trc"] == "linear"
+    # A float surface has nothing to dither to.
+    assert options["dither_depth"] == "no"
+
+
+def test_hdr_never_pins_the_peak() -> None:
+    # mpv reads the display's real capability; a hardcoded number here would
+    # override a better answer.
+    for mode in ("hdr10", "scrgb"):
+        assert "target_peak" not in _hdr_options(mode)
