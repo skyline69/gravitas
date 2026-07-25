@@ -254,7 +254,8 @@ struct SurfaceFormat {
     const char *name;
 };
 
-constexpr SurfaceFormat kSurface{VK_FORMAT_R8G8B8A8_UNORM, GL_RGBA8, QRhiTexture::RGBA8, "rgba8"};
+constexpr SurfaceFormat kSurface{VK_FORMAT_A2B10G10R10_UNORM_PACK32, GL_RGB10_A2,
+                                 QRhiTexture::RGB10A2, "rgb10a2"};
 
 }  // namespace
 
