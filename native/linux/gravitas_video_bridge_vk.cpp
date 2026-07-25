@@ -162,6 +162,7 @@ struct GlExt {
     PFNGLGETUNSIGNEDBYTEI_VEXTPROC getUnsignedBytevi = nullptr;
     PFNGLCREATEMEMORYOBJECTSEXTPROC createMemoryObjects = nullptr;
     PFNGLIMPORTMEMORYFDEXTPROC importMemoryFd = nullptr;
+    PFNGLMEMORYOBJECTPARAMETERIVEXTPROC memoryObjectParameteriv = nullptr;
     PFNGLTEXTURESTORAGEMEM2DEXTPROC textureStorageMem2D = nullptr;
     PFNGLDELETEMEMORYOBJECTSEXTPROC deleteMemoryObjects = nullptr;
     PFNGLGENSEMAPHORESEXTPROC genSemaphores = nullptr;
@@ -185,6 +186,8 @@ struct GlExt {
         getUnsignedBytevi = (PFNGLGETUNSIGNEDBYTEI_VEXTPROC)get("glGetUnsignedBytei_vEXT");
         createMemoryObjects = (PFNGLCREATEMEMORYOBJECTSEXTPROC)get("glCreateMemoryObjectsEXT");
         importMemoryFd = (PFNGLIMPORTMEMORYFDEXTPROC)get("glImportMemoryFdEXT");
+        memoryObjectParameteriv =
+            (PFNGLMEMORYOBJECTPARAMETERIVEXTPROC)get("glMemoryObjectParameterivEXT");
         textureStorageMem2D = (PFNGLTEXTURESTORAGEMEM2DEXTPROC)get("glTextureStorageMem2DEXT");
         deleteMemoryObjects = (PFNGLDELETEMEMORYOBJECTSEXTPROC)get("glDeleteMemoryObjectsEXT");
         genSemaphores = (PFNGLGENSEMAPHORESEXTPROC)get("glGenSemaphoresEXT");
@@ -197,7 +200,8 @@ struct GlExt {
         createFramebuffers = (PFNGLCREATEFRAMEBUFFERSPROC)get("glCreateFramebuffers");
         deleteFramebuffers = (PFNGLDELETEFRAMEBUFFERSPROC)get("glDeleteFramebuffers");
         namedFramebufferTexture = (PFNGLNAMEDFRAMEBUFFERTEXTUREPROC)get("glNamedFramebufferTexture");
-        return getUnsignedBytevi && createMemoryObjects && importMemoryFd && textureStorageMem2D
+        return getUnsignedBytevi && createMemoryObjects && importMemoryFd && memoryObjectParameteriv
+            && textureStorageMem2D
             && deleteMemoryObjects && genSemaphores && deleteSemaphores && importSemaphoreFd
             && signalSemaphore && waitSemaphore && createTextures && textureParameteri
             && createFramebuffers && deleteFramebuffers && namedFramebufferTexture;
@@ -221,18 +225,28 @@ struct Surface {
     // the GL writes across to Vulkan -- glFinish alone does not.
     VkSemaphore glDoneVk = VK_NULL_HANDLE;
     GLuint glDoneGl = 0;
+    // The other half of that handshake: "Vulkan is done with this slot".
+    // Signalled by Qt's queue, waited by GL before it renders into the slot
+    // again. glSignalSemaphoreEXT RELEASES the texture out of GL along with the
+    // layout transition, and EXT_external_objects leaves its contents undefined
+    // until a matching glWaitSemaphoreEXT ACQUIRES it back with the layout it
+    // was left in. Without this half the driver is free to discard the image --
+    // which is exactly what the black flicker was.
+    VkSemaphore vkDoneVk = VK_NULL_HANDLE;
+    GLuint vkDoneGl = 0;
+    // Whether the slot is currently released to Vulkan, i.e. an acquire is owed
+    // before GL may touch it. False on a brand-new slot: nothing to acquire.
+    bool released = false;
     int width = 0;
     int height = 0;
 };
 
 // The one surface format, agreed across all four views of the same memory:
 // Vulkan (Qt's sampler), OpenGL storage, QRhi, and the FBO mpv renders into.
-// 8-bit unorm. Higher-precision surfaces (RGB10A2, RGBA16F) render correctly
-// but flicker black every other frame through Qt's scene-graph compositing --
-// on SDR content as much as HDR, with Vulkan synchronisation validation
-// reporting no hazard, so the fault is in Qt's handling of an imported
-// non-RGBA8 texture, not our sync. RGBA8 is rock solid. 10-bit / HDR is a
-// separate milestone that has to solve that Qt-side path first.
+// 8-bit unorm. (RGB10A2 and RGBA16F were once blamed for a black flicker that
+// turned out to be the missing GL_DEDICATED_MEMORY_OBJECT_EXT below, which hit
+// every format equally. Whether a higher-precision surface survives Qt Quick's
+// SDR swapchain is an open question again, not a settled no.)
 struct SurfaceFormat {
     VkFormat vk;
     GLenum glInternal;
@@ -244,7 +258,12 @@ constexpr SurfaceFormat kSurface{VK_FORMAT_R8G8B8A8_UNORM, GL_RGBA8, QRhiTexture
 
 }  // namespace
 
-constexpr int kRingSize = 3;
+// Enough surfaces that mpv never reuses one Qt's batch renderer may still be
+// sampling. Nothing here waits for Qt to finish with a slot, so the ring has to
+// outlast Qt's pipeline: QRhi's Vulkan backend keeps 2 frames in flight, and
+// one spare covers the renderer holding a texture a frame longer than its node.
+// At 4K a slot is ~28 MB, so this is not free -- do not grow it idly.
+constexpr int kRingSize = 4;
 
 struct GvVideoBridgeVk {
     QQuickWindow *window = nullptr;
@@ -313,6 +332,10 @@ void destroy_surface(GvVideoBridgeVk *bridge, Surface &s)
         bridge->gl.deleteSemaphores(1, &s.glDoneGl);
     if (s.glDoneVk)
         vkDestroySemaphore(bridge->device, s.glDoneVk, nullptr);
+    if (s.vkDoneGl)
+        bridge->gl.deleteSemaphores(1, &s.vkDoneGl);
+    if (s.vkDoneVk)
+        vkDestroySemaphore(bridge->device, s.vkDoneVk, nullptr);
     if (s.fbo)
         bridge->gl.deleteFramebuffers(1, &s.fbo);
     if (s.glTexture)
@@ -324,6 +347,35 @@ void destroy_surface(GvVideoBridgeVk *bridge, Surface &s)
     if (s.memory)
         vkFreeMemory(bridge->device, s.memory, nullptr);
     s = Surface{};
+}
+
+// A binary semaphore both APIs can see: created on Qt's Vulkan device with an
+// exportable payload, then imported into GL by FD (GL takes the FD's ownership).
+// Signalling on one side is waited on the other.
+bool make_shared_semaphore(GvVideoBridgeVk *bridge, VkSemaphore &vk, GLuint &gl)
+{
+    VkExportSemaphoreCreateInfo exportSem{};
+    exportSem.sType = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO;
+    exportSem.handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
+    VkSemaphoreCreateInfo sci{};
+    sci.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    sci.pNext = &exportSem;
+    if (vkCreateSemaphore(bridge->device, &sci, nullptr, &vk) != VK_SUCCESS) {
+        set_error("vkCreateSemaphore failed");
+        return false;
+    }
+    VkSemaphoreGetFdInfoKHR getFd{};
+    getFd.sType = VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR;
+    getFd.semaphore = vk;
+    getFd.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
+    int fd = -1;
+    if (bridge->getSemaphoreFd(bridge->device, &getFd, &fd) != VK_SUCCESS || fd < 0) {
+        set_error("vkGetSemaphoreFdKHR failed");
+        return false;
+    }
+    bridge->gl.genSemaphores(1, &gl);
+    bridge->gl.importSemaphoreFd(gl, GL_HANDLE_TYPE_OPAQUE_FD_EXT, fd);
+    return true;
 }
 
 // Allocate one exportable VkImage on Qt's device, import it into GL by FD, wrap
@@ -394,6 +446,13 @@ bool make_surface(GvVideoBridgeVk *bridge, int width, int height, Surface &out)
     // GL imports the FD (taking ownership of it) and backs a texture with that
     // memory. Tiling must match the VkImage (OPTIMAL) or the sample is garbage.
     bridge->gl.createMemoryObjects(1, &out.glMemory);
+    // The Vulkan side allocated with VkMemoryDedicatedAllocateInfo, so GL has to
+    // import it as dedicated too. Left unset, GL lays the image out as if the
+    // allocation were a suballocatable heap and the two APIs disagree about the
+    // same bytes -- writes land, and the other side reads zeros. Must be set
+    // before the import, which makes the object immutable.
+    const GLint dedicatedGl = GL_TRUE;
+    bridge->gl.memoryObjectParameteriv(out.glMemory, GL_DEDICATED_MEMORY_OBJECT_EXT, &dedicatedGl);
     bridge->gl.importMemoryFd(out.glMemory, req.size, GL_HANDLE_TYPE_OPAQUE_FD_EXT, fd);
     bridge->gl.createTextures(GL_TEXTURE_2D, 1, &out.glTexture);
     bridge->gl.textureParameteri(out.glTexture, GL_TEXTURE_TILING_EXT, GL_OPTIMAL_TILING_EXT);
@@ -425,28 +484,11 @@ bool make_surface(GvVideoBridgeVk *bridge, int width, int height, Surface &out)
         return false;
     }
 
-    // The GL-done semaphore: an exportable binary VkSemaphore imported into GL.
-    VkExportSemaphoreCreateInfo exportSem{};
-    exportSem.sType = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO;
-    exportSem.handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
-    VkSemaphoreCreateInfo sci{};
-    sci.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-    sci.pNext = &exportSem;
-    if (vkCreateSemaphore(bridge->device, &sci, nullptr, &out.glDoneVk) != VK_SUCCESS) {
-        set_error("vkCreateSemaphore failed");
+    // Both halves of the ownership handshake, each an exportable binary
+    // VkSemaphore with a GL alias over the same payload.
+    if (!make_shared_semaphore(bridge, out.glDoneVk, out.glDoneGl)
+        || !make_shared_semaphore(bridge, out.vkDoneVk, out.vkDoneGl))
         return false;
-    }
-    VkSemaphoreGetFdInfoKHR semFdInfo{};
-    semFdInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR;
-    semFdInfo.semaphore = out.glDoneVk;
-    semFdInfo.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
-    int semFd = -1;
-    if (bridge->getSemaphoreFd(bridge->device, &semFdInfo, &semFd) != VK_SUCCESS || semFd < 0) {
-        set_error("vkGetSemaphoreFdKHR failed");
-        return false;
-    }
-    bridge->gl.genSemaphores(1, &out.glDoneGl);
-    bridge->gl.importSemaphoreFd(out.glDoneGl, GL_HANDLE_TYPE_OPAQUE_FD_EXT, semFd);
 
     out.width = width;
     out.height = height;
@@ -775,6 +817,17 @@ int gv_video_bridge_vk_render(GvVideoBridgeVk *bridge)
     int next = (bridge->current + 1) % kRingSize;
     Surface &s = bridge->ring[next];
 
+    // ACQUIRE the slot back into GL. The previous pass through this slot
+    // released it to Vulkan with a layout transition; until GL takes it back
+    // naming the layout it was left in, its contents are undefined and the
+    // driver may discard them. Skipped the first time round, when the slot has
+    // never been released and no signal is pending to wait on.
+    if (s.released) {
+        GLenum srcLayout = GL_LAYOUT_SHADER_READ_ONLY_EXT;
+        bridge->gl.waitSemaphore(s.vkDoneGl, 0, nullptr, 1, &s.glTexture, &srcLayout);
+        s.released = false;
+    }
+
     MpvOpenGLFBO fbo{static_cast<int>(s.fbo), s.width, s.height,
                      static_cast<int>(kSurface.glInternal)};
     int flipY = 0;
@@ -793,6 +846,7 @@ int gv_video_bridge_vk_render(GvVideoBridgeVk *bridge)
     GLenum dstLayout = GL_LAYOUT_SHADER_READ_ONLY_EXT;
     bridge->gl.signalSemaphore(s.glDoneGl, 0, nullptr, 1, &s.glTexture, &dstLayout);
     glFlush();
+    s.released = true;
 
     // Acquire the image on Qt's device: a barrier, waiting on the GL-done
     // semaphore, that makes GL's writes AVAILABLE and VISIBLE to Qt's sampler.
@@ -828,6 +882,11 @@ int gv_video_bridge_vk_render(GvVideoBridgeVk *bridge)
     submit.pWaitDstStageMask = &waitStage;
     submit.commandBufferCount = 1;
     submit.pCommandBuffers = &bridge->cmdBuffer;
+    // Signal the release back to GL. GL waits on this the next time this slot
+    // comes round, which is what re-declares the layout to GL and keeps the
+    // image's contents defined across the API boundary.
+    submit.signalSemaphoreCount = 1;
+    submit.pSignalSemaphores = &s.vkDoneVk;
     // Same thread (render thread) owns every use of Qt's queue, so no external
     // queue synchronisation is needed.
     vkQueueSubmit(bridge->queue, 1, &submit, bridge->fence);
