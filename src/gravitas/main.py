@@ -267,6 +267,10 @@ def build_app(
     # software fallback. Player.qml is written against the shared `handle`
     # property and never learns which it got.
     video_item: type[QQuickItem]
+    # Metal's alone: it is what tells MpvPlayer to keep hwdec zero-copy rather
+    # than dropping to auto-copy for the software item. False for the vulkan and
+    # opengl backends, which are already zero-copy by construction, and inert on
+    # Windows, where hwdec is copy-back regardless.
     zero_copy_video = backend == "metal-zero-copy"
     if backend == "vulkan":
         from gravitas.presentation.video.mpv_vulkan_item import MpvVulkanVideoItem
