@@ -39,10 +39,43 @@ jobs:
       - name: Install libmpv and AppImage runtime deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y libmpv-dev libfuse2
+          sudo apt-get install -y libmpv-dev libfuse2 \
+            g++ libegl1-mesa-dev libgl1-mesa-dev libvulkan-dev
       - run: uv sync --frozen
+      # The Vulkan zero-copy video bridge is C++ compiled against Qt's headers,
+      # which the PySide6 wheel does not ship -- and the versions must match
+      # exactly, because QRhi (how a VkImage reaches the scene graph) carries no
+      # binary compatibility guarantee between Qt releases. Hence the SDK
+      # download, pinned to the wheel's own Qt version.
+      #
+      # If this step fails the build still produces a working app: Linux video
+      # renders zero-copy on OpenGL, which is the default anyway. The bridge
+      # only serves users who opt into GRAVITAS_GRAPHICS=vulkan.
+      - name: Install Qt headers for the video bridge
+        id: qt
+        continue-on-error: true
+        run: |
+          QT_VERSION=$(uv run python -c "from PySide6.QtCore import qVersion; print(qVersion())")
+          echo "Building the bridge against Qt $QT_VERSION"
+          uvx --from aqtinstall aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 \
+            --outputdir "$RUNNER_TEMP/Qt" --archives qtbase qtdeclarative
+          echo "prefix=$RUNNER_TEMP/Qt/$QT_VERSION/gcc_64" >> "$GITHUB_OUTPUT"
+      - name: Build the video bridge
+        if: steps.qt.outcome == 'success'
+        continue-on-error: true
+        run: uv run python scripts/build_video_bridge.py --qt "${{ steps.qt.outputs.prefix }}"
       - name: Build one-dir bundle
         run: uv run --with pyinstaller pyinstaller packaging/gravitas.spec --noconfirm
+      - name: Check what the bundle got
+        # Searched rather than looked up by path: where PyInstaller puts a
+        # binary has moved between releases, and a wrong guess here would
+        # report a missing bridge that is actually present.
+        run: |
+          if find dist/Gravitas -name libgravitas_video_bridge_vk.so | grep -q .; then
+            echo "Vulkan zero-copy video bridge bundled"
+          else
+            echo "::warning::no Vulkan video bridge in the bundle; Linux video stays on OpenGL"
+          fi
       - name: Build AppImage
         run: bash packaging/build_appimage.sh
       - name: Upload to the rolling release

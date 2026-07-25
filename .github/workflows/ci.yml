@@ -36,3 +36,38 @@ jobs:
         run: uv run mypy src
       - name: Tests
         run: uv run pytest -q
+
+  # The Linux Vulkan video bridge is C++ against Qt's own headers, so nothing
+  # in the test suite compiles it -- a break there would only surface at
+  # release time. This job proves it still builds against the PySide6 wheel's
+  # Qt and that the loader accepts what it produced.
+  #
+  # It cannot prove the interop itself. That needs a real GPU with opaque-FD
+  # external memory; llvmpipe on a runner has none, so GL/Vulkan sharing is
+  # launch-verified on hardware, the same coverage class as the QML.
+  video-bridge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ libegl1-mesa-dev libgl1-mesa-dev libvulkan-dev \
+            libegl1 libopengl0 libgl1 libxkbcommon0 libglib2.0-0
+      - run: uv sync --frozen
+      - name: Qt headers matching the PySide6 wheel
+        run: |
+          QT_VERSION=$(uv run python -c "from PySide6.QtCore import qVersion; print(qVersion())")
+          echo "QT_PREFIX=$RUNNER_TEMP/Qt/$QT_VERSION/gcc_64" >> "$GITHUB_ENV"
+          uvx --from aqtinstall aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 \
+            --outputdir "$RUNNER_TEMP/Qt" --archives qtbase qtdeclarative
+      - name: Build the bridge
+        run: uv run python scripts/build_video_bridge.py --qt "$QT_PREFIX"
+      - name: Loader and selection tests against the built library
+        run: |
+          uv run pytest -q \
+            tests/presentation/test_vulkan_bridge.py \
+            tests/presentation/test_mpv_vulkan_item.py \
+            tests/presentation/test_video_backend.py \
+            tests/infrastructure/test_graphics.py

@@ -237,17 +237,25 @@ ytdlp = fetch_ytdlp()
 if ytdlp is not None:
     binaries.append((ytdlp, "."))
 
-# The macOS zero-copy video bridge, if it has been built (see
-# scripts/build_video_bridge.py). It must land beside the Python module that
+# The zero-copy video bridges, if they have been built (see
+# scripts/build_video_bridge.py). Each must land beside the Python module that
 # ctypes-loads it, which looks next to itself rather than on any search path.
-# Absent, the app renders video through libmpv's software path instead, so a
-# build without it is degraded rather than broken.
+# Absent, the app still plays video -- macOS through libmpv's software path,
+# Linux through the default OpenGL one -- so a build without them is degraded
+# rather than broken. On Linux it is not even a downgrade unless the user opts
+# into GRAVITAS_GRAPHICS=vulkan, which is what the bridge exists to serve.
 if sys.platform == "darwin":
     _bridge = ROOT / "src/gravitas/presentation/video/libgravitas_video_bridge.dylib"
     if _bridge.is_file():
         binaries.append((str(_bridge), "gravitas/presentation/video"))
     else:
         print("note: no video bridge built; macOS video will render in software")
+elif sys.platform.startswith("linux"):
+    _bridge = ROOT / "src/gravitas/presentation/video/libgravitas_video_bridge_vk.so"
+    if _bridge.is_file():
+        binaries.append((str(_bridge), "gravitas/presentation/video"))
+    else:
+        print("note: no Vulkan video bridge built; Linux video stays on OpenGL")
 
 # PySide6 ships every Qt module in one wheel and PyInstaller's hook collects
 # the lot. Gravitas imports exactly seven of them (QtCore, QtGui, QtNetwork,
@@ -305,7 +313,12 @@ a = Analysis(
         *precompile_qml(),
     ],
     # Lazy imports PyInstaller's scanner can miss.
-    hiddenimports=["mpv", "qasync", "gravitas.presentation.video.mpv_item"],
+    hiddenimports=[
+        "mpv",
+        "qasync",
+        "gravitas.presentation.video.mpv_item",
+        "gravitas.presentation.video.mpv_vulkan_item",
+    ],
     excludes=PYSIDE_UNUSED,
     # -OO: strip asserts and docstrings from every bundled module. Worth ~5ms
     # of import time (noise) but a real cut in bundle size and resident
