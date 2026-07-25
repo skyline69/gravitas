@@ -81,7 +81,7 @@ def build(qt_prefix: Path, output: Path) -> int:
     command = [
         "xcrun",
         "clang++",
-        "-std=c++17",
+        "-std=c++20",
         "-fobjc-arc",
         "-dynamiclib",
         "-O2",
@@ -134,7 +134,7 @@ def build_linux(qt_prefix: Path, output: Path) -> int:
 
     command = [
         "g++",
-        "-std=c++17",
+        "-std=c++20",
         "-fPIC",
         "-shared",
         "-O2",

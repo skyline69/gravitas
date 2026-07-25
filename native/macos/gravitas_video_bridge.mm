@@ -33,9 +33,12 @@
 
 #include <dlfcn.h>
 
+#include <atomic>
 #include <cstdio>
+#include <memory>
 #include <mutex>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -174,7 +177,7 @@ const SurfaceFormat kSurfaceFormats[] = {
 
 // One video resolution's worth of GPU objects. Replaced when the resolution
 // changes; never freed before the bridge itself.
-struct Surface {
+struct SurfaceHandles {
     IOSurfaceRef surface = nullptr;
     id<MTLTexture> metalTexture = nil;
     QSGTexture *sceneTexture = nullptr;
@@ -183,6 +186,33 @@ struct Surface {
     int width = 0;
     int height = 0;
     const SurfaceFormat *format = nullptr;
+};
+
+// The same handles, but with exactly one owner.
+//
+// Not full RAII -- deliberately. Releasing any of this needs the bridge's GL
+// context current on Qt's render thread, and a destructor fires wherever the
+// object happens to die: a std::vector reallocation would delete a QSGTexture
+// on whatever thread pushed. So destruction stays explicit (releaseSurface),
+// and the type system is asked to enforce the other half -- that a Surface is
+// never ALIASED. Retiring one, or burying it in a Grave, is a move, and the
+// move blanks the source. The "copy it across and then blank the original by
+// hand" dance this replaces was correct, but only by inspection.
+struct Surface : SurfaceHandles {
+    Surface() = default;
+    Surface(const Surface &) = delete;
+    Surface &operator=(const Surface &) = delete;
+    Surface(Surface &&other) noexcept
+        : SurfaceHandles(std::exchange(static_cast<SurfaceHandles &>(other), {}))
+    {
+    }
+    Surface &operator=(Surface &&other) noexcept
+    {
+        if (this != &other)
+            static_cast<SurfaceHandles &>(*this) =
+                std::exchange(static_cast<SurfaceHandles &>(other), {});
+        return *this;
+    }
 };
 
 } // namespace
@@ -224,6 +254,13 @@ struct GvVideoBridge {
     // The scene graph was replaced: Qt-side wrappers must be rebuilt before
     // the next frame can be drawn.
     bool qtDirty = false;
+    // Whether this bridge still exists, in a form that survives it not
+    // existing. frameReady posts a lambda to the GUI thread and destroy() can
+    // free the bridge while that lambda is still sitting in the queue -- at
+    // which point `torn` is a read of freed memory, so it cannot be the thing
+    // that answers the question. The flag is shared, so the lambda's copy keeps
+    // it alive no matter what happens to the bridge.
+    std::shared_ptr<std::atomic<bool>> alive = std::make_shared<std::atomic<bool>>(true);
 };
 
 namespace {
@@ -248,8 +285,8 @@ void frameReady(void *opaque)
     // so by the time it looks, the answer cannot change underneath it.
     QMetaObject::invokeMethod(
         app,
-        [bridge]() {
-            if (bridge->torn || !bridge->item)
+        [bridge, alive = bridge->alive]() {
+            if (!alive->load() || bridge->torn || !bridge->item)
                 return;
             // Already on the GUI thread, so this is a plain call.
             QMetaObject::invokeMethod(bridge->item, "requestUpdate", Qt::DirectConnection);
@@ -405,11 +442,10 @@ void buryLater(GvVideoBridge *bridge)
 {
     Grave grave;
     grave.gl = bridge->gl;
-    grave.current = bridge->current;
-    grave.retired = bridge->retired;
-    g_graves.push_back(grave);
+    grave.current = std::move(bridge->current);
+    grave.retired = std::move(bridge->retired);
+    g_graves.push_back(std::move(grave));
     bridge->gl = nullptr;
-    bridge->current = Surface{};
     bridge->retired.clear();
 }
 
@@ -502,6 +538,9 @@ void teardown(GvVideoBridge *bridge)
     if (!bridge || bridge->torn)
         return;
     bridge->torn = true;
+    // Before anything is freed, so a lambda already queued on the GUI thread
+    // sees a dead bridge rather than a half-freed one.
+    bridge->alive->store(false);
     QObject::disconnect(bridge->aboutToStop);
     QObject::disconnect(bridge->initialized);
     QObject::disconnect(bridge->invalidated);
@@ -579,7 +618,10 @@ GV_API GvVideoBridge *gv_video_bridge_create(void *windowPtr, void *mpvHandle)
     // A new scene graph exists, so no node of the previous one survives.
     drainGraves();
 
-    auto *bridge = new GvVideoBridge;
+    // Owned here until every fallible step has passed; released to the caller
+    // at the end. Three of these can fail, and each used to carry its own
+    // hand-written cleanup.
+    auto bridge = std::make_unique<GvVideoBridge>();
     bridge->window = window;
     bridge->rhi = rhi;
     bridge->device = (id<MTLDevice>)handles->dev;
@@ -597,19 +639,17 @@ GV_API GvVideoBridge *gv_video_bridge_create(void *windowPtr, void *mpvHandle)
     if (CGLChoosePixelFormat(attributes, &pixelFormat, &formatCount) != kCGLNoError
         || !pixelFormat) {
         setError("CGLChoosePixelFormat failed");
-        delete bridge;
         return nullptr;
     }
     const CGLError contextError = CGLCreateContext(pixelFormat, nullptr, &bridge->gl);
     CGLDestroyPixelFormat(pixelFormat);
     if (contextError != kCGLNoError || !bridge->gl) {
         setError("CGLCreateContext failed");
-        delete bridge;
         return nullptr;
     }
 
     // mpv's render context, on that GL context.
-    makeCurrent(bridge);
+    makeCurrent(bridge.get());
     MpvOpenGLInitParams glParams = {glSymbol, nullptr};
     char apiType[] = "opengl";
     MpvRenderParam params[] = {
@@ -618,17 +658,17 @@ GV_API GvVideoBridge *gv_video_bridge_create(void *windowPtr, void *mpvHandle)
         {MPV_RENDER_PARAM_INVALID, nullptr},
     };
     const int created = g_mpv.create(&bridge->mpv, mpvHandle, params);
-    doneCurrent(bridge);
+    doneCurrent(bridge.get());
     if (created < 0 || !bridge->mpv) {
         char message[96];
         std::snprintf(message, sizeof(message), "mpv_render_context_create failed (%d)", created);
         setError(message);
         CGLDestroyContext(bridge->gl);
         bridge->gl = nullptr;
-        delete bridge;
         return nullptr;
     }
-    g_mpv.setUpdateCallback(bridge->mpv, frameReady, bridge);
+    GvVideoBridge *raw = bridge.get();
+    g_mpv.setUpdateCallback(bridge->mpv, frameReady, raw);
 
     // Teardown, in C++ and on the render thread, which is the entire reason
     // mpv's context lives on this side of the boundary. Both signals: only one
@@ -638,7 +678,7 @@ GV_API GvVideoBridge *gv_video_bridge_create(void *windowPtr, void *mpvHandle)
     // point), and merely flagging there froze playback, because nothing
     // reliably signals the resume.
     bridge->invalidated = QObject::connect(window, &QQuickWindow::sceneGraphInvalidated, window,
-                                           [bridge]() { sceneGraphGone(bridge); },
+                                           [raw]() { sceneGraphGone(raw); },
                                            Qt::DirectConnection);
 
     // The window can be destroyed without the scene graph ever announcing
@@ -646,12 +686,12 @@ GV_API GvVideoBridge *gv_video_bridge_create(void *windowPtr, void *mpvHandle)
     // asking a half-destroyed window to repaint. That crashed in Qt's own
     // destructors. This hook only sets flags, which is all that is safe on
     // the GUI thread: whatever is left over is handed back with the process.
-    bridge->windowGone = QObject::connect(window, &QObject::destroyed, [bridge]() {
+    bridge->windowGone = QObject::connect(window, &QObject::destroyed, [raw]() {
         // The window is gone for good: nothing more will be drawn, and mpv
         // must stop asking. Flags only -- freeing from this thread is what
         // must not happen.
-        bridge->torn = true;
-        bridge->window = nullptr;
+        raw->torn = true;
+        raw->window = nullptr;
     });
     // Quitting is the earliest reliable warning, and it arrives before the
     // QML engine is dismantled. Stopping here means no repaint is requested
@@ -664,29 +704,32 @@ GV_API GvVideoBridge *gv_video_bridge_create(void *windowPtr, void *mpvHandle)
         // engine's destructor crash about half the time (measured; a
         // software-rendered control never did). The lock is what makes this
         // safe from the GUI thread -- a frame cannot be in flight.
-        QObject::connect(app, &QCoreApplication::aboutToQuit, app, [bridge]() {
-            std::lock_guard<std::mutex> guard(bridge->lock);
-            if (bridge->torn)
+        QObject::connect(app, &QCoreApplication::aboutToQuit, app, [raw]() {
+            std::lock_guard<std::mutex> guard(raw->lock);
+            if (raw->torn)
                 return;
-            bridge->torn = true;
-            if (bridge->gl) {
-                makeCurrent(bridge);
-                if (bridge->mpv) {
-                    g_mpv.setUpdateCallback(bridge->mpv, nullptr, nullptr);
-                    g_mpv.free(bridge->mpv);
-                    bridge->mpv = nullptr;
+            raw->torn = true;
+            raw->alive->store(false);
+            if (raw->gl) {
+                makeCurrent(raw);
+                if (raw->mpv) {
+                    g_mpv.setUpdateCallback(raw->mpv, nullptr, nullptr);
+                    g_mpv.free(raw->mpv);
+                    raw->mpv = nullptr;
                 }
-                releaseSurface(bridge->current);
-                for (Surface &surface : bridge->retired)
+                releaseSurface(raw->current);
+                for (Surface &surface : raw->retired)
                     releaseSurface(surface);
-                bridge->retired.clear();
-                doneCurrent(bridge);
-                CGLDestroyContext(bridge->gl);
-                bridge->gl = nullptr;
+                raw->retired.clear();
+                doneCurrent(raw);
+                CGLDestroyContext(raw->gl);
+                raw->gl = nullptr;
             }
         });
     }
-    return bridge;
+    // Ownership passes to the caller, which holds it as an opaque handle and
+    // returns it through gv_video_bridge_destroy.
+    return bridge.release();
 }
 
 GV_API int gv_video_bridge_set_size(GvVideoBridge *bridge, int width, int height)
@@ -703,14 +746,13 @@ GV_API int gv_video_bridge_set_size(GvVideoBridge *bridge, int width, int height
     if (bridge->current.surface) {
         // Retire, do not release: the renderer may still be holding the old
         // texture, and Qt offers no way to ask.
-        bridge->retired.push_back(bridge->current);
-        bridge->current = Surface{};
+        bridge->retired.push_back(std::move(bridge->current));
     }
     bool ok = false;
     for (const SurfaceFormat &format : kSurfaceFormats) {
         Surface fresh;
         if (buildSurface(bridge, width, height, format, fresh)) {
-            bridge->current = fresh;
+            bridge->current = std::move(fresh);
             ok = true;
             break;
         }

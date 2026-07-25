@@ -39,7 +39,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <atomic>
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #ifndef EGL_NO_CONFIG_KHR
@@ -213,7 +216,7 @@ struct GlExt {
 // device, exportable) that OpenGL imports by FD and renders into, wrapped as a
 // QSGTexture Qt samples. Replaced when the resolution changes; retired rather
 // than freed while the renderer may still hold it.
-struct Surface {
+struct SurfaceHandles {
     VkImage image = VK_NULL_HANDLE;
     VkDeviceMemory memory = VK_NULL_HANDLE;
     GLuint glMemory = 0;  // GL memory object importing `memory`'s FD
@@ -240,6 +243,35 @@ struct Surface {
     bool released = false;
     int width = 0;
     int height = 0;
+};
+
+// The same handles, but with exactly one owner.
+//
+// Not full RAII -- deliberately. Freeing any of this needs the EGL context
+// current on Qt's render thread, and a destructor fires wherever the object
+// happens to die: a std::vector reallocation would free GPU objects on
+// whatever thread pushed, with no context bound. So destruction stays explicit
+// (destroy_surface), and what the type system is asked to enforce is the other
+// half of the problem -- that a Surface is never ALIASED. Copying one would
+// duplicate every handle, and the second destroy_surface() on the copy would
+// be a double free. Retiring a surface is a move, and the move blanks the
+// source, so the "copy it into the retired list and then blank the original by
+// hand" dance cannot be got wrong.
+struct Surface : SurfaceHandles {
+    Surface() = default;
+    Surface(const Surface &) = delete;
+    Surface &operator=(const Surface &) = delete;
+    Surface(Surface &&other) noexcept
+        : SurfaceHandles(std::exchange(static_cast<SurfaceHandles &>(other), {}))
+    {
+    }
+    Surface &operator=(Surface &&other) noexcept
+    {
+        if (this != &other)
+            static_cast<SurfaceHandles &>(*this) =
+                std::exchange(static_cast<SurfaceHandles &>(other), {});
+        return *this;
+    }
 };
 
 // The surface format, agreed across all four views of the same memory: Vulkan
@@ -334,6 +366,13 @@ struct GvVideoBridgeVk {
 
     QMetaObject::Connection invalidated;
     bool torn = false;
+    // Whether this bridge still exists, in a form that survives it not
+    // existing. on_mpv_update posts a lambda to the GUI thread and destroy()
+    // can free the bridge while that lambda is still sitting in the queue --
+    // at which point `torn` is a read of freed memory, so it cannot be the
+    // thing that answers the question. The flag is shared, so the lambda's
+    // copy keeps it alive no matter what happens to the bridge.
+    std::shared_ptr<std::atomic<bool>> alive = std::make_shared<std::atomic<bool>>(true);
 };
 
 namespace {
@@ -407,6 +446,23 @@ bool make_shared_semaphore(GvVideoBridgeVk *bridge, VkSemaphore &vk, GLuint &gl)
 // current. Returns false with g_error set on any failure.
 bool make_surface(GvVideoBridgeVk *bridge, int width, int height, Surface &out)
 {
+    // Any failure below has to leave `out` empty. There are seven ways out of
+    // this function and most of them are past the image allocation, so without
+    // this the caller keeps half a surface it has no way to reach again -- a
+    // VkImage and its dedicated memory, 28 MB of it at 4K, plus whatever GL
+    // objects had been imported. destroy_surface is null-safe field by field,
+    // so it does the right thing at any point in the sequence.
+    struct Cleanup {
+        GvVideoBridgeVk *bridge;
+        Surface *surface;
+        bool armed = true;
+        ~Cleanup()
+        {
+            if (armed)
+                destroy_surface(bridge, *surface);
+        }
+    } cleanup{bridge, &out};
+
     VkExternalMemoryImageCreateInfo extImage{};
     extImage.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
     extImage.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
@@ -455,7 +511,10 @@ bool make_surface(GvVideoBridgeVk *bridge, int width, int height, Surface &out)
         set_error("vkAllocateMemory failed");
         return false;
     }
-    vkBindImageMemory(bridge->device, out.image, out.memory, 0);
+    if (vkBindImageMemory(bridge->device, out.image, out.memory, 0) != VK_SUCCESS) {
+        set_error("vkBindImageMemory failed");
+        return false;
+    }
 
     VkMemoryGetFdInfoKHR getFd{};
     getFd.sType = VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR;
@@ -516,6 +575,7 @@ bool make_surface(GvVideoBridgeVk *bridge, int width, int height, Surface &out)
 
     out.width = width;
     out.height = height;
+    cleanup.armed = false;
     return true;
 }
 
@@ -533,8 +593,8 @@ void on_mpv_update(void *ctx)
         return;
     QMetaObject::invokeMethod(
         app,
-        [bridge]() {
-            if (bridge->torn || !bridge->item)
+        [bridge, alive = bridge->alive]() {
+            if (!alive->load() || bridge->torn || !bridge->item)
                 return;
             QMetaObject::invokeMethod(bridge->item, "requestUpdate", Qt::DirectConnection);
         },
@@ -548,6 +608,9 @@ void tear_down(GvVideoBridgeVk *bridge)
     if (bridge->torn)
         return;
     bridge->torn = true;
+    // Before anything is freed, so a lambda already queued on the GUI thread
+    // sees a dead bridge rather than a half-freed one.
+    bridge->alive->store(false);
     // Freeing the GL and QRhi objects needs our context current.
     if (bridge->egl != EGL_NO_DISPLAY)
         eglMakeCurrent(bridge->egl, EGL_NO_SURFACE, EGL_NO_SURFACE, bridge->eglContext);
@@ -625,6 +688,11 @@ bool bring_up_egl(GvVideoBridgeVk *bridge)
         // Compare this GL device's UUID to the Vulkan physical device's.
         auto getBytevi =
             (PFNGLGETUNSIGNEDBYTEI_VEXTPROC)eglGetProcAddress("glGetUnsignedBytei_vEXT");
+        // Two specs, two constants, one memcmp below. They are both 16, and
+        // if a future header disagrees this must fail to build rather than
+        // read past one of the buffers.
+        static_assert(GL_UUID_SIZE_EXT == VK_UUID_SIZE,
+                      "GL and Vulkan disagree on device UUID size");
         GLubyte glUuid[GL_UUID_SIZE_EXT] = {};
         bool match = false;
         if (getBytevi) {
@@ -682,7 +750,9 @@ GvVideoBridgeVk *gv_video_bridge_vk_create(void *window, void *mpv)
         return nullptr;
     }
 
-    auto *bridge = new GvVideoBridgeVk();
+    // Owned here until every fallible step has passed. Four of them can fail,
+    // and each used to need its own tear_down + delete pair.
+    auto bridge = std::make_unique<GvVideoBridgeVk>();
     bridge->window = win;
     bridge->rhi = rhi;
     bridge->instance = nh->inst ? nh->inst->vkInstance() : VK_NULL_HANDLE;
@@ -701,17 +771,15 @@ GvVideoBridgeVk *gv_video_bridge_vk_create(void *window, void *mpv)
     std::memcpy(bridge->deviceUuid, idProps.deviceUUID, VK_UUID_SIZE);
     logf("Vulkan device: %s", props2.properties.deviceName);
 
-    if (!bring_up_egl(bridge)) {
-        tear_down(bridge);
-        delete bridge;
+    if (!bring_up_egl(bridge.get())) {
+        tear_down(bridge.get());
         return nullptr;
     }
     logf("EGL device matched Vulkan GPU by UUID; surfaceless GL context up");
 
     if (!bridge->gl.load()) {
         set_error("GL external-object extensions missing (EXT_memory_object/EXT_semaphore)");
-        tear_down(bridge);
-        delete bridge;
+        tear_down(bridge.get());
         return nullptr;
     }
 
@@ -729,16 +797,30 @@ GvVideoBridgeVk *gv_video_bridge_vk_create(void *window, void *mpv)
     poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     poolInfo.queueFamilyIndex = bridge->queueFamily;
-    vkCreateCommandPool(bridge->device, &poolInfo, nullptr, &bridge->cmdPool);
-    VkCommandBufferAllocateInfo cbInfo{};
-    cbInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    cbInfo.commandPool = bridge->cmdPool;
-    cbInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    cbInfo.commandBufferCount = 1;
-    vkAllocateCommandBuffers(bridge->device, &cbInfo, &bridge->cmdBuffer);
-    VkFenceCreateInfo fenceInfo{};
-    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    vkCreateFence(bridge->device, &fenceInfo, nullptr, &bridge->fence);
+    // Checked, all three: unchecked, a failure here leaves cmdBuffer null and
+    // the first frame hands a null command buffer to vkQueueSubmit. Failing
+    // create() instead costs the user the Vulkan path and nothing else -- the
+    // caller falls back to OpenGL, which is the default anyway.
+    bool ready = vkCreateCommandPool(bridge->device, &poolInfo, nullptr, &bridge->cmdPool)
+        == VK_SUCCESS;
+    if (ready) {
+        VkCommandBufferAllocateInfo cbInfo{};
+        cbInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        cbInfo.commandPool = bridge->cmdPool;
+        cbInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        cbInfo.commandBufferCount = 1;
+        ready = vkAllocateCommandBuffers(bridge->device, &cbInfo, &bridge->cmdBuffer) == VK_SUCCESS;
+    }
+    if (ready) {
+        VkFenceCreateInfo fenceInfo{};
+        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        ready = vkCreateFence(bridge->device, &fenceInfo, nullptr, &bridge->fence) == VK_SUCCESS;
+    }
+    if (!ready) {
+        set_error("could not create the acquire command buffer");
+        tear_down(bridge.get());
+        return nullptr;
+    }
 
     MpvOpenGLInitParams glInit{gl_symbol, nullptr};
     MpvRenderParam params[] = {
@@ -749,21 +831,23 @@ GvVideoBridgeVk *gv_video_bridge_vk_create(void *window, void *mpv)
     int rc = g_mpv.create(&bridge->mpv, mpv, params);
     if (rc < 0 || !bridge->mpv) {
         set_error("mpv_render_context_create failed");
-        tear_down(bridge);
-        delete bridge;
+        tear_down(bridge.get());
         return nullptr;
     }
-    g_mpv.setUpdateCallback(bridge->mpv, on_mpv_update, bridge);
+    g_mpv.setUpdateCallback(bridge->mpv, on_mpv_update, bridge.get());
     logf("mpv render context created; bridge ready (no surface yet)");
 
     // Teardown on the render thread when the scene graph goes away. Direct
     // connection so it runs on the emitting (render) thread, where the GL
     // context and mpv context must be freed.
+    GvVideoBridgeVk *raw = bridge.get();
     bridge->invalidated = QObject::connect(
         win, &QQuickWindow::sceneGraphInvalidated, win,
-        [bridge]() { tear_down(bridge); }, Qt::DirectConnection);
+        [raw]() { tear_down(raw); }, Qt::DirectConnection);
 
-    return bridge;
+    // Ownership passes to the caller, which holds it as an opaque handle and
+    // returns it through gv_video_bridge_vk_destroy.
+    return bridge.release();
 }
 
 void gv_video_bridge_vk_destroy(GvVideoBridgeVk *bridge)
@@ -798,7 +882,7 @@ int gv_video_bridge_vk_set_size(GvVideoBridgeVk *bridge, int width, int height)
     // be sampling last frame's texture. They are released at teardown.
     for (Surface &s : bridge->ring) {
         if (s.sceneTexture || s.image)
-            bridge->retired.push_back(s);
+            bridge->retired.push_back(std::move(s));
         s = Surface{};
     }
     for (int i = 0; i < kRingSize; ++i) {

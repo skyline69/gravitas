@@ -46,11 +46,29 @@ jobs:
   # external memory; llvmpipe on a runner has none, so GL/Vulkan sharing is
   # launch-verified on hardware, the same coverage class as the QML.
   video-bridge:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            aqt: linux desktop
+            arch: linux_gcc_64
+            prefix: gcc_64
+          # The macOS bridge is ObjC++ and cannot be compiled anywhere else, so
+          # without this it is only ever built by the release job -- which is
+          # continue-on-error, because a missing bridge degrades to software
+          # rendering rather than breaking. A compile error there is therefore
+          # silent, and the first symptom is a slow player in a shipped build.
+          - os: macos-latest
+            aqt: mac desktop
+            arch: clang_64
+            prefix: macos
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - name: Build dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y g++ libegl1-mesa-dev libgl1-mesa-dev libvulkan-dev \
@@ -59,8 +77,8 @@ jobs:
       - name: Qt headers matching the PySide6 wheel
         run: |
           QT_VERSION=$(uv run python -c "from PySide6.QtCore import qVersion; print(qVersion())")
-          echo "QT_PREFIX=$RUNNER_TEMP/Qt/$QT_VERSION/gcc_64" >> "$GITHUB_ENV"
-          uvx --from aqtinstall aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 \
+          echo "QT_PREFIX=$RUNNER_TEMP/Qt/$QT_VERSION/${{ matrix.prefix }}" >> "$GITHUB_ENV"
+          uvx --from aqtinstall aqt install-qt ${{ matrix.aqt }} "$QT_VERSION" ${{ matrix.arch }} \
             --outputdir "$RUNNER_TEMP/Qt" --archives qtbase qtdeclarative
       - name: Build the bridge
         run: uv run python scripts/build_video_bridge.py --qt "$QT_PREFIX"
