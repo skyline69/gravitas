@@ -68,6 +68,7 @@ SINGLETONS: Final[Mapping[str, type[QObject]]] = {
     "DiscoverModel": PosterGridModel,
     "DiscoverProxy": PosterGridProxy,
     "EpisodeModel": EpisodeListModel,
+    "EpisodeSearchModel": EpisodeListModel,
     "OnboardingController": OnboardingController,
     "PlayerController": PlayerController,
     "ProgressController": ProgressController,

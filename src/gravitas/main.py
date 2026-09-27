@@ -507,6 +507,7 @@ def build_app(
 
     catalog_controller = CatalogController(BrowseCatalog(repo), rows_model)
     episode_model = EpisodeListModel(progress_repo)
+    episode_search_model = EpisodeListModel(progress_repo)
     # Bandwidth history is kept per link type, so the bucket comes from Qt
     # rather than from anything the app stores about a network (see
     # infrastructure/network/transport.py).
@@ -578,6 +579,7 @@ def build_app(
         speculate=resolve_stream.speculate,
         stored_meta=get_detail.stored,
         warm_link=link_warmup.warm,
+        episode_search_model=episode_search_model,
     )
     install_addon = InstallAddon(repo)
     addon_controller = AddonController(install_addon, catalog_controller)
@@ -716,6 +718,7 @@ def build_app(
         rows_model.refresh_progress()
         discover_model.refresh_progress()
         episode_model.refresh_progress()
+        episode_search_model.refresh_progress()
         search_results_model.refresh_progress()
         search_page_model.refresh_progress()
         watchlist_movies_model.refresh_progress()
@@ -776,6 +779,7 @@ def build_app(
             "CatalogRowsModel": rows_model,
             "StreamModel": stream_model,
             "EpisodeModel": episode_model,
+            "EpisodeSearchModel": episode_search_model,
             "DiscoverController": discover_controller,
             "DiscoverModel": discover_model,
             "DiscoverProxy": discover_proxy,
@@ -948,6 +952,7 @@ def build_app(
         discover_proxy,
         stream_model,
         episode_model,
+        episode_search_model,
         addon_list_model,
         search_results_model,
         search_page_model,

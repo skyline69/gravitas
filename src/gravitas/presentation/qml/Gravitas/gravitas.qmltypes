@@ -366,11 +366,19 @@ Module {
             isReadonly: true
         }
         Property {
+            name: "episodeQuery"
+            type: "QString"
+            read: "episodeQuery"
+            notify: "episodesChanged"
+            index: 29
+            isReadonly: true
+        }
+        Property {
             name: "selectedEpisodeId"
             type: "QString"
             read: "selectedEpisodeId"
             notify: "sourcesChanged"
-            index: 29
+            index: 30
             isReadonly: true
         }
         Property {
@@ -378,7 +386,7 @@ Module {
             type: "QString"
             read: "sourcesLabel"
             notify: "sourcesChanged"
-            index: 30
+            index: 31
             isReadonly: true
         }
         Property {
@@ -386,7 +394,7 @@ Module {
             type: "bool"
             read: "streamsLoading"
             notify: "sourcesChanged"
-            index: 31
+            index: 32
             isReadonly: true
         }
         Property {
@@ -394,7 +402,7 @@ Module {
             type: "bool"
             read: "sourcesStored"
             notify: "sourcesChanged"
-            index: 32
+            index: 33
             isReadonly: true
         }
         Property {
@@ -402,7 +410,7 @@ Module {
             type: "int"
             read: "hiddenSourceCount"
             notify: "sourcesChanged"
-            index: 33
+            index: 34
             isReadonly: true
         }
         Signal {
@@ -437,6 +445,10 @@ Module {
             name: "prefetchTitle"
             Parameter { name: "a1"; type: "QString" }
             Parameter { name: "a2"; type: "QString" }
+        }
+        Method {
+            name: "setEpisodeQuery"
+            Parameter { name: "a1"; type: "QString" }
         }
         Method {
             name: "sourceQueue"
@@ -641,6 +653,17 @@ Module {
         accessSemantics: "reference"
         prototype: "QAbstractListModel"
         exports: ["Gravitas/EpisodeModel 1.0"]
+        isCreatable: false
+        isSingleton: true
+        exportMetaObjectRevisions: [256]
+    }
+    Component {
+        file: "src/gravitas/presentation/models/episode_list_model.py"
+        lineNumber: 0
+        name: "EpisodeSearchModel"
+        accessSemantics: "reference"
+        prototype: "QAbstractListModel"
+        exports: ["Gravitas/EpisodeSearchModel 1.0"]
         isCreatable: false
         isSingleton: true
         exportMetaObjectRevisions: [256]

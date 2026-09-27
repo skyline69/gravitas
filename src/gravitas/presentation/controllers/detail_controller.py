@@ -11,6 +11,7 @@ from qasync import asyncSlot  # type: ignore[import-untyped]
 
 from gravitas.application.compatibility import IncompatibleSources, partition
 from gravitas.application.connection_speed import ConnectionSpeed
+from gravitas.application.episode_search import find_episodes
 from gravitas.application.get_detail import GetDetail
 from gravitas.application.get_ratings import GetRatings
 from gravitas.application.playback_capability import PlaybackCapability
@@ -162,12 +163,18 @@ class DetailController(QObject):
         speculate: Callable[[MediaType, str], None] | None = None,
         stored_meta: Callable[[MediaType, str], Awaitable[MetaDetail | None]] | None = None,
         warm_link: Callable[[str, Sequence[tuple[str, str]]], None] | None = None,
+        episode_search_model: EpisodeListModel | None = None,
     ) -> None:
         super().__init__()
         self._get_detail = get_detail
         self._resolve_stream = resolve_stream
         self._stream_model = stream_model
         self._episode_model = episode_model
+        # The episodes the search box names, from every season. Its own model
+        # rather than a filter on EpisodeModel, which the player's episode
+        # panel shows too.
+        self._episode_search_model = episode_search_model
+        self._episode_query = ""
         self._progress = progress
         self._get_ratings = get_ratings
         self._connection = connection
@@ -454,6 +461,26 @@ class DetailController(QObject):
     def seasonIndex(self) -> int:
         return self._season_idx
 
+    @Property(str, notify=episodesChanged)
+    def episodeQuery(self) -> str:
+        """What the episode search box holds; empty lists the season."""
+        return self._episode_query
+
+    @Slot(str)
+    def setEpisodeQuery(self, query: str) -> None:
+        if query == self._episode_query:
+            return
+        self._episode_query = query
+        self._apply_episode_query()
+        self.episodesChanged.emit()
+
+    def _apply_episode_query(self) -> None:
+        if self._episode_search_model is None:
+            return
+        videos = self._meta.videos if self._meta else ()
+        self._episode_search_model.set_media_id(self._media_id)
+        self._episode_search_model.set_videos(find_episodes(videos, self._episode_query))
+
     @Property(str, notify=sourcesChanged)
     def selectedEpisodeId(self) -> str:
         return self._selected_episode
@@ -636,6 +663,9 @@ class DetailController(QObject):
             return
         self._season_idx = index
         self._episode_model.set_videos(self._season_videos(self._seasons[index]))
+        # Picking a season is asking to see it, not the matches.
+        self._episode_query = ""
+        self._apply_episode_query()
         self.episodesChanged.emit()
 
     def _select_episode(self, video_id: str, season: int, episode: int, title: str) -> None:
@@ -815,6 +845,8 @@ class DetailController(QObject):
         if self._episode_model is not None:
             self._episode_model.set_media_id(item_id)
             self._episode_model.set_videos([])
+        self._episode_query = ""
+        self._apply_episode_query()
         self.episodesChanged.emit()
         self.sourcesChanged.emit()
         if media_type == "movie" and self._prefetch is not None:
@@ -925,6 +957,7 @@ class DetailController(QObject):
         self._season_idx = self._seasons.index(current) if current in self._seasons else 0
         if self._episode_model is not None and self._seasons:
             self._episode_model.set_videos(self._season_videos(self._seasons[self._season_idx]))
+        self._apply_episode_query()
         self.episodesChanged.emit()
 
     async def _title_streams(self, media_type: MediaType, stream_id: str, token: int) -> None:

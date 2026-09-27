@@ -21,6 +21,9 @@ Rectangle {
     readonly property int thumbHeight: Math.round(root.thumbWidth * 9 / 16)
     // The air date line, which the panel leaves out to keep its rows short.
     property bool showReleased: true
+    // Name the season beside the episode: rows from several seasons at once
+    // (a search) are otherwise ambiguous.
+    property bool showSeason: false
     // { mediaId, videoId, type, name, poster, label } — null disables the menu.
     property var forgetContext: null
     signal clicked()
@@ -176,7 +179,7 @@ Rectangle {
                 spacing: 8
                 Text {
                     id: episodeLabel
-                    text: "E" + root.episodeNumber
+                    text: (root.showSeason ? "S" + root.seasonNumber + " " : "") + "E" + root.episodeNumber
                     color: root.active ? Theme.accentHover : Theme.accent
                     font.pixelSize: Theme.fontBody
                     font.bold: true

@@ -573,9 +573,11 @@ Item {
 
                 // episodes (series with videos only)
                 Column {
+                    id: episodesSection
                     width: parent.width
                     spacing: 12
-                    visible: detail.mediaType === "series" && episodesRep.count > 0
+                    visible: detail.mediaType === "series"
+                        && (episodesList.count > 0 || episodeSearch.searching)
 
                     Item {
                         width: parent.width
@@ -587,6 +589,56 @@ Item {
                             color: Theme.text
                             font.pixelSize: 20
                         }
+                        // Searches every season, not the one picked: the point
+                        // is not knowing which season it was.
+                        AppTextField {
+                            id: episodeSearch
+                            readonly property bool searching: text.trim().length > 0
+                            anchors.right: seasonBox.left
+                            anchors.rightMargin: 8
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: Math.min(280, parent.width - seasonBox.width - 160)
+                            leftPadding: searchIcon.width + Theme.spacing * 2
+                            rightPadding: clearSearch.visible
+                                ? clearSearch.width + Theme.spacing * 1.5 : Theme.spacing * 1.5
+                            placeholderText: "Search episodes"
+                            text: DetailController ? DetailController.episodeQuery : ""
+                            onTextEdited: DetailController.setEpisodeQuery(text)
+                            // Esc clears a search first; an empty box lets it through.
+                            Keys.onEscapePressed: (event) => {
+                                if (text.length > 0)
+                                    DetailController.setEpisodeQuery("")
+                                else
+                                    event.accepted = false
+                            }
+                            AppIcon {
+                                id: searchIcon
+                                anchors.left: parent.left
+                                anchors.leftMargin: Theme.spacing
+                                anchors.verticalCenter: parent.verticalCenter
+                                glyph: Icons.search
+                                font.pixelSize: Theme.fontBody
+                                color: Theme.textDim
+                            }
+                            AppIcon {
+                                id: clearSearch
+                                anchors.right: parent.right
+                                anchors.rightMargin: Theme.spacing
+                                anchors.verticalCenter: parent.verticalCenter
+                                visible: episodeSearch.text.length > 0
+                                glyph: Icons.x
+                                font.pixelSize: Theme.fontBody
+                                color: clearArea.containsMouse ? Theme.text : Theme.textDim
+                                MouseArea {
+                                    id: clearArea
+                                    anchors.fill: parent
+                                    anchors.margins: -4
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: DetailController.setEpisodeQuery("")
+                                }
+                            }
+                        }
                         AppComboBox {
                             id: seasonBox
                             anchors.right: parent.right
@@ -596,16 +648,57 @@ Item {
                         }
                     }
 
-                    Column {
+                    // The episode list scrolls by itself, in whatever height the
+                    // page has left below the metadata, so the title, ratings and
+                    // season picker stay in view while a long season scrolls. A
+                    // window too short for that still keeps a few rows, and the
+                    // page itself scrolls to reach them.
+                    Item {
                         width: parent.width
-                        spacing: 8
-                        Repeater {
-                            id: episodesRep
+                        height: noMatch.visible ? noMatch.height : episodesList.height
+
+                        Text {
+                            id: noMatch
+                            visible: episodeSearch.searching && episodesList.count === 0
+                            width: parent.width
+                            topPadding: 8
+                            bottomPadding: 8
+                            text: "No episode matches \u201c" + episodeSearch.text.trim() + "\u201d"
+                            color: Theme.textDim
+                            font.pixelSize: Theme.fontBody
+                            elide: Text.ElideRight
+                        }
+
+                        ListView {
+                            id: episodesList
+                            // The page's own height, less everything above this
+                            // list and the header's and footer's padding (24 + 8
+                            // + 24): exactly what fits without the page scrolling.
+                            readonly property real room: flick.height - 24 - 8 - 24
+                                - episodesSection.y - seasonBox.height - episodesSection.spacing
+                            width: parent.width
+                            height: Math.min(contentHeight, Math.max(280, room))
+                            clip: true
+                            spacing: 8
+                            boundsBehavior: Flickable.StopAtBounds
+                            WheelScroller { flick: episodesList }
+                            layer.enabled: GraphicsInfo.api !== GraphicsInfo.Software
+                            layer.effect: EdgeFade { view: episodesList }
+                            // In the page's right margin, outside the feathered view.
+                            ScrollBar.vertical: AppScrollBar {
+                                parent: episodesList.parent
+                                anchors.top: episodesList.top
+                                anchors.bottom: episodesList.bottom
+                                anchors.left: episodesList.right
+                                anchors.leftMargin: 4
+                            }
                             // Same reason as the source list's model above.
-                            model: detail.metaReady ? EpisodeModel : null
-                            EpisodeRow {
+                            model: !detail.metaReady ? null
+                                : (episodeSearch.searching ? EpisodeSearchModel : EpisodeModel)
+                            delegate: EpisodeRow {
                                 required property var model
-                                width: content.width
+                                width: ListView.view.width
+                                showSeason: episodeSearch.searching
                                 title: model.title
                                 thumbnailUrl: model.thumbnail
                                 seasonNumber: model.season

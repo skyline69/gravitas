@@ -884,6 +884,114 @@ async def test_detail_builds_only_the_source_rows_on_screen(
     assert qml_warnings == []
 
 
+async def test_a_series_page_scrolls_its_episodes_and_not_itself(
+    qml_warnings: list[str], tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    """A long season scrolls inside its own list, in the height the page has
+    left below the metadata, so the title and season picker stay in view. A
+    window too short for that keeps a few rows and lets the page scroll. The
+    episode search shows its matches in that same list."""
+    import time
+
+    from PySide6.QtCore import QCoreApplication
+
+    from gravitas.domain.models import MetaDetail, Video
+
+    class _Meta:
+        async def __call__(self, type: str, item_id: str) -> MetaDetail:
+            return MetaDetail(
+                id=item_id,
+                type="series",
+                name="Show",
+                description="A show.",
+                poster=None,
+                background=None,
+                videos=tuple(
+                    Video(id=f"{item_id}:1:{n}", title=f"E{n}", season=1, episode=n)
+                    for n in range(1, 31)
+                ),
+            )
+
+    def _pump_until(done: object, seconds: float = 5.0) -> None:
+        deadline = time.monotonic() + seconds
+        while not done() and time.monotonic() < deadline:  # type: ignore[operator]
+            QCoreApplication.processEvents()
+
+    def _views(page: QQuickItem) -> list[QQuickItem]:
+        views: list[QQuickItem] = []
+        pending = [page]
+        while pending:
+            item = pending.pop()
+            if item.metaObject().className().startswith("QQuickListView"):
+                views.append(item)
+            pending.extend(item.childItems())
+        return views
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    engine: QQmlApplicationEngine | None = None
+    try:
+        _app, engine = build_app(
+            argv=[], default_addon_url="https://v3-cinemeta.strem.io/manifest.json"
+        )
+        controller = qml_module.bound(engine)["DetailController"]
+        controller._get_detail = _Meta()
+
+        qml_warnings.clear()  # ignore anything from bringing the app up
+        component = QQmlComponent(engine, str(_QML_DIR / "Detail.qml"))
+        page = component.createWithInitialProperties(
+            {"mediaType": "series", "mediaId": "tt_S"}, engine.rootContext()
+        )
+        assert page is not None, component.errorString()
+        window = engine.rootObjects()[0]
+        page.setParentItem(window.contentItem())
+        page.setWidth(1200)
+        page.setHeight(900)
+
+        await controller.load("series", "tt_S")
+
+        def _lists() -> tuple[QQuickItem, QQuickItem] | None:
+            views = _views(page)
+            episodes = [v for v in views if v.property("count") == 30]
+            pages = [v for v in views if v not in episodes]
+            return (pages[0], episodes[0]) if episodes and pages else None
+
+        _pump_until(lambda: _lists() is not None)
+        found = _lists()
+        assert found is not None, "the episode list is built"
+        view, episodes = found
+
+        def _settled(height: float) -> bool:
+            return abs(view.property("contentHeight") - height) < 1
+
+        _pump_until(lambda: _settled(view.height()))
+        assert _settled(view.height()), "the page fits its window: nothing to scroll"
+        assert episodes.height() >= 280
+        assert episodes.property("contentHeight") > episodes.height(), "the season scrolls"
+        bottom = episodes.mapToItem(page, 0, episodes.height()).y()
+        assert bottom <= page.height(), "the list ends inside the window"
+
+        # The search box lists matches from every season in the same view.
+        controller.setEpisodeQuery("e7")
+        _pump_until(lambda: episodes.property("count") == 1)
+        assert episodes.property("count") == 1
+        controller.setEpisodeQuery("nothing like this")
+        _pump_until(lambda: episodes.property("count") == 0)
+        assert episodes.parentItem().isVisible(), "no match keeps the section and its box"
+        controller.setEpisodeQuery("")
+        _pump_until(lambda: episodes.property("count") == 30)
+        assert episodes.property("count") == 30
+
+        page.setHeight(500)
+        _pump_until(lambda: episodes.height() == 280)
+        assert episodes.height() == 280, "a short window keeps a few rows"
+        _pump_until(lambda: view.property("contentHeight") > view.height())
+        assert view.property("contentHeight") > view.height(), "and the page scrolls"
+        page.deleteLater()
+    finally:
+        del engine
+    assert qml_warnings == []
+
+
 async def test_detail_stands_on_the_card_then_offers_a_source_retry(
     qml_warnings: list[str], tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> None:

@@ -342,6 +342,41 @@ async def test_select_season_repopulates(qapp: object) -> None:
     assert episode_model.data(episode_model.index(0, 0), EpisodeListModel.TitleRole) == "Special"
 
 
+async def test_episode_search_spans_seasons_and_leaves_the_season_alone(qapp: object) -> None:
+    stream_model = StreamListModel()
+    episode_model = EpisodeListModel()
+    search_model = EpisodeListModel()
+    ctl = DetailController(
+        SeriesGetDetail(),  # type: ignore[arg-type]
+        FakeResolve(),  # type: ignore[arg-type]
+        stream_model,
+        episode_model,
+        episode_search_model=search_model,
+    )
+    await ctl.load("series", "tt1")
+
+    def titles(model: EpisodeListModel) -> list[str]:
+        return [
+            model.data(model.index(row, 0), EpisodeListModel.TitleRole)
+            for row in range(model.rowCount())
+        ]
+
+    ctl.setEpisodeQuery("e1")
+    assert ctl.episodeQuery == "e1"
+    assert titles(search_model) == ["One", "S2 opener", "Special"], "every season, Specials last"
+    assert titles(episode_model) == ["One", "Two"], "the season on screen is untouched"
+    assert search_model.media_id == "tt1", "progress bars read the right series"
+
+    ctl.selectSeason(1)
+    assert ctl.episodeQuery == "", "picking a season ends the search"
+    assert search_model.rowCount() == 0
+
+    ctl.setEpisodeQuery("opener")
+    await ctl.load("series", "tt1")
+    assert ctl.episodeQuery == "", "a new page starts without a search"
+    assert search_model.rowCount() == 0
+
+
 async def test_select_episode_resolves_streams_and_labels(qapp: object) -> None:
     ctl, stream_model, _episode_model = _series_ctl()
     await ctl.load("series", "tt1")
