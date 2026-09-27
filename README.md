@@ -8,19 +8,9 @@
 Native Qt&nbsp;6 interface, its own Rust playback engine, and none of the Electron weight.
 
 [![CI](https://github.com/skyline69/gravitas/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/skyline69/gravitas/actions/workflows/ci.yml)
-[![Release build](https://github.com/skyline69/gravitas/actions/workflows/release.yml/badge.svg?branch=release)](https://github.com/skyline69/gravitas/actions/workflows/release.yml)
 [![Rolling release](https://img.shields.io/github/release-date/skyline69/gravitas?label=rolling%20release&logo=github)](https://github.com/skyline69/gravitas/releases/tag/rolling)
-[![Downloads](https://img.shields.io/github/downloads/skyline69/gravitas/total?logo=github&color=7c3aed)](https://github.com/skyline69/gravitas/releases)
-[![License: MIT](https://img.shields.io/github/license/skyline69/gravitas?color=blue)](LICENSE)
-
-[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![Qt 6 / PySide6](https://img.shields.io/badge/Qt%206-PySide6-41CD52?logo=qt&logoColor=white)](https://doc.qt.io/qtforpython-6/)
-[![Rust engine](https://img.shields.io/badge/engine-Rust-DEA584?logo=rust&logoColor=white)](native/player/README.md)
-[![FFmpeg](https://img.shields.io/badge/FFmpeg-libplacebo-007808?logo=ffmpeg&logoColor=white)](https://ffmpeg.org/)
 [![Platforms](https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-555)](#install)
-[![Checked with mypy](https://img.shields.io/badge/mypy-strict-2A6DB2)](https://mypy-lang.org/)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
+[![License: MIT](https://img.shields.io/github/license/skyline69/gravitas?color=blue)](LICENSE)
 
 [Features](#features) ·
 [Screenshots](#screenshots) ·
