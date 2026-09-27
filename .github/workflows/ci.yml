@@ -1,0 +1,161 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    # Tests run on both targets: paths, the single-instance socket name and
+    # libmpv discovery all branch per platform, and only a Windows runner can
+    # prove the Windows half. The lint/format/type gates are platform-blind,
+    # so they run once, on Linux.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Qt runtime libraries (offscreen tests)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libopengl0 libgl1 libxkbcommon0 libglib2.0-0
+      - run: uv sync --frozen
+      - name: Lint
+        if: runner.os == 'Linux'
+        run: uv run ruff check .
+      - name: Format
+        if: runner.os == 'Linux'
+        run: uv run ruff format --check .
+      - name: Types
+        if: runner.os == 'Linux'
+        run: uv run mypy src
+      - name: Tests
+        run: uv run pytest -q
+
+  # The Linux Vulkan video bridge is C++ against Qt's own headers, so nothing
+  # in the test suite compiles it -- a break there would only surface at
+  # release time. This job proves it still builds against the PySide6 wheel's
+  # Qt and that the loader accepts what it produced.
+  #
+  # It cannot prove the interop itself. That needs a real GPU with opaque-FD
+  # external memory; llvmpipe on a runner has none, so GL/Vulkan sharing is
+  # launch-verified on hardware, the same coverage class as the QML.
+  video-bridge:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            aqt: linux desktop
+            arch: linux_gcc_64
+            prefix: gcc_64
+          # The macOS bridge is ObjC++ and cannot be compiled anywhere else, so
+          # without this it is only ever built by the release job -- which is
+          # continue-on-error, because a missing bridge degrades to software
+          # rendering rather than breaking. A compile error there is therefore
+          # silent, and the first symptom is a slow player in a shipped build.
+          - os: macos-latest
+            aqt: mac desktop
+            arch: clang_64
+            prefix: macos
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ libegl1-mesa-dev libgl1-mesa-dev libvulkan-dev \
+            libegl1 libopengl0 libgl1 libxkbcommon0 libglib2.0-0
+      - run: uv sync --frozen
+      - name: Qt headers matching the PySide6 wheel
+        run: |
+          QT_VERSION=$(uv run python -c "from PySide6.QtCore import qVersion; print(qVersion())")
+          echo "QT_PREFIX=$RUNNER_TEMP/Qt/$QT_VERSION/${{ matrix.prefix }}" >> "$GITHUB_ENV"
+          uvx --from aqtinstall aqt install-qt ${{ matrix.aqt }} "$QT_VERSION" ${{ matrix.arch }} \
+            --outputdir "$RUNNER_TEMP/Qt" --archives qtbase qtdeclarative
+      - name: Build the bridge
+        run: uv run python scripts/build_video_bridge.py --qt "$QT_PREFIX"
+      # Each platform's own bridge tests. The Vulkan ones are inert on macOS
+      # and the Metal ones on Linux -- both loaders refuse to run off their own
+      # platform -- so running the wrong set proves nothing about the library
+      # that was just built.
+      - name: Bridge tests (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          uv run pytest -q \
+            tests/presentation/test_vulkan_bridge.py \
+            tests/presentation/test_mpv_vulkan_item.py \
+            tests/presentation/test_video_backend.py \
+            tests/infrastructure/test_graphics.py
+      - name: Bridge tests (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          uv run pytest -q \
+            tests/presentation/test_mpv_metal_item.py \
+            tests/presentation/test_mpv_sw_item.py \
+            tests/presentation/test_video_backend.py \
+            tests/infrastructure/test_graphics.py
+      # Those tests all use fakes, by necessity. This loads the artefact that
+      # was actually just compiled and makes it answer for its ABI and its Qt,
+      # which is the only step here that would catch a dylib/.so that builds
+      # and then cannot be opened -- a missing dependency, a bad rpath, an
+      # architecture mismatch.
+      - name: The built library loads and matches this Qt
+        run: |
+          uv run python - <<'PY'
+          import sys
+
+          if sys.platform == "darwin":
+              from gravitas.presentation.video import metal_bridge as bridge
+          else:
+              from gravitas.presentation.video import vulkan_bridge as bridge
+          library = bridge.library()  # raises BridgeUnavailable on any mismatch
+          print(f"loaded {bridge._LIBRARY.name}, ABI {bridge._ABI}")
+          PY
+
+  # The native player engine (native/player/): Rust gates, the engine's own
+  # tests (which play a file the ffmpeg CLI generates), then the Python tests
+  # against the module actually built here. Linux only for now; the other
+  # platforms join with packaging (milestone 6 in native/player/README.md).
+  native-player:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native/player
+      - name: Build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config clang libclang-dev libasound2-dev libass-dev libplacebo-dev ffmpeg \
+            libavformat-dev libavcodec-dev libavutil-dev libswresample-dev libswscale-dev \
+            libegl1 libopengl0 libgl1 libxkbcommon0 libglib2.0-0
+      - name: Format
+        working-directory: native/player
+        run: cargo fmt --all --check
+      - name: Lint
+        working-directory: native/player
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Engine tests
+        working-directory: native/player
+        run: cargo test --workspace
+      - run: uv sync --frozen
+      - name: Build the module
+        run: uv run python scripts/build_native_player.py
+      - name: Python tests against the built module
+        run: |
+          uv run pytest -q \
+            tests/infrastructure/player/test_native_engine.py \
+            tests/infrastructure/player/test_native_player.py \
+            tests/presentation/test_native_item.py

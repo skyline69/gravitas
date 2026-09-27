@@ -1,0 +1,77 @@
+# Flatpak manifest — sideload/self-hosted build.
+#
+# Reuses the SAME self-contained PyInstaller bundle the AppImage ships
+# (dist/Gravitas), so libmpv + ffmpeg + yt-dlp + Qt all come from the bundle.
+# The org.freedesktop.Platform runtime only supplies the base system the bundle
+# links against at runtime: glibc, Mesa GL (dri), Wayland/X11, PulseAudio.
+#
+# Build through packaging/build_flatpak.sh, not by hand:
+#   bash packaging/build_flatpak.sh
+#   flatpak run dev.skyline.Gravitas
+#
+# It runs PyInstaller and flatpak-builder in order, and checks the two things
+# that otherwise fail late and unhelpfully. Reusing a host-built bundle means
+# the BUILD HOST's glibc is a floor the sandbox cannot lower: a bundle from a
+# host newer than the runtime dies at launch on a missing symbol version
+# (`GLIBC_ABI_GNU2_TLS`), so the script refuses it up front and names the CI
+# artifact, which is built on an old-glibc runner. It also warns when the
+# Vulkan bridge is missing from dist/ — that one is silent otherwise, costing
+# the zero-copy Vulkan path while the app still starts and plays on OpenGL.
+#
+# NOTE: this bundles prebuilt binaries, which Flathub forbids. It is for a
+# personal/sideload repo. A Flathub-compliant manifest must build ffmpeg and
+# libmpv from source — a separate, much larger module set.
+app-id: dev.skyline.Gravitas
+runtime: org.freedesktop.Platform
+# 26.08 (glibc 2.44) is the first runtime a bundle built on current Fedora
+# (glibc 2.43) can run in -- the build host's glibc is the floor, see above --
+# and it still runs one built on an older host (the release job's ubuntu-24.04).
+runtime-version: '26.08'
+sdk: org.freedesktop.Sdk
+command: gravitas
+
+# flatpak-builder (1.4 and later) composes the AppStream catalog the app-store
+# UIs read, with the build host's appstreamcli: the 26.08 Sdk no longer ships
+# one, so composing it in build-commands, as this once did, fails there.
+# Without a composed catalog under /app/share/app-info, software centers show
+# the bare desktop entry: "Unknown author", "Unknown license", no description.
+
+finish-args:
+  - --share=network            # addon HTTP + stream fetch
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc                # required with fallback-x11
+  - --device=dri               # GPU: hwdec (vaapi/vdpau) + GL render path
+  - --socket=pulseaudio
+  - --filesystem=xdg-download   # let users point at local media if wanted
+  # Picture-in-picture on KDE: Wayland has no stay-on-top protocol, so the
+  # app asks KWin to pin the tile (infrastructure/desktop/kwin_window.py).
+  # Without this the sandbox cannot see the bus name and the tile floats
+  # unpinned.
+  - --talk-name=org.kde.KWin
+
+modules:
+  - name: gravitas
+    buildsystem: simple
+    build-commands:
+      # Ship the whole one-dir bundle under /app/lib, expose the launcher on PATH.
+      - mkdir -p /app/lib
+      - cp -a Gravitas /app/lib/gravitas
+      - mkdir -p /app/bin
+      - ln -s /app/lib/gravitas/gravitas /app/bin/gravitas
+      - install -Dm644 dev.skyline.Gravitas.desktop
+          /app/share/applications/dev.skyline.Gravitas.desktop
+      - install -Dm644 gravitas.png
+          /app/share/icons/hicolor/256x256/apps/dev.skyline.Gravitas.png
+      - install -Dm644 dev.skyline.Gravitas.metainfo.xml
+          /app/share/metainfo/dev.skyline.Gravitas.metainfo.xml
+    sources:
+      # dist/ holds the PyInstaller output (Gravitas/); build the bundle first.
+      - type: dir
+        path: ../../dist
+      - type: file
+        path: dev.skyline.Gravitas.desktop
+      - type: file
+        path: dev.skyline.Gravitas.metainfo.xml
+      - type: file
+        path: ../gravitas.png

@@ -1,0 +1,58 @@
+[workspace]
+resolver = "3"
+members = ["crates/engine", "crates/libass-sys", "crates/libplacebo-sys", "crates/python"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "MIT"
+authors = ["Ö. Efe D. (skyline69)"]
+repository = "https://github.com/skyline69/gravitas"
+
+[workspace.dependencies]
+gravitas-player-engine = { path = "crates/engine" }
+libass-sys = { path = "crates/libass-sys" }
+libplacebo-sys = { path = "crates/libplacebo-sys" }
+cc = "1.5.1"
+ffmpeg-sys-next = { version = "9.0.0", default-features = false, features = ["avcodec", "avformat"] }
+bindgen = "0.73.2"
+cpal = "0.18.2"
+crossbeam-channel = "0.5.17"
+ffmpeg-next = { version = "9.0.0", default-features = false, features = ["codec", "format", "software-resampling", "software-scaling"] }
+log = "0.4.34"
+objc2 = "0.6.4"
+objc2-audio-toolbox = "0.3.2"
+objc2-core-audio = "0.3.2"
+objc2-core-audio-types = "0.3.2"
+objc2-core-foundation = "0.3.2"
+objc2-core-video = "0.3.2"
+objc2-foundation = "0.3.2"
+objc2-metal = "0.3.2"
+parking_lot = "0.12.5"
+pyo3 = "0.29.2"
+pyo3-build-config = "0.29.2"
+pyo3-log = "0.13.4"
+pkg-config = "0.3.34"
+thiserror = "2.0.21"
+# No gzip: media is fetched by byte range, and a compressed body would
+# break every offset. rustls with the platform's own trust store.
+ureq = { version = "3.4.2", default-features = false, features = ["rustls", "platform-verifier"] }
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+cast_precision_loss = "allow"
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_possible_wrap = "allow"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+debug = "line-tables-only"

@@ -1,0 +1,15 @@
+[package]
+name = "libass-sys"
+description = "Raw FFI bindings to libass, generated at build time from the installed headers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+links = "ass"
+
+[build-dependencies]
+bindgen.workspace = true
+pkg-config.workspace = true

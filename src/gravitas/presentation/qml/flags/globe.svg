@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480">
+  <!-- Gravitas' own: the stand-in flag for a language with no one country.
+       4:3 like the vendored flags, in Theme.textDim. -->
+  <g fill="none" stroke="#9aa0a6" stroke-width="28">
+    <circle cx="320" cy="240" r="196"/>
+    <ellipse cx="320" cy="240" rx="84" ry="196"/>
+    <path d="M124 240h392M150 142h340M150 338h340"/>
+  </g>
+</svg>

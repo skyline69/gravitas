@@ -1,0 +1,21 @@
+singleton Theme 1.0 Theme.qml
+singleton Icons 1.0 Icons.qml
+singleton Scroll 1.0 Scroll.qml
+singleton Img 1.0 Img.qml
+AppIcon 1.0 AppIcon.qml
+PosterCard 1.0 PosterCard.qml
+CatalogRowStrip 1.0 CatalogRowStrip.qml
+StreamRow 1.0 StreamRow.qml
+AppButton 1.0 AppButton.qml
+AppTextField 1.0 AppTextField.qml
+AppComboBox 1.0 AppComboBox.qml
+AppSpinner 1.0 AppSpinner.qml
+Toast 1.0 Toast.qml
+AppChip 1.0 AppChip.qml
+AppCheckBox 1.0 AppCheckBox.qml
+AmbientBackground 1.0 AmbientBackground.qml
+AppToolTip 1.0 AppToolTip.qml
+SearchBar 1.0 SearchBar.qml
+AppScrollBar 1.0 AppScrollBar.qml
+EdgeFade 1.0 EdgeFade.qml
+AddonInstallDialog 1.0 AddonInstallDialog.qml

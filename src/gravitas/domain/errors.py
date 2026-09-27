@@ -1,0 +1,60 @@
+"""Typed domain errors. Every failure the domain raises subclasses GravitasError."""
+
+
+class GravitasError(Exception):
+    """Base class for all Gravitas domain errors."""
+
+
+class AddonUnreachable(GravitasError):
+    """An addon endpoint could not be reached (network/transport failure)."""
+
+
+class InvalidManifest(GravitasError):
+    """An addon manifest was missing required fields or malformed."""
+
+
+class InvalidResponse(GravitasError):
+    """An addon resource response was malformed."""
+
+
+class NoStreams(GravitasError):
+    """No playable streams were returned for an item."""
+
+
+class SourcesUnavailable(NoStreams):
+    """No playable streams, and at least one stream addon failed to answer --
+    so "none" is not the addon's verdict, and asking again may well help.
+
+    A NoStreams subclass on purpose: everywhere that treats "nothing to play"
+    as an empty list still does, and only a caller that wants to offer a retry
+    has to tell the two apart."""
+
+
+class AddonRemovalError(GravitasError):
+    """An addon could not be removed (protected default, or not installed)."""
+
+
+class PlaybackFailed(GravitasError):
+    """The media player failed to start or continue playback."""
+
+
+class TmdbUnavailable(GravitasError):
+    """TMDB could not resolve an external id (no API key, or the lookup failed)."""
+
+
+class UnsupportedLink(GravitasError):
+    """A stremio:// link Gravitas does not handle (only addon installs are)."""
+
+
+class MdbListUnavailable(GravitasError):
+    """MDBList could not be reached or returned an unusable response."""
+
+
+class TraktError(GravitasError):
+    """A Trakt request failed. `status` carries the HTTP status when the
+    server answered (0 for transport failures), so callers can tell an
+    expired token (401) from everything else."""
+
+    def __init__(self, message: str, status: int = 0) -> None:
+        super().__init__(message)
+        self.status = status

@@ -1,0 +1,1 @@
+doc-valid-idents = ["FFmpeg", "PyO3", "libmpv", "libplacebo", "PipeWire", "PulseAudio", "SubRip", "WebVTT", "AVSubtitle", "VobSub", "VideoToolbox", "CoreAudio", "AirPods", "TrueHD", "TorBox", "IOSurface", "IOSurfaces", "ICtCp", "MacBook", ".."]

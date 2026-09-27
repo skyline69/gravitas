@@ -1,0 +1,24 @@
+__pycache__/
+*.pyc
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+packaging/.cache/
+
+.DS_Store
+
+# Built by scripts/build_video_bridge.py; a binary, and Qt-version specific.
+src/gravitas/presentation/video/libgravitas_video_bridge.dylib
+src/gravitas/presentation/video/libgravitas_video_bridge_vk.so
+src/gravitas/presentation/video/gravitas_native_vk.dll
+
+# Written by aqt when fetching Qt headers for the video bridge (see release.yml)
+aqtinstall.log
+
+# Built by scripts/build_native_player.py from native/player/.
+src/gravitas/infrastructure/player/gravitas_player.abi3.so
+src/gravitas/infrastructure/player/gravitas_player.pyd
+src/gravitas/infrastructure/player/gravitas_player.libs/

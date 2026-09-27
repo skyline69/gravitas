@@ -1,0 +1,369 @@
+name: release
+
+on:
+  push:
+    branches: [release]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # Single rolling release: move the `rolling` tag to this commit and make
+  # sure the release exists before the build jobs upload into it.
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Point the rolling tag at this commit
+        run: |
+          git tag -f rolling
+          git push origin rolling --force
+      - name: Ensure the rolling release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view rolling --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create rolling \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Gravitas (rolling)" \
+              --notes "Latest build from the release branch. Assets are replaced on every push."
+
+  linux:
+    needs: prepare
+    # Oldest supported LTS: the AppImage inherits this glibc floor.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install libmpv and AppImage runtime deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libmpv-dev libfuse2 \
+            g++ libegl1-mesa-dev libgl1-mesa-dev libvulkan-dev
+      - run: uv sync --frozen
+      # The Vulkan zero-copy video bridge is C++ compiled against Qt's headers,
+      # which the PySide6 wheel does not ship -- and the versions must match
+      # exactly, because QRhi (how a VkImage reaches the scene graph) carries no
+      # binary compatibility guarantee between Qt releases. Hence the SDK
+      # download, pinned to the wheel's own Qt version.
+      #
+      # If this step fails the build still produces a working app: Linux video
+      # renders zero-copy on OpenGL, which is the default anyway. The bridge
+      # only serves users who opt into GRAVITAS_GRAPHICS=vulkan.
+      - name: Install Qt headers for the video bridge
+        id: qt
+        continue-on-error: true
+        run: |
+          QT_VERSION=$(uv run python -c "from PySide6.QtCore import qVersion; print(qVersion())")
+          echo "Building the bridge against Qt $QT_VERSION"
+          uvx --from aqtinstall aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 \
+            --outputdir "$RUNNER_TEMP/Qt" --archives qtbase qtdeclarative
+          echo "prefix=$RUNNER_TEMP/Qt/$QT_VERSION/gcc_64" >> "$GITHUB_OUTPUT"
+      - name: Build the video bridge
+        if: steps.qt.outcome == 'success'
+        continue-on-error: true
+        run: uv run python scripts/build_video_bridge.py --qt "${{ steps.qt.outputs.prefix }}"
+      - name: Build one-dir bundle
+        run: uv run --with pyinstaller pyinstaller packaging/gravitas.spec --noconfirm
+      - name: Check what the bundle got
+        # Searched rather than looked up by path: where PyInstaller puts a
+        # binary has moved between releases, and a wrong guess here would
+        # report a missing bridge that is actually present.
+        run: |
+          if find dist/Gravitas -name libgravitas_video_bridge_vk.so | grep -q .; then
+            echo "Vulkan zero-copy video bridge bundled"
+          else
+            echo "::warning::no Vulkan video bridge in the bundle; Linux video stays on OpenGL"
+          fi
+      - name: Build AppImage
+        run: bash packaging/build_appimage.sh
+      - name: Upload to the rolling release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload rolling dist/Gravitas-*.AppImage --repo "$GITHUB_REPOSITORY" --clobber
+
+  macos:
+    needs: prepare
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install libmpv, and the native engine's FFmpeg and libass
+        run: brew install mpv ffmpeg libass
+      - run: uv sync --frozen
+      # The native player engine (native/player/): renders through Metal, so
+      # it needs no Vulkan loader or MoltenVK -- only FFmpeg and libass, whose
+      # dylibs PyInstaller collects from the module's own load commands. If
+      # this step fails the app still ships and plays through mpv, and the
+      # check below says so.
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build the native player engine
+        continue-on-error: true
+        run: uv run python scripts/build_native_player.py
+      # The zero-copy video bridge is ObjC++ compiled against Qt's headers,
+      # which the PySide6 wheel does not ship -- and the versions must match
+      # exactly, because QRhi (how a Metal texture reaches the scene graph)
+      # carries no binary compatibility guarantee between Qt releases. Hence
+      # the SDK download, pinned to the wheel's own Qt version.
+      #
+      # If this step fails the build still produces a working app: the video
+      # item falls back to libmpv's software render path, which costs a frame
+      # copy per frame and nothing else.
+      - name: Install Qt headers for the video bridge
+        id: qt
+        continue-on-error: true
+        run: |
+          QT_VERSION=$(uv run python -c "from PySide6.QtCore import qVersion; print(qVersion())")
+          echo "Building the bridge against Qt $QT_VERSION"
+          uvx --from aqtinstall aqt install-qt mac desktop "$QT_VERSION" clang_64 \
+            --outputdir "$RUNNER_TEMP/Qt" --archives qtbase qtdeclarative
+          echo "prefix=$RUNNER_TEMP/Qt/$QT_VERSION/macos" >> "$GITHUB_OUTPUT"
+      - name: Build the video bridge
+        if: steps.qt.outcome == 'success'
+        continue-on-error: true
+        run: uv run python scripts/build_video_bridge.py --qt "${{ steps.qt.outputs.prefix }}"
+      - name: Build app bundle
+        run: uv run --with pyinstaller pyinstaller packaging/gravitas.spec --noconfirm
+      - name: Check what the bundle got
+        # Searched rather than looked up by path: where PyInstaller puts a
+        # binary inside a .app has moved between releases, and a wrong guess
+        # here would report a missing bridge that is actually present.
+        run: |
+          if find dist/Gravitas.app -name libgravitas_video_bridge.dylib | grep -q .; then
+            echo "zero-copy video bridge bundled"
+          else
+            echo "::warning::no video bridge in the bundle; macOS video will render in software"
+          fi
+          engine=$(find dist/Gravitas.app -name 'gravitas_player.abi3.so' | head -1)
+          if [ -z "$engine" ]; then
+            echo "::warning::no native player engine in the bundle; video plays through mpv"
+          elif otool -L "$engine" | grep -q /opt/homebrew; then
+            # A load command still naming Homebrew works on the build machine
+            # and nowhere else.
+            echo "::error::the bundled engine still links Homebrew:"
+            otool -L "$engine"
+            exit 1
+          else
+            echo "native player engine bundled"
+          fi
+      - name: Ad-hoc sign
+        run: codesign --force --deep --sign - dist/Gravitas.app
+      - name: Install create-dmg
+        run: brew install create-dmg
+      - name: Build dmg
+        # Styled installer window: branded background, the app on the left and an
+        # Applications drop-link on the right so users just drag across to install.
+        run: |
+          # create-dmg copies the *contents* of the source dir, so stage a clean
+          # folder holding only the app (avoids pulling in the rest of dist/).
+          rm -rf dist/dmg-src && mkdir -p dist/dmg-src
+          cp -R dist/Gravitas.app dist/dmg-src/
+          rm -f dist/Gravitas.dmg
+          create-dmg \
+            --volname "Gravitas" \
+            --volicon "packaging/icon/gravitas.icns" \
+            --background "packaging/dmg/background.tiff" \
+            --window-pos 200 120 \
+            --window-size 640 400 \
+            --icon-size 128 \
+            --icon "Gravitas.app" 170 185 \
+            --hide-extension "Gravitas.app" \
+            --app-drop-link 470 185 \
+            --no-internet-enable \
+            "dist/Gravitas.dmg" \
+            "dist/dmg-src"
+      - name: Upload to the rolling release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload rolling dist/Gravitas.dmg --repo "$GITHUB_REPOSITORY" --clobber
+
+  windows:
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen
+      # The native player engine (native/player/) builds with MSYS2's UCRT64
+      # toolchain, which packages libplacebo and libass for Windows, against
+      # the lean FFmpeg build_ffmpeg_windows.py builds from source (MSYS2's
+      # own drags ~80 DLLs of encoders and codec libraries into the bundle,
+      # and is GPL). build_native_player.py copies the DLLs the module links
+      # beside it, and the spec bundles them. The runner image carries MSYS2 at
+      # C:\msys64 already (release: false), which is where the script looks.
+      # If any of this fails the app still ships and plays through mpv, and
+      # the check below says so.
+      - uses: msys2/setup-msys2@v2
+        id: msys2
+        continue-on-error: true
+        with:
+          msystem: UCRT64
+          release: false
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-rust mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-binutils
+            mingw-w64-ucrt-x86_64-ffmpeg mingw-w64-ucrt-x86_64-libplacebo
+            mingw-w64-ucrt-x86_64-libass mingw-w64-ucrt-x86_64-vulkan-headers
+            make diffutils mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-nasm
+            mingw-w64-ucrt-x86_64-dav1d mingw-w64-ucrt-x86_64-ffnvcodec-headers
+            mingw-w64-ucrt-x86_64-zlib
+      # The build is the script's pinned release and flags, so the script is
+      # the cache key: ~10 minutes saved on every release that leaves it be.
+      - uses: actions/cache@v4
+        if: steps.msys2.outcome == 'success'
+        with:
+          path: build/ffmpeg-windows
+          key: ffmpeg-windows-${{ hashFiles('scripts/build_ffmpeg_windows.py') }}
+      - name: Build the lean FFmpeg
+        id: ffmpeg
+        if: steps.msys2.outcome == 'success'
+        continue-on-error: true
+        env:
+          MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
+        run: uv run python scripts/build_ffmpeg_windows.py
+      - name: Build the native player engine
+        if: steps.msys2.outcome == 'success'
+        continue-on-error: true
+        env:
+          MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
+        run: uv run python scripts/build_native_player.py
+      # The engine's Qt side (zero-copy video on Vulkan) is C++ compiled with
+      # MSVC against Qt's headers, pinned to the wheel's exact Qt for the same
+      # reason as on Linux and macOS. Its Vulkan headers come from MSYS2.
+      # Without it the engine renders through its readback path on D3D11.
+      - name: Install Qt headers for the Vulkan bridge
+        id: qt
+        if: steps.msys2.outcome == 'success'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $qt = uv run python -c "from PySide6.QtCore import qVersion; print(qVersion())"
+          Write-Output "Building the bridge against Qt $qt"
+          # aqtinstall 3.3.0 cannot find Qt 6.11 for Windows: Qt now splits
+          # that repository per architecture (qt6_6112/qt6_6112_msvc2022_64/).
+          # Pinned to the commit that follows it until a release does.
+          uvx --from "git+https://github.com/miurahr/aqtinstall@076e1659807d0b362a3ed684d54c2e9c775eb9c7" `
+            aqt install-qt windows desktop $qt win64_msvc2022_64 `
+            --outputdir "$env:RUNNER_TEMP\Qt" --archives qtbase qtdeclarative
+          if ($LASTEXITCODE -ne 0) { throw "aqt failed with $LASTEXITCODE" }
+          "prefix=$env:RUNNER_TEMP\Qt\$qt\msvc2022_64" >> $env:GITHUB_OUTPUT
+      - name: Build the Vulkan bridge
+        if: steps.qt.outcome == 'success'
+        continue-on-error: true
+        env:
+          MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
+        run: uv run python scripts/build_video_bridge.py --qt "${{ steps.qt.outputs.prefix }}"
+      # No libmpv package exists for Windows, so the spec downloads the
+      # official mpv-dev build itself (and yt-dlp.exe with it). py7zr is the
+      # in-process fallback for the extraction if the runner ever loses 7z.
+      - name: Build one-dir bundle
+        env:
+          # Raises the GitHub API rate limit the spec's libmpv lookup uses.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: uv run --with pyinstaller --with py7zr pyinstaller packaging/gravitas.spec --noconfirm
+      - name: Verify the bundle carries libmpv, yt-dlp and the native engine
+        shell: pwsh
+        run: |
+          $internal = "dist/Gravitas/_internal"
+          foreach ($file in @("libmpv-2.dll", "yt-dlp.exe")) {
+            if (-not (Test-Path "$internal/$file")) {
+              throw "$file missing from the bundle - playback would be dead on arrival"
+            }
+          }
+          if (Test-Path "$internal/PySide6/Qt6WebEngineCore.dll") {
+            throw "QtWebEngine survived the payload filter - the installer would be 200 MB of Chromium"
+          }
+          $player = "$internal/gravitas/infrastructure/player"
+          if (-not (Test-Path "$player/gravitas_player.pyd")) {
+            Write-Output "::warning::no native player engine in the bundle; video plays through mpv"
+          } elseif (-not (Test-Path "$player/gravitas_player.libs/avcodec-*.dll")) {
+            throw "the native player engine is bundled without its DLLs - it would never load"
+          } elseif (Test-Path "$player/gravitas_player.libs/libx264-*.dll") {
+            Write-Output "::warning::the engine links MSYS2's FFmpeg, not the lean build: the bundle carries its encoders and is GPL"
+          } else {
+            Write-Output "native player engine bundled"
+          }
+          if (Test-Path "$internal/gravitas/presentation/video/gravitas_native_vk.dll") {
+            Write-Output "Vulkan bridge bundled"
+          } else {
+            Write-Output "::warning::no Vulkan bridge in the bundle; the native engine renders through readback"
+          }
+      - name: Portable zip
+        shell: pwsh
+        run: Compress-Archive -Path dist/Gravitas/* -DestinationPath dist/Gravitas-windows-x64.zip
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          # Upgrade rather than install-if-missing: the .iss uses
+          # ArchitecturesAllowed=x64compatible, which needs Inno Setup 6.3+,
+          # and the runner image has historically shipped 6.2.
+          choco upgrade innosetup -y --no-progress
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { $iscc = "iscc" }
+          & $iscc packaging\windows\gravitas.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with $LASTEXITCODE" }
+      - name: Upload to the rolling release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          gh release upload rolling dist/Gravitas-Setup.exe dist/Gravitas-windows-x64.zip
+          --repo "$env:GITHUB_REPOSITORY" --clobber
+
+  flatpak:
+    needs: prepare
+    # Independent of the AppImage/dmg jobs: a Flatpak failure never blocks them.
+    # 24.04: its glibc (2.39) is below the runtime's (26.08: 2.44), which the
+    # bundle's must be, and its flatpak-builder (1.4) composes the AppStream
+    # catalog itself -- the 26.08 Sdk no longer carries appstreamcli.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install libmpv, flatpak, and the freedesktop runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libmpv-dev flatpak flatpak-builder appstream \
+            g++ libegl1-mesa-dev libgl1-mesa-dev libvulkan-dev
+          sudo flatpak remote-add --if-not-exists flathub \
+            https://dl.flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install -y flathub \
+            org.freedesktop.Platform//26.08 org.freedesktop.Sdk//26.08
+      - run: uv sync --frozen
+      # Same two steps as the AppImage job, and for the same reason: the spec
+      # only bundles the Vulkan bridge if it has already been built, so a job
+      # that skips this silently ships a Flatpak that can never leave OpenGL.
+      # Both stay continue-on-error — a missing bridge costs zero-copy Vulkan,
+      # not the app.
+      - name: Install Qt headers for the video bridge
+        id: qt
+        continue-on-error: true
+        run: |
+          QT_VERSION=$(uv run python -c "from PySide6.QtCore import qVersion; print(qVersion())")
+          echo "Building the bridge against Qt $QT_VERSION"
+          uvx --from aqtinstall aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 \
+            --outputdir "$RUNNER_TEMP/Qt" --archives qtbase qtdeclarative
+          echo "prefix=$RUNNER_TEMP/Qt/$QT_VERSION/gcc_64" >> "$GITHUB_OUTPUT"
+      - name: Build the video bridge
+        if: steps.qt.outcome == 'success'
+        continue-on-error: true
+        run: uv run python scripts/build_video_bridge.py --qt "${{ steps.qt.outputs.prefix }}"
+      - name: Build the same one-dir bundle the manifest packages
+        run: uv run --with pyinstaller pyinstaller packaging/gravitas.spec --noconfirm
+      - name: Check what the bundle got
+        run: |
+          if find dist/Gravitas -name libgravitas_video_bridge_vk.so | grep -q .; then
+            echo "Vulkan zero-copy video bridge bundled"
+          else
+            echo "::warning::no Vulkan video bridge in the Flatpak; Linux video stays on OpenGL"
+          fi
+      - name: Build the Flatpak and export a single-file bundle
+        run: |
+          flatpak-builder --user --disable-rofiles-fuse --force-clean --repo=build/repo \
+            build/flatpak packaging/flatpak/dev.skyline.Gravitas.yaml
+          flatpak build-bundle build/repo dist/Gravitas.flatpak dev.skyline.Gravitas
+      - name: Upload to the rolling release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload rolling dist/Gravitas.flatpak --repo "$GITHUB_REPOSITORY" --clobber

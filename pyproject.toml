@@ -1,0 +1,76 @@
+[project]
+name = "gravitas"
+version = "0.1.0"
+description = "Minimal, no-nonsense alternative to Stremio"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Ö. Efe D. (skyline69)" }]
+requires-python = ">=3.12"
+dependencies = [
+    # Pinned to the patch, not floating. The macOS video bridge
+    # (native/macos/) is a binary compiled against Qt's headers, and one of the
+    # APIs it needs -- QRhi -- carries no source or binary compatibility
+    # guarantee between Qt releases. A floating pin means a `uv sync` can hand
+    # the app a Qt the bridge was not built for, which the loader can only
+    # answer by falling back to software rendering. Raising this pin and
+    # rebuilding the bridge belong in the same commit; see docs and the release
+    # workflow's macOS job.
+    "pyside6==6.11.2",
+    "python-mpv>=1.0.8",
+    "httpx[http2]>=0.28",
+    "qasync>=0.28",
+    # D-Bus for keeping the screen awake during playback (see
+    # infrastructure/desktop/idle_inhibitor.py): the inhibit calls take a
+    # uint32, which PySide6's QtDBus cannot send from Python. Pure Python.
+    "jeepney>=0.8 ; sys_platform == 'linux'",
+]
+
+[project.urls]
+Homepage = "https://github.com/skyline69/gravitas"
+Issues = "https://github.com/skyline69/gravitas/issues"
+
+[project.scripts]
+gravitas = "gravitas.main:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1",
+    "pytest-asyncio>=1.4",
+    "pytest-qt>=4.5",
+    "respx>=0.23",
+    "ruff>=0.15",
+    "mypy>=2.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gravitas"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "ASYNC"]
+
+[tool.ruff.format]
+# ruff 0.16 formats Python inside Markdown code blocks too. The plans under
+# docs/ quote code at the indentation it has in the function being described,
+# which is the point of quoting it; reformatting flattens that and rewrites a
+# record of what was proposed. Source is what the gate is about.
+exclude = ["**/*.md"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "src"
+packages = ["gravitas"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["src", "tests"]
+testpaths = ["tests"]

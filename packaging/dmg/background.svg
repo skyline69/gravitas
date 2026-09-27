@@ -1,0 +1,47 @@
+<svg width="960" height="600" viewBox="0 0 960 600" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    Canvas is larger than the 640x400 install window on purpose: the visible
+    content lives in the top-left 640x400, and the gradient continues past it so
+    resizing the window reveals more background instead of bare white.
+
+    Light, on-brand lavender: Finder always draws DMG icon labels in black when a
+    background image is set, so a light field keeps "Gravitas" / "Applications"
+    readable and makes the labels look intentional.
+  -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F5F2FC"/>
+      <stop offset="1" stop-color="#E6DEF5"/>
+    </linearGradient>
+    <linearGradient id="arrow" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#7C5CE6"/>
+      <stop offset="1" stop-color="#9B7BF0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- field -->
+  <rect width="960" height="600" fill="url(#bg)"/>
+
+  <!-- faint gravity-orbit motif, echoing the app icon (very subtle, no glow) -->
+  <g transform="rotate(-24 320 200)" fill="none" stroke="#7C5CE6" stroke-opacity="0.09" stroke-width="2">
+    <ellipse cx="320" cy="200" rx="300" ry="118"/>
+    <ellipse cx="320" cy="200" rx="220" ry="86"/>
+  </g>
+
+  <!-- wordmark + tagline (sentence case, no glow) -->
+  <text x="320" y="62" text-anchor="middle"
+        font-family="SF Pro Display, Helvetica Neue, Arial, sans-serif"
+        font-size="30" font-weight="600" fill="#2A2140">Gravitas</text>
+  <text x="320" y="88" text-anchor="middle"
+        font-family="SF Pro Text, Helvetica Neue, Arial, sans-serif"
+        font-size="14" font-weight="500" fill="#7C5CE6">Minimal streaming. No nonsense.</text>
+
+  <!-- arrow from app (left) to Applications (right), clear of both icons, flat -->
+  <rect x="252" y="182" width="110" height="6" rx="3" fill="url(#arrow)"/>
+  <path d="M358 172 L394 185 L358 198 Z" fill="#9B7BF0"/>
+
+  <!-- install hint -->
+  <text x="320" y="332" text-anchor="middle"
+        font-family="SF Pro Text, Helvetica Neue, Arial, sans-serif"
+        font-size="14" font-weight="500" fill="#4A4360">Drag <tspan font-weight="700" fill="#2A2140">Gravitas</tspan> onto the Applications folder to install</text>
+</svg>

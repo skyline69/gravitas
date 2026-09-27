@@ -1,0 +1,31 @@
+[package]
+name = "gravitas-player-python"
+description = "Python bindings (PyO3) for the Gravitas player engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+name = "gravitas_player"
+crate-type = ["cdylib"]
+
+[dependencies]
+gravitas-player-engine.workspace = true
+crossbeam-channel.workspace = true
+log.workspace = true
+parking_lot.workspace = true
+# No `extension-module` feature: scripts/build_native_player.py sets
+# PYO3_BUILD_EXTENSION_MODULE, which does the same for the module build and
+# leaves `cargo test`/`clippy` free to link against libpython.
+pyo3 = { workspace = true, features = ["abi3-py312"] }
+pyo3-log.workspace = true
+
+[build-dependencies]
+pyo3-build-config.workspace = true
+
+[lints]
+workspace = true

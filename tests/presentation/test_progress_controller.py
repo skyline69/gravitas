@@ -1,0 +1,175 @@
+from gravitas.application.watch_progress import WatchProgressRepository
+from gravitas.domain.models import PlaybackProgress
+from gravitas.presentation.controllers.progress_controller import ProgressController
+from gravitas.presentation.models.watched_list_model import WatchedListModel
+
+
+class _Store:
+    def __init__(self, entries: list[PlaybackProgress]) -> None:
+        self.entries = entries
+        self.deleted: list[tuple[str, str | None]] = []
+        self.cleared = False
+
+    def load_all(self) -> list[PlaybackProgress]:
+        return list(self.entries)
+
+    def save(self, entry: PlaybackProgress) -> None: ...
+
+    def load_forgotten(self) -> list[tuple[str, str, int]]:
+        return []
+
+    def save_forgotten(self, media_id: str, video_id: str, deleted_at: int) -> None: ...
+
+    def delete(self, media_id: str, video_id: str | None = None) -> None:
+        self.deleted.append((media_id, video_id))
+
+    def clear(self) -> None:
+        self.cleared = True
+
+
+def entry(media_id: str = "tt1", video_id: str = "", **kw: object) -> PlaybackProgress:
+    base: dict[str, object] = {
+        "media_id": media_id,
+        "video_id": video_id,
+        "type": "movie",
+        "name": "M",
+        "poster": None,
+        "label": "",
+        "position": 150.0,
+        "duration": 600.0,
+        "watched": False,
+        "updated_at": 100,
+    }
+    base.update(kw)
+    return PlaybackProgress(**base)  # type: ignore[arg-type]
+
+
+def build(entries: list[PlaybackProgress]) -> tuple[ProgressController, _Store, WatchedListModel]:
+    store = _Store(entries)
+    model = WatchedListModel()
+    return ProgressController(WatchProgressRepository(store), model), store, model
+
+
+def test_has_progress(qapp: object) -> None:
+    controller, _, _ = build([entry()])
+    assert controller.hasProgress("tt1") is True
+    assert controller.hasProgress("tt2") is False
+
+
+def test_forget_one_video_delegates_and_signals(qapp: object) -> None:
+    controller, store, _ = build([entry("tt9", "tt9:1:1", type="series")])
+    fired: list[None] = []
+    controller.progressChanged.connect(lambda: fired.append(None))
+    controller.forget("tt9", "tt9:1:1")
+    assert store.deleted == [("tt9", "tt9:1:1")]
+    assert fired == [None]
+
+
+def test_forget_media_delegates(qapp: object) -> None:
+    controller, store, _ = build([entry("tt9", "tt9:1:1", type="series")])
+    controller.forgetMedia("tt9")
+    assert store.deleted == [("tt9", None)]
+
+
+def test_reset_all_delegates(qapp: object) -> None:
+    controller, store, _ = build([entry()])
+    controller.resetAll()
+    assert store.cleared is True
+    assert controller.inProgressCount() == 0
+
+
+def test_forget_signals_carry_the_target(qapp: object) -> None:
+    """The Trakt mirror listens on these; without them a local forget comes
+    straight back on the next sync."""
+    controller, _, _ = build([entry("tt9", "tt9:1:1", type="series"), entry("tt1")])
+    forgotten: list[tuple[str, str]] = []
+    media: list[str] = []
+    reset: list[None] = []
+    controller.progressForgotten.connect(lambda m, v: forgotten.append((m, v)))
+    controller.mediaForgotten.connect(media.append)
+    controller.allProgressReset.connect(lambda: reset.append(None))
+
+    controller.forget("tt9", "tt9:1:1")
+    controller.forgetMedia("tt9")
+    controller.resetAll()
+
+    assert forgotten == [("tt9", "tt9:1:1")]
+    assert media == ["tt9"]
+    assert reset == [None]
+
+
+def test_revision_bumps_on_every_mutation(qapp: object) -> None:
+    controller, _, _ = build([entry()])
+    before = controller.revision
+    controller.forgetMedia("tt1")
+    assert controller.revision == before + 1
+
+
+def test_mutations_refresh_the_settings_model(qapp: object) -> None:
+    controller, _, model = build([entry()])
+    controller.refreshWatched()
+    assert model.rowCount() == 1
+    controller.forgetMedia("tt1")
+    assert model.rowCount() == 0  # the list must not keep a forgotten row
+
+
+def test_mark_watched_from_a_context_map(qapp: object) -> None:
+    controller, _, _ = build([])
+    controller.markWatched(
+        {
+            "mediaId": "tt9",
+            "videoId": "tt9:1:1",
+            "type": "series",
+            "name": "Show",
+            "poster": "",
+            "label": "S1E1",
+        }
+    )
+    assert controller.isWatched("tt9", "tt9:1:1") is True
+
+
+def test_mark_watched_without_a_media_id_is_ignored(qapp: object) -> None:
+    controller, _, _ = build([])
+    controller.markWatched({"mediaId": "", "videoId": "", "type": "movie"})
+    assert controller.inProgressCount() == 0
+
+
+def test_mark_watched_emits_context_for_mirrors(qapp: object) -> None:
+    controller, _, _ = build([])
+    seen: list[dict[str, object]] = []
+    controller.watchedMarked.connect(seen.append)
+    ctx = {"mediaId": "tt9", "videoId": "", "type": "movie", "name": "M", "label": ""}
+    controller.markWatched(ctx)
+    assert len(seen) == 1
+    assert seen[0]["mediaId"] == "tt9"
+
+
+def test_mark_watched_without_media_id_does_not_emit(qapp: object) -> None:
+    controller, _, _ = build([])
+    seen: list[dict[str, object]] = []
+    controller.watchedMarked.connect(seen.append)
+    controller.markWatched({"mediaId": "", "videoId": "", "type": "movie"})
+    assert seen == []
+
+
+def test_total_count_includes_watched_titles(qapp: object) -> None:
+    """Reset all must be reachable even when every saved title is finished —
+    inProgressCount() would read 0 here and hide the button."""
+    controller, _, _ = build([entry("tt1", watched=True), entry("tt2", watched=True), entry("tt3")])
+    assert controller.totalCount() == 3
+    assert controller.inProgressCount() == 1
+
+
+def test_notify_recorded_bumps_revision_and_fires_progress_changed(qapp: object) -> None:
+    """This is the seam PlayerController.progressRecorded is wired to in
+    main.py: the player's writes never go through forget/markWatched/resetAll,
+    so without this the Detail page's Forget-progress button (bound to
+    `revision`) would stay hidden right after a title was just watched, even
+    though the bars themselves refresh fine via progressChanged."""
+    controller, _, _ = build([entry()])
+    before = controller.revision
+    fired: list[None] = []
+    controller.progressChanged.connect(lambda: fired.append(None))
+    controller.notifyRecorded()
+    assert controller.revision == before + 1
+    assert fired == [None]  # exactly once — no double-refresh

@@ -1,0 +1,1054 @@
+"""Composition root: wire adapters into use cases and launch the QML app."""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import logging
+import os
+import sys
+from collections.abc import Awaitable, Callable
+from concurrent.futures import Future, ThreadPoolExecutor
+from pathlib import Path
+
+import httpx
+import qasync  # type: ignore[import-untyped]
+from PySide6.QtCore import (
+    QCoreApplication,
+    QEvent,
+    QMessageLogContext,
+    QtMsgType,
+    QUrl,
+    qInstallMessageHandler,
+)
+from PySide6.QtGui import QFont, QFontDatabase, QGuiApplication, QIcon, QSurfaceFormat
+from PySide6.QtQml import QQmlApplicationEngine, qmlRegisterType
+from PySide6.QtQuick import QQuickItem, QQuickWindow, QSGRendererInterface
+from PySide6.QtQuickControls2 import QQuickStyle
+
+from gravitas.application.addon_repository import AddonRepository
+from gravitas.application.browse_board import BrowseBoard
+from gravitas.application.browse_catalog import BrowseCatalog
+from gravitas.application.compatibility import IncompatibleSources
+from gravitas.application.connection_speed import ConnectionSpeed
+from gravitas.application.continue_watching import ContinueWatching
+from gravitas.application.get_detail import GetDetail
+from gravitas.application.get_ratings import GetRatings
+from gravitas.application.install_addon import InstallAddon
+from gravitas.application.link_warmup import LinkWarmup
+from gravitas.application.playback_capability import PlaybackCapability
+from gravitas.application.preview_addon import PreviewAddon
+from gravitas.application.recommendation import SourceRecommendations
+from gravitas.application.resolve_media_link import ResolveMediaLink
+from gravitas.application.resolve_stream import ResolveStream
+from gravitas.application.search_media import SearchMedia
+from gravitas.application.trakt_account import TraktAccount
+from gravitas.application.trakt_rows import TraktRows, rows_from_payload, rows_to_payload
+from gravitas.application.trakt_sync import TraktSync
+from gravitas.application.uninstall_addon import UninstallAddon
+from gravitas.application.watch_progress import WatchProgressRepository
+from gravitas.application.watchlist import WatchlistRepository
+from gravitas.domain.errors import GravitasError
+from gravitas.domain.models import SubtitleStyle, TrackLanguages
+from gravitas.domain.ports import MediaPlayer
+from gravitas.infrastructure.addons.client import AddonClient
+from gravitas.infrastructure.cache.json_disk_cache import JsonDiskCache
+from gravitas.infrastructure.cache.network_cache import CachingNetworkAccessManagerFactory
+from gravitas.infrastructure.desktop.idle_inhibitor import IdleInhibitor
+from gravitas.infrastructure.desktop.kwin_window import KWinFloatingWindow
+from gravitas.infrastructure.desktop.url_scheme import (
+    ACTIVATE,
+    DeepLinkListener,
+    forward_to_running_instance,
+)
+from gravitas.infrastructure.display import best_screen_height
+from gravitas.infrastructure.graphics import (
+    hdr_mode,
+    metal_scene_graph,
+    native_graphics,
+    native_graphics_fallback,
+    vulkan_scene_graph,
+)
+from gravitas.infrastructure.metadata.mdblist_resolver import MdbListResolver
+from gravitas.infrastructure.metadata.skipdb import SkipDbSource
+from gravitas.infrastructure.metadata.tmdb_resolver import TmdbResolver
+from gravitas.infrastructure.network.link_resolver import HttpLinkResolver
+from gravitas.infrastructure.network.probe import HttpBandwidthProbe
+from gravitas.infrastructure.network.segmented_proxy import SegmentedStreamProxy
+from gravitas.infrastructure.network.transport import current_bucket
+from gravitas.infrastructure.paths import cache_dir
+from gravitas.infrastructure.player import native_player
+from gravitas.infrastructure.player.mpv_player import MpvPlayer
+from gravitas.infrastructure.player.native_player import NativePlayer
+from gravitas.infrastructure.progress.sqlite_store import SqliteProgressStore
+from gravitas.infrastructure.settings.json_store import JsonSettingsStore
+from gravitas.infrastructure.trakt import app_credentials as trakt_app
+from gravitas.infrastructure.trakt.client import TraktClient
+from gravitas.infrastructure.watchlist.sqlite_store import SqliteWatchlistStore
+from gravitas.logging_setup import abbreviate_url, configure_logging
+from gravitas.presentation import qml_module
+from gravitas.presentation.controllers.addon_controller import AddonController
+from gravitas.presentation.controllers.catalog_controller import CatalogController
+from gravitas.presentation.controllers.deep_link_controller import DeepLinkController
+from gravitas.presentation.controllers.detail_controller import DetailController
+from gravitas.presentation.controllers.discover_controller import DiscoverController
+from gravitas.presentation.controllers.onboarding_controller import OnboardingController
+from gravitas.presentation.controllers.player_controller import PlayerController
+from gravitas.presentation.controllers.progress_controller import ProgressController
+from gravitas.presentation.controllers.search_controller import SearchController
+from gravitas.presentation.controllers.settings_controller import SettingsController
+from gravitas.presentation.controllers.trakt_controller import TraktController
+from gravitas.presentation.controllers.watchlist_controller import WatchlistController
+from gravitas.presentation.controllers.window_controller import WindowController
+from gravitas.presentation.models.addon_list_model import AddonListModel
+from gravitas.presentation.models.catalog_rows_model import CatalogRowsModel
+from gravitas.presentation.models.episode_list_model import EpisodeListModel
+from gravitas.presentation.models.poster_grid_model import PosterGridModel
+from gravitas.presentation.models.poster_grid_proxy import PosterGridProxy
+from gravitas.presentation.models.search_results_model import SearchResultsModel
+from gravitas.presentation.models.stream_list_model import StreamListModel
+from gravitas.presentation.models.watched_list_model import WatchedListModel
+from gravitas.presentation.video.backend import choose_video_backend
+
+_log = logging.getLogger(__name__)
+
+_QML_DIR = Path(__file__).parent / "presentation" / "qml"
+DEFAULT_ADDON = "https://v3-cinemeta.strem.io/manifest.json"
+_LINK_SCHEME = "stremio://"
+# Disk-cache key for the last shown Trakt rows (not a real URL — the cache is
+# keyed by arbitrary strings and this one cannot collide with addon URLs).
+_TRAKT_ROWS_KEY = "gravitas://trakt-rows"
+
+
+# Qt runtime warnings we deliberately swallow. An addon's `/meta` routinely
+# points at CDN artwork that has since 404'd (or times out); Qt's `Image`
+# already degrades gracefully -- it holds the skeleton and never fades the
+# poster in -- so the per-poster `Error transferring ...` warning is pure
+# noise with no action attached. (Matched without the emitter prefix: Qt 6.11
+# renamed it from `QQuickImage:` to `QML QQuickImage*:`, which silently
+# un-matched the old needle.)
+#
+# `QIODevice::read (QSslSocket): device not open` is the tail of the same
+# story: a poster fetch aborted because its delegate was torn down mid-flight
+# (a model reset while images stream in). The transfer was for a card that no
+# longer exists; nothing to act on.
+#
+# The bundled Inter.ttf carries only Latin/Cyrillic/Greek OpenType tables, so
+# any addon title in Devanagari, Arabic, CJK, etc. makes Qt log
+# `OpenType support missing for "Inter", script N` before it transparently
+# falls back to a system font that covers the script. The glyphs still render;
+# the warning is noise with no action attached.
+# We set a Wayland app_id (setDesktopFileName) so installed builds group under
+# their .desktop icon. In an uninstalled dev run no such .desktop exists, so the
+# xdg-desktop-portal logs `Could not register app ID ... App info not found`.
+# KWin still uses the window icon we set, and installed builds ship the desktop
+# file, so this line is noise only in the dev checkout.
+_MUTED_QT_WARNINGS = (
+    "Error transferring",
+    "QIODevice::read (QSslSocket): device not open",
+    "OpenType support missing",
+    "Could not register app ID",
+)
+
+
+def _install_qt_log_filter() -> None:
+    """Drop known-benign Qt warnings, forward everything else into logging.
+
+    Qt routes *all* its output -- including QML runtime warnings like the image
+    loader's -- through one message handler, so this is the only place that can
+    filter them. Non-muted lines are re-emitted through the `qt` logger (its
+    category as a child logger), so Qt output shares the app's colored format
+    instead of landing as bare stderr prints.
+    """
+    qt_levels = {
+        QtMsgType.QtDebugMsg: logging.DEBUG,
+        QtMsgType.QtInfoMsg: logging.INFO,
+        QtMsgType.QtWarningMsg: logging.WARNING,
+        QtMsgType.QtCriticalMsg: logging.ERROR,
+        QtMsgType.QtFatalMsg: logging.CRITICAL,
+    }
+
+    def handler(mode: QtMsgType, context: QMessageLogContext, message: str) -> None:
+        if mode == QtMsgType.QtWarningMsg and any(
+            needle in message for needle in _MUTED_QT_WARNINGS
+        ):
+            return
+        name = "qt" if context.category in (None, "default") else f"qt.{context.category}"
+        logging.getLogger(name).log(qt_levels.get(mode, logging.INFO), "%s", message)
+
+    qInstallMessageHandler(handler)
+
+
+def _adopt_asyncgen_hooks(loop: asyncio.BaseEventLoop) -> None:
+    """Have `loop` finish the async generators the garbage collector finds.
+
+    asyncio installs these hooks when a loop starts running, and qasync's
+    run_forever never does. Without them an async generator left unfinished
+    -- httpcore's response stream, abandoned by a cancelled request -- is
+    closed synchronously wherever the collector happens to run, and its
+    cleanup's `await` is printed as "async generator ignored GeneratorExit"
+    or "RuntimeError: no running event loop". With them its aclose() is a
+    task on the loop, as under asyncio.run.
+    """
+    sys.set_asyncgen_hooks(
+        firstiter=loop._asyncgen_firstiter_hook,  # type: ignore[attr-defined]
+        finalizer=loop._asyncgen_finalizer_hook,  # type: ignore[attr-defined]
+    )
+
+
+def _set_windows_app_id(app_id: str = "dev.skyline.Gravitas") -> None:
+    """Give Windows an explicit AppUserModelID.
+
+    Without one the shell derives an identity from the process, and a pinned
+    taskbar button then fails to unify with the running window -- the classic
+    "two icons for one app" after pinning. The installer's shortcut carries no
+    ID of its own, so the process has to declare it. No-op off Windows, and a
+    failure here is cosmetic: never let it stop a launch.
+    """
+    if sys.platform != "win32":
+        return
+    import ctypes
+
+    with contextlib.suppress(Exception):
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(  # type: ignore[attr-defined,unused-ignore]
+            app_id
+        )
+
+
+def pending_link(argv: list[str]) -> str | None:
+    """The stremio:// URL this process was launched with, if any.
+
+    Linux browsers hand a registered scheme over as `gravitas <url>`, and so
+    does Windows -- the installer registers exactly that command line under
+    HKCU\\Software\\Classes\\stremio. macOS never does -- it posts a
+    QFileOpenEvent instead -- so this returns None there and DeepLinkListener
+    carries it.
+    """
+    for arg in argv[1:]:
+        if arg.lower().startswith(_LINK_SCHEME):
+            return arg
+    return None
+
+
+def surface_window(engine: QQmlApplicationEngine) -> None:
+    """Bring the existing window to the front.
+
+    What a second launch gets instead of a second window: un-minimize, raise,
+    take focus. Compositors may refuse the focus steal (Wayland grants it only
+    to the app the user is interacting with), but the un-minimize and the
+    taskbar attention are enough for the click to have visibly done something.
+    """
+    for obj in engine.rootObjects():
+        if not isinstance(obj, QQuickWindow):
+            continue
+        if obj.visibility() == QQuickWindow.Visibility.Minimized:
+            obj.showNormal()
+        else:
+            obj.show()
+        obj.raise_()
+        obj.requestActivate()
+        return
+
+
+def _start_shared_device() -> Future[native_player.SharedDevice | None] | None:
+    """Starts making the Vulkan device the native engine and the window will
+    share -- with video decode queues Qt's own device lacks, so decoded frames
+    are sampled where the decoder wrote them -- on a thread of its own.
+
+    It takes ~0.7 s, and nothing about it needs the GUI thread: the instance
+    is made here (Qt's QVulkanInstance, a GUI-thread object), the device on
+    the worker, with the GIL released, while the QML loads and the rest of
+    the app is wired. _adopt_shared_device waits for it. None when there is
+    no instance to make it on."""
+    from gravitas.presentation.video import native_vk_bridge
+
+    handles = native_vk_bridge.instance()
+    if handles is None:
+        return None
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="shared-device")
+    future = executor.submit(native_player.create_shared_device, *handles)
+    executor.shutdown(wait=False)
+    return future
+
+
+def _adopt_shared_device(
+    engine: QQmlApplicationEngine, future: Future[native_player.SharedDevice | None]
+) -> native_player.SharedDevice | None:
+    """Has the window render on the device _start_shared_device made. Must
+    run after the window exists and before its scene graph starts. None --
+    and Qt's own device, with frames copied back from the decoder -- when any
+    step is not available here."""
+    from shiboken6 import getCppPointer
+
+    from gravitas.presentation.video import native_vk_bridge
+
+    device = future.result()
+    windows = [root for root in engine.rootObjects() if isinstance(root, QQuickWindow)]
+    if device is None or not windows:
+        return None
+    for window in windows:
+        if not native_vk_bridge.adopt(getCppPointer(window)[0], device.handles()):
+            _log.warning(
+                "the window could not adopt the native engine's Vulkan device (%s)",
+                native_vk_bridge.last_error(),
+            )
+            return None
+    _log.info(
+        "the scene graph renders on the native engine's Vulkan device%s",
+        "; video decodes into it" if device.decodes else "",
+    )
+    return device
+
+
+def build_app(
+    argv: list[str], default_addon_url: str
+) -> tuple[QGuiApplication, QQmlApplicationEngine]:
+    instance = QGuiApplication.instance()
+    app = instance if isinstance(instance, QGuiApplication) else QGuiApplication(argv)
+
+    # App identity + taskbar/window icon. setDesktopFileName sets the Wayland
+    # xdg app_id, which is how a compositor maps the window to the installed
+    # .desktop entry for its icon; setWindowIcon covers X11 and compositors that
+    # honour the xdg-toplevel icon directly, so a raw `uv run gravitas` shows
+    # the real icon instead of the generic Wayland fallback.
+    app.setApplicationName("Gravitas")
+    app.setApplicationDisplayName("Gravitas")
+    app.setDesktopFileName("dev.skyline.Gravitas")
+    _set_windows_app_id()
+    _icon = _QML_DIR / "assets" / "gravitas.png"
+    if _icon.exists():
+        app.setWindowIcon(QIcon(str(_icon)))
+
+    # The native (macOS/Windows) Quick Controls style silently ignores
+    # background/contentItem/indicator customization, so our themed App*
+    # components would fall back to native rendering. Basic is fully
+    # customizable. Must be set before any Controls type is instantiated.
+    QQuickStyle.setStyle("Basic")
+
+    # The video player is the user's setting (Settings > Playback, native by
+    # default; GRAVITAS_PLAYER overrides it), read here because it shapes the
+    # rest of this function -- the RHI included, on Windows -- which is also
+    # why a change applies on the next start. The engine of our own
+    # (native/player/) is only honoured when its module is built: asking for
+    # it without one plays through mpv.
+    settings_store = JsonSettingsStore()
+    persisted = settings_store.load()
+    wants_native = native_player.requested(persisted.video_player)
+    use_native_engine = wants_native and native_player.available()
+    if wants_native and not use_native_engine:
+        _log.info(
+            "the native player is not built into this copy "
+            "(scripts/build_native_player.py); playing through mpv"
+        )
+
+    # The native engine renders on Vulkan on Linux and Windows (Windows pins
+    # OpenGL for mpv alone) -- but only once a real GPU has answered, because
+    # past setGraphicsApi below there is no way back, and a machine without a
+    # Vulkan driver (a VM, an old GPU) would get no window at all. It needs
+    # none of mpv's GL/Vulkan interop, so mpv's probe (~0.3 s) is not run for
+    # it. The fallback is Qt's own default, where the engine renders through
+    # its readback path.
+    native = native_graphics() if use_native_engine else None
+    shared_device_future: Future[native_player.SharedDevice | None] | None = None
+    if native is not None:
+        backend = native
+        if backend == "vulkan":
+            from gravitas.presentation.video import native_vk_bridge
+
+            if not native_vk_bridge.gpu_available():
+                backend = native_graphics_fallback()
+            elif native_player.wants_shared_device():
+                # Made while the rest of the app is: see _start_shared_device.
+                shared_device_future = _start_shared_device()
+        _log.info("scene graph on %s for the native engine", backend)
+    else:
+        # Decide the video backend before pinning the RHI: a Vulkan opt-in is
+        # only honoured if its native bridge actually loads, so a failure never
+        # leaves the app on a worse path than today's OpenGL zero-copy one.
+        want_vulkan = vulkan_scene_graph()
+        vulkan_available = False
+        if want_vulkan:
+            from gravitas.presentation.video import vulkan_bridge
+
+            # available() only says the library loaded and matches Qt. Whether
+            # the DRIVER can do the interop is a separate question, and it has
+            # to be asked HERE: past setGraphicsApi below there is no way back
+            # to OpenGL, so a driver that advertises the extensions and then
+            # refuses the import (Mesa's llvmpipe) would strand the user on a
+            # black video.
+            vulkan_available = vulkan_bridge.available() and vulkan_bridge.interop_supported()
+
+        want_metal = metal_scene_graph()
+        metal_available = False
+        if want_metal:
+            from gravitas.presentation.video import metal_bridge
+
+            metal_available = metal_bridge.available()
+
+        backend = choose_video_backend(want_vulkan, vulkan_available, want_metal, metal_available)
+
+    # Pin the RHI to match the chosen backend. Vulkan, OpenGL and D3D11 are set
+    # explicitly; Metal is Qt's macOS default, so it is left unset. Must run
+    # before the first QQuickWindow is created.
+    if backend == "vulkan":
+        QQuickWindow.setGraphicsApi(QSGRendererInterface.GraphicsApi.Vulkan)
+    elif backend == "opengl":
+        QQuickWindow.setGraphicsApi(QSGRendererInterface.GraphicsApi.OpenGL)
+    elif backend == "d3d11":
+        QQuickWindow.setGraphicsApi(QSGRendererInterface.GraphicsApi.Direct3D11)
+
+    # Must be registered before the engine parses any QML that mentions it.
+    # Multiple implementations answer to the same QML name: the OpenGL one
+    # renders into a scene-graph FBO (zero copies, the default off macOS), the
+    # Vulkan one is the Linux opt-in, the Metal ones are macOS's zero-copy and
+    # software fallback. Player.qml is written against the shared `handle`
+    # property and never learns which it got.
+    video_item: type[QQuickItem]
+    # Metal's alone: it is what tells MpvPlayer to keep hwdec zero-copy rather
+    # than dropping to auto-copy for the software item. False for the vulkan and
+    # opengl backends, which are already zero-copy by construction, and inert on
+    # Windows, where hwdec is copy-back regardless.
+    zero_copy_video = backend == "metal-zero-copy"
+    if use_native_engine:
+        from gravitas.presentation.video.native_item import NativeVideoItem
+
+        video_item = NativeVideoItem
+        _log.info("video plays through the native engine")
+        # Compiled shaders kept between runs: without them the first picture
+        # of every launch waits on compilation (273 ms against 12, measured).
+        native_player.configure_shader_cache(cache_dir() / "shaders")
+    elif backend == "vulkan":
+        from gravitas.presentation.video.mpv_vulkan_item import MpvVulkanVideoItem
+
+        video_item = MpvVulkanVideoItem
+        _log.info("video renders zero-copy on Vulkan (Linux opt-in)")
+    elif backend == "metal-zero-copy":
+        from gravitas.presentation.video.mpv_metal_item import MpvMetalVideoItem
+
+        video_item = MpvMetalVideoItem
+        _log.info("video renders zero-copy: mpv on the GPU, no frame copies")
+    elif backend == "metal-software":
+        from gravitas.presentation.video.mpv_sw_item import MpvSwVideoItem
+
+        video_item = MpvSwVideoItem
+        _log.info("video renders in software: frames are copied back and uploaded")
+    else:
+        from gravitas.presentation.video.mpv_item import MpvVideoItem
+
+        video_item = MpvVideoItem
+    qmlRegisterType(video_item, "Gravitas", 1, 0, "MpvVideo")  # type: ignore[call-overload]
+
+    # Bundle a clean UI font (Inter) and make it the application default so
+    # every QML Text inherits it without per-component wiring.
+    font_id = QFontDatabase.addApplicationFont(str(_QML_DIR / "assets" / "Inter.ttf"))
+    families = QFontDatabase.applicationFontFamilies(font_id)
+    if families:
+        app.setFont(QFont(families[0]))
+
+    # HTTP/2 so the cross-addon catalog fan-out multiplexes its many parallel
+    # GETs over one connection per host instead of racing the keepalive pool.
+    http = httpx.AsyncClient(http2=True)
+    # Persistent JSON cache under the in-memory one: a warm launch paints the
+    # grid from disk instead of refetching every catalog. Pruned here (a
+    # bounded delete) so the file cannot grow forever.
+    disk_cache = JsonDiskCache()
+    disk_cache.prune()
+    source = AddonClient(http, disk=disk_cache)
+    repo = AddonRepository(source)
+
+    class _KeyHolder:
+        key: str | None = None
+
+    progress_repo = WatchProgressRepository(SqliteProgressStore())
+    # Once per launch, right after the table is indexed and before anything
+    # reads it. Startup is the only cost that scales with the table, so this is
+    # exactly where bounding it pays -- and doing it here rather than on every
+    # write keeps the 5s playback tick a single UPSERT.
+    pruned = progress_repo.prune()
+    if pruned:
+        _log.info("pruned %d old watched progress rows", pruned)
+
+    tmdb_key = _KeyHolder()
+    tmdb_key.key = persisted.tmdb_key
+    tmdb_resolver = TmdbResolver(http, lambda: tmdb_key.key)
+
+    mdblist_key = _KeyHolder()
+    mdblist_key.key = persisted.mdblist_key
+    mdblist_resolver = MdbListResolver(http, lambda: mdblist_key.key)
+    get_ratings = GetRatings(mdblist_resolver)
+
+    class _SubStyleHolder:
+        style: SubtitleStyle = SubtitleStyle()
+
+    sub_style = _SubStyleHolder()
+    sub_style.style = persisted.subtitle_style
+
+    class _LanguagesHolder:
+        languages: TrackLanguages = TrackLanguages()
+
+    track_languages = _LanguagesHolder()
+    track_languages.languages = persisted.track_languages
+
+    trakt_account = TraktAccount(TraktClient(http))
+    # The app ships its own Trakt credentials (Stremio-style one-click auth);
+    # only the granted session is user state.
+    trakt_account.client_id = trakt_app.CLIENT_ID or None
+    trakt_account.client_secret = trakt_app.CLIENT_SECRET or None
+    trakt_account.auth = persisted.trakt_auth
+    trakt_account.sync_forgets = persisted.trakt_sync_forgets
+    trakt_account.sync_watched = persisted.trakt_sync_watched
+
+    rows_model = CatalogRowsModel(progress_repo)
+    stream_model = StreamListModel()
+
+    discover_model = PosterGridModel(progress_repo)
+    discover_proxy = PosterGridProxy(discover_model)
+    discover_controller = DiscoverController(BrowseBoard(repo), repo, discover_model)
+
+    catalog_controller = CatalogController(BrowseCatalog(repo), rows_model)
+    episode_model = EpisodeListModel(progress_repo)
+    # Bandwidth history is kept per link type, so the bucket comes from Qt
+    # rather than from anything the app stores about a network (see
+    # infrastructure/network/transport.py).
+    connection = ConnectionSpeed(current_bucket)
+    connection.enabled = persisted.sort_by_connection
+    connection.samples = persisted.connection_samples
+    # Sources this machine cannot render (Dolby Vision profile 5 today): the
+    # player writes verdicts here, the source list reads them.
+    incompatible = IncompatibleSources()
+    incompatible.enabled = persisted.hide_incompatible
+    incompatible.signatures = persisted.incompatible_sources
+    # The marks at the top of a source list, and the decode evidence one of
+    # them rests on: the player writes what it learns, the source list reads it.
+    recommendations = SourceRecommendations()
+    recommendations.enabled = persisted.recommend_sources
+    capability = PlaybackCapability()
+    capability.strained = persisted.decode_strain
+    # Pulls one stream over several connections. Registered here, started in
+    # bootstrap(): it needs a running loop, and a failure to bind is not a
+    # reason to refuse to launch -- an unstarted proxy hands every URL back
+    # unchanged and playback is what it was before it existed.
+    # Its chunk cache lives on disk, so seeks and track switches re-read from
+    # there instead of the host; mpv then keeps only a small cache of its own.
+    # The native engine does the same job itself (EngineStreamReading hands
+    # every URL straight back to it).
+    accelerator: SegmentedStreamProxy | native_player.EngineStreamReading
+    if use_native_engine:
+        accelerator = native_player.EngineStreamReading(cache_dir() / "native-stream")
+    else:
+        accelerator = SegmentedStreamProxy(cache_dir=cache_dir() / "stream-proxy")
+    accelerator.enabled = persisted.parallel_streaming
+
+    class _Toggle:
+        enabled: bool = True
+
+    online_segments = _Toggle()
+    online_segments.enabled = persisted.online_segments
+
+    class _VideoPlayer:
+        choice: str = persisted.video_player
+        running: str = "native" if use_native_engine else "mpv"
+        native_available: bool = native_player.available()
+
+    video_player = _VideoPlayer()
+    # Beside the addon JSON on disk: SkipDB answers survive a restart, and
+    # its lookups ride the app's one HTTP client.
+    segment_source = SkipDbSource(http, disk_cache)
+    resolve_stream = ResolveStream(repo)
+    # The top source's redirect, resolved while its list is read (see
+    # application/link_warmup.py). Shared: the Detail controller warms, the
+    # player takes.
+    link_warmup = LinkWarmup(HttpLinkResolver(http))
+    get_detail = GetDetail(repo)
+    detail_controller = DetailController(
+        get_detail,
+        resolve_stream,
+        stream_model,
+        episode_model,
+        progress_repo,
+        get_ratings=get_ratings,
+        connection=connection,
+        probe=HttpBandwidthProbe(http),
+        display_height=best_screen_height,
+        incompatible=incompatible,
+        recommendations=recommendations,
+        capability=capability,
+        prefetch=resolve_stream.prefetch,
+        stored=resolve_stream.stored,
+        speculate=resolve_stream.speculate,
+        stored_meta=get_detail.stored,
+        warm_link=link_warmup.warm,
+    )
+    install_addon = InstallAddon(repo)
+    addon_controller = AddonController(install_addon, catalog_controller)
+    deep_link_controller = DeepLinkController(PreviewAddon(source), addon_controller)
+    addon_list_model = AddonListModel()
+
+    class _OnboardingHolder:
+        done: bool = False
+
+    onboarding = _OnboardingHolder()
+    onboarding.done = persisted.onboarding_done
+
+    class _PipWidthHolder:
+        width: int = 480
+
+    pip_width = _PipWidthHolder()
+    pip_width.width = persisted.pip_width
+
+    settings_controller = SettingsController(
+        UninstallAddon(repo),
+        repo,
+        addon_list_model,
+        catalog_controller,
+        tmdb_key,
+        settings_store,
+        sub_style,
+        mdblist_key,
+        trakt_account,
+        onboarding,
+        pip_width,
+        connection,
+        best_screen_height,
+        incompatible,
+        recommendations,
+        capability,
+        accelerator,
+        track_languages,
+        online_segments,
+        video_player,
+    )
+    # The probe writes a sample from inside the Detail page; persisting it is
+    # the settings controller's job, and only it knows the whole payload.
+    detail_controller.set_samples_persist(settings_controller.persist)
+    onboarding_controller = OnboardingController(onboarding, settings_controller.persist)
+    trakt_sync = TraktSync(trakt_account, progress_repo, GetDetail(repo))
+    trakt_controller = TraktController(
+        trakt_account,
+        settings_controller.persist,
+        trakt_sync,
+        TraktRows(trakt_account, GetDetail(repo)),
+        rows_model,
+        # Snapshot the rows just shown so the next boot paints them
+        # instantly; the payload is small, so the write is a non-event.
+        rows_persist=lambda rows: disk_cache.put(_TRAKT_ROWS_KEY, rows_to_payload(rows)),
+    )
+
+    # Keep the Settings list in sync — and the settings file current — after a
+    # user installs a new addon.
+    def _on_addon_installed(_name: str) -> None:
+        settings_controller.refreshAddons()
+        settings_controller.persist()
+
+    addon_controller.addonInstalled.connect(_on_addon_installed)
+
+    search_results_model = SearchResultsModel(progress_repo)
+    search_page_model = SearchResultsModel(progress_repo)
+    search_controller = SearchController(
+        SearchMedia(repo),
+        ResolveMediaLink(repo, tmdb_resolver),
+        search_results_model,
+        search_page_model,
+        repo.search_stream,
+    )
+
+    engine = QQmlApplicationEngine()
+
+    # Artwork is fetched by QML's Image through Qt's network stack, which never
+    # reaches Python -- so posters re-downloaded on every launch. Must be
+    # installed before any QML loads, or the first requests bypass it. Like the
+    # QML singletons, the factory is not owned by Qt: without a surviving
+    # Python reference it is collected and every request silently misses.
+    nam_factory = CachingNetworkAccessManagerFactory()
+    engine.setNetworkAccessManagerFactory(nam_factory)
+
+    # The native engine's Vulkan device, once the window has adopted it (set
+    # below, after the window exists; players are made later, on first play).
+    shared_device: native_player.SharedDevice | None = None
+
+    def make_player() -> MediaPlayer:
+        if use_native_engine:
+            # On Vulkan the item renders zero-copy on the scene graph's device
+            # (native_item.py), so the engine needs no device of its own.
+            return NativePlayer(shared_device=shared_device, zero_copy=backend == "vulkan")
+        # Frames may stay on the GPU only if the video item can read them
+        # there; otherwise mpv has to copy them back to system memory.
+        return MpvPlayer(zero_copy_video=zero_copy_video)
+
+    watched_model = WatchedListModel()
+    progress_controller = ProgressController(progress_repo, watched_model)
+
+    watchlist_repo = WatchlistRepository(SqliteWatchlistStore())
+    # One model per Watchlist section (Movies / Series), progress-aware so
+    # watchlist posters carry the same bars/checkmarks as every other grid.
+    watchlist_movies_model = PosterGridModel(progress_repo)
+    watchlist_series_model = PosterGridModel(progress_repo)
+    watchlist_controller = WatchlistController(
+        watchlist_repo, watchlist_movies_model, watchlist_series_model
+    )
+
+    player_controller = PlayerController(
+        make_player,
+        lambda: sub_style.style,
+        progress_repo,
+        speed_sink=connection,
+        speed_persist=settings_controller.persist,
+        incompatible_sink=incompatible,
+        capability_sink=capability,
+        accelerator=accelerator,
+        on_nearing_end=detail_controller.prefetch_after,
+        links=link_warmup,
+        languages_provider=lambda: track_languages.languages,
+        idle_inhibitor=IdleInhibitor.for_platform(),
+        segment_source=segment_source,
+        segment_lookup_enabled=lambda: online_segments.enabled,
+        subtitle_finder=repo.subtitles,
+    )
+    # Live-apply subtitle style edits to an active player.
+    settings_controller.subtitleStyleChanged.connect(player_controller.applySubtitleStyle)
+
+    continue_watching = ContinueWatching(progress_repo)
+
+    # Bars are model roles, so every surface showing progress must re-read them
+    # when the underlying index moves -- whether the player advanced it or the
+    # user forgot something.
+    def _refresh_progress_bars() -> None:
+        rows_model.refresh_progress()
+        discover_model.refresh_progress()
+        episode_model.refresh_progress()
+        search_results_model.refresh_progress()
+        search_page_model.refresh_progress()
+        watchlist_movies_model.refresh_progress()
+        watchlist_series_model.refresh_progress()
+        # Not just the bars: this row's membership changes too -- finishing or
+        # forgetting a title removes it. Rebuilding is a dict read, never a
+        # catalog re-fetch, which is why it is safe on the 5s playback tick.
+        rows_model.set_continue_watching(continue_watching())
+
+    progress_controller.progressChanged.connect(_refresh_progress_bars)
+    # Route through ProgressController rather than wiring straight to
+    # _refresh_progress_bars: the player writes progress on a path that never
+    # touches this controller's own mutations, so `revision` (and anything
+    # bound to it, like Detail's Forget-progress visibility) would go stale
+    # even though the bars themselves refreshed fine. progressChanged above
+    # already fans out to the bars, so this does not double-refresh them.
+    player_controller.progressRecorded.connect(progress_controller.notifyRecorded)
+    # Scrobble what plays. The asyncSlot schedules onto the qasync loop; with
+    # no Trakt session connected every event is a cheap no-op.
+    player_controller.scrobbleEvent.connect(trakt_controller.onScrobbleEvent)
+    # A pull from Trakt mutates the progress repo behind ProgressController's
+    # back — same staleness problem as the player's writes, same cure.
+    trakt_controller.syncCompleted.connect(lambda _applied: progress_controller.notifyRecorded())
+    # Forgetting locally also drops Trakt's paused row, or the next sync
+    # would resurrect exactly what the user just deleted.
+    progress_controller.progressForgotten.connect(trakt_controller.onProgressForgotten)
+    progress_controller.mediaForgotten.connect(trakt_controller.onMediaForgotten)
+    progress_controller.allProgressReset.connect(trakt_controller.onAllProgressReset)
+    # Marking watched locally also lands in Trakt's history, so every Trakt
+    # client agrees on what is finished.
+    progress_controller.watchedMarked.connect(trakt_controller.onWatchedMarked)
+    # The final seconds of a session would otherwise die with the process.
+    app.aboutToQuit.connect(player_controller.flushProgress)
+    # Before the loop tears down: a handler still writing to mpv holds
+    # workers, and those become a screenful of "Task was destroyed but it
+    # is pending" on the way out.
+    app.aboutToQuit.connect(accelerator.shutdown)
+
+    # The objects QML reaches by name, as singletons of the Gravitas module
+    # (see presentation/qml_module.py) rather than context properties, so
+    # qmllint can type-check every use against the classes. The qml/ root is
+    # an import path because that is where Gravitas/qmldir lives.
+    # Picture-in-picture above everything and frameless: window flags do it
+    # on X11, Windows and macOS; KWin under Wayland has to be asked (see
+    # infrastructure/desktop/kwin_window.py). None anywhere else.
+    floating_window = KWinFloatingWindow.for_session()
+    if floating_window is not None:
+        app.aboutToQuit.connect(floating_window.shutdown)
+    window_controller = WindowController(floating_window)
+    engine.addImportPath(str(_QML_DIR))
+    qml_module.bind(
+        engine,
+        {
+            "CatalogController": catalog_controller,
+            "DetailController": detail_controller,
+            "PlayerController": player_controller,
+            "AddonController": addon_controller,
+            "CatalogRowsModel": rows_model,
+            "StreamModel": stream_model,
+            "EpisodeModel": episode_model,
+            "DiscoverController": discover_controller,
+            "DiscoverModel": discover_model,
+            "DiscoverProxy": discover_proxy,
+            "SettingsController": settings_controller,
+            "AddonListModel": addon_list_model,
+            "SearchController": search_controller,
+            "SearchResultsModel": search_results_model,
+            "SearchPageModel": search_page_model,
+            "ProgressController": progress_controller,
+            "WatchedListModel": watched_model,
+            "TraktController": trakt_controller,
+            "WatchlistController": watchlist_controller,
+            "WatchlistMoviesModel": watchlist_movies_model,
+            "WatchlistSeriesModel": watchlist_series_model,
+            "DeepLinkController": deep_link_controller,
+            "OnboardingController": onboarding_controller,
+            "WindowController": window_controller,
+        },
+    )
+
+    # One listener owns the instance socket and both link-delivery paths:
+    # forwarded payloads from a second process (Linux) and QFileOpenEvent
+    # (macOS). It is created even when listen() failed in main(), so the macOS
+    # path works regardless.
+    deep_links = DeepLinkListener()
+    deep_links.linkReceived.connect(deep_link_controller.handleLink)
+    # A forwarded link is also a launch attempt: whatever it opens (a dialog,
+    # a detail page) belongs in front of the user, not behind their browser.
+    deep_links.linkReceived.connect(lambda _url: surface_window(engine))
+    deep_links.activateRequested.connect(lambda: surface_window(engine))
+    deep_links.install_macos_handler(app)
+
+    async def _install_and_load() -> None:
+        # Install the default addon as protected (non-removable), restore the
+        # user's persisted addons, then load the catalog rows. Quiet: pass
+        # one runs behind the boot overlay, pass two behind live content.
+        await install_addon(default_addon_url, protected=True)
+        for url in persisted.addon_urls:
+            try:
+                await install_addon(url)
+            except GravitasError as exc:
+                # A dead addon must not block startup; it stays in the
+                # settings file so a later successful launch restores it.
+                # The toast says so for four seconds and is then gone, so the
+                # log keeps the only durable record of which URL failed.
+                _log.warning("could not restore addon %s: %s", abbreviate_url(url), exc)
+                addon_controller.errorOccurred.emit(f"Could not restore addon: {exc}")
+        await catalog_controller.load_catalog(quiet=True)
+
+    async def bootstrap() -> None:
+        # Stale-while-revalidate, in two passes.
+        #
+        # Pass one runs behind the boot gate with the addon client serving
+        # disk-cached JSON of any age: on a warm start the whole grid —
+        # catalog, Continue Watching, the last session's Trakt rows — builds
+        # without touching the network, and the spinner lasts a blink. Cold
+        # caches degrade to exactly the old behaviour (fetch behind the
+        # spinner).
+        #
+        # Pass two repeats the load with staleness honoured and pulls Trakt,
+        # AFTER the reveal. Its writes are surgical: set_rows() skips when
+        # the refreshed catalog is unchanged (the common case), and Trakt
+        # rows splice in without touching the catalog rows' delegates.
+        # Before anything is fetched: a stream the deep link starts playing
+        # immediately must find the proxy already listening.
+        try:
+            await accelerator.start()
+        except Exception as exc:
+            _log.warning("stream accelerator did not start: %s", exc)
+        catalog_controller.set_booting(True)
+        source.serve_stale = True
+        try:
+            await _install_and_load()
+            settings_controller.refreshAddons()
+            # After load_catalog: set_rows() rebuilds the visible rows, so
+            # priming this first would be discarded. A dict read, not a fetch.
+            rows_model.set_continue_watching(continue_watching())
+            if trakt_account.authenticated:
+                snapshot = await asyncio.to_thread(disk_cache.get, _TRAKT_ROWS_KEY)
+                if snapshot is not None:
+                    rows_model.set_trakt_rows(rows_from_payload(snapshot[0]))
+            # A settle beat before the reveal: the grid sits invisible in the
+            # scene, so this hands the event loop ~25 frames to incubate
+            # delegates and decode the first posters while the spinner still
+            # owns the screen. Dropping the gate on the same frame the data
+            # landed pushed all of that into the reveal fade, and the
+            # spinner's final moments visibly stuttered.
+            await asyncio.sleep(0.4)
+        finally:
+            # The gate must fall whatever happened above — a dead network
+            # shows an empty grid with toasts, never an eternal spinner.
+            source.serve_stale = False
+            catalog_controller.set_booting(False)
+        # A link that launched the app is handled only now: installing into the
+        # repository requires the repository to exist, and the confirmation
+        # dialog needs a window to be centred on. Before pass two, so a slow
+        # revalidation never delays the link the user launched us with.
+        link = pending_link(argv)
+        if link is not None:
+            await deep_link_controller.handleLink(link)
+        # Pass two: revalidate.
+        await _install_and_load()
+        settings_controller.refreshAddons()
+        if trakt_account.authenticated:
+            await trakt_controller.sync_quietly()
+            await trakt_controller.refresh_rows_quietly()
+
+    # fromLocalFile, not the raw path: QUrl parses `C:\...` as scheme "c" on
+    # Windows, and the engine then loads nothing at all.
+    engine.load(QUrl.fromLocalFile(str(_QML_DIR / "Main.qml")))
+
+    # The mpv bridge's needs, and HDR's, both Linux's; Windows runs Vulkan for
+    # the native engine only.
+    if backend == "vulkan" and sys.platform.startswith("linux"):
+        # Qt does not enable the external-memory / external-semaphore FD device
+        # extensions the zero-copy bridge needs to export a VkImage and a
+        # semaphore to OpenGL, so request them now -- after the window exists but
+        # before the scene graph initialises (on first expose, in the event loop
+        # main() runs). The core VK_KHR_external_memory / _semaphore are already
+        # part of Vulkan 1.1, so only the _fd extensions have to be named.
+        from PySide6.QtCore import QByteArray
+        from PySide6.QtQuick import QQuickGraphicsConfiguration
+
+        vk_config = QQuickGraphicsConfiguration()
+        vk_config.setDeviceExtensions(
+            [
+                QByteArray(b"VK_KHR_external_memory_fd"),
+                QByteArray(b"VK_KHR_external_semaphore_fd"),
+            ]
+        )
+        # Qt Quick's HDR swapchain has no setter, but QSGRhiSupport reads a
+        # `_qt_sg_hdr_format` dynamic property off the window when QSG_RHI_HDR
+        # is unset -- so a plain setProperty selects it, no private headers and
+        # no environment variable leaking into child processes. It has to be on
+        # the window before the scene graph initialises, which is why it sits
+        # here beside the device extensions rather than anywhere later.
+        #
+        # Qt names the modes the same way we do, except that scRGB is spelled
+        # for the transfer function it really is.
+        hdr = hdr_mode()
+        hdr_property = {"hdr10": "hdr10", "scrgb": "extendedsrgblinear"}.get(hdr or "")
+        for _root in engine.rootObjects():
+            if isinstance(_root, QQuickWindow):
+                _root.setGraphicsConfiguration(vk_config)
+                if hdr_property is not None:
+                    _root.setProperty("_qt_sg_hdr_format", hdr_property)
+        if hdr_property is not None:
+            _log.info("requesting an HDR swapchain (%s)", hdr)
+    if shared_device_future is not None:
+        shared_device = _adopt_shared_device(engine, shared_device_future)
+
+    # QML does not own these objects (qml_module marks them CppOwnership): if
+    # no Python reference to these controllers/models survives past this
+    # function, they are garbage-collected and QML reads them back as null.
+    # Keep them (and the httpx client, and the bootstrap coroutine) alive for
+    # the lifetime of the engine. `main()`
+    # schedules `bootstrap` on the running event loop once one exists;
+    # `build_app` itself must stay asyncio-free so it can be exercised
+    # without a loop (e.g. in tests).
+    engine._gravitas_refs = (  # type: ignore[attr-defined]
+        catalog_controller,
+        detail_controller,
+        player_controller,
+        addon_controller,
+        discover_controller,
+        settings_controller,
+        search_controller,
+        rows_model,
+        discover_model,
+        discover_proxy,
+        stream_model,
+        episode_model,
+        addon_list_model,
+        search_results_model,
+        search_page_model,
+        progress_controller,
+        watched_model,
+        trakt_controller,
+        watchlist_controller,
+        watchlist_movies_model,
+        watchlist_series_model,
+        deep_link_controller,
+        onboarding_controller,
+        window_controller,
+    )
+    # Same rule as the QML singletons: nothing else holds this, and a
+    # collected listener means links silently stop arriving.
+    engine._gravitas_deep_links = deep_links  # type: ignore[attr-defined]
+    engine._gravitas_nam_factory = nam_factory  # type: ignore[attr-defined]
+    engine._gravitas_bootstrap = bootstrap  # type: ignore[attr-defined]
+    engine._gravitas_http = http  # type: ignore[attr-defined]
+    engine._gravitas_accelerator = accelerator  # type: ignore[attr-defined]
+    return app, engine
+
+
+def main() -> int:
+    # We force the OpenGL scene-graph backend (the in-scene mpv renderer needs
+    # it), so Qt inits EGL. Where the NVIDIA blob and mesa coexist under
+    # Wayland, mesa's libEGL gets handed the NVIDIA DRM node, can't drive it,
+    # and prints `failed to create dri2 screen` warnings before Qt falls back
+    # to the working NVIDIA path anyway. Raise libEGL's log threshold to hush
+    # that dead-end probe; rendering is unaffected. A user-set value wins.
+    os.environ.setdefault("EGL_LOG_LEVEL", "fatal")
+
+    configure_logging()
+    _install_qt_log_filter()
+
+    # macOS hands out a legacy OpenGL 2.1 compatibility context unless a core
+    # profile is requested explicitly, and mpv's GPU renderer then degrades:
+    # lanczos/hermite scalers disabled ("GLSL version too old") and the
+    # videotoolbox hwdec interop path refused ("need >= OpenGL 3.0 for core
+    # rectangle texture support"). 3.2 core is the floor of what macOS offers
+    # beyond 2.1 and Qt Quick's RHI is core-profile safe. Must be set before
+    # the QGuiApplication exists. Left untouched elsewhere: Linux/Windows
+    # already get modern compatibility contexts where none of this bites, and
+    # on a Metal scene graph there is no GL context for it to describe.
+    if sys.platform == "darwin" and not metal_scene_graph():
+        fmt = QSurfaceFormat()
+        fmt.setVersion(3, 2)
+        fmt.setProfile(QSurfaceFormat.OpenGLContextProfile.CoreProfile)
+        QSurfaceFormat.setDefaultFormat(fmt)
+    if sys.platform == "darwin":
+        # Which video path this becomes is decided later, once the native
+        # bridge has been probed -- metal_bridge logs that, and saying it here
+        # would only be a guess.
+        _log.info(
+            "scene graph on %s",
+            "Metal (GRAVITAS_GRAPHICS=opengl for the OpenGL scene graph)"
+            if metal_scene_graph()
+            else "OpenGL (GRAVITAS_GRAPHICS)",
+        )
+
+    app = QGuiApplication(sys.argv)
+
+    # Before anything is built: Gravitas is single-instance. Every launch first
+    # asks whether one is already running -- a browser firing
+    # `gravitas stremio://...`, or the user clicking the icon twice. If so, hand
+    # over what this launch carried (the link, or a bare "raise your window")
+    # and leave. Two instances would mean two windows fighting over the same
+    # SQLite and settings files.
+    link = pending_link(sys.argv)
+    if forward_to_running_instance(link if link is not None else ACTIVATE):
+        return 0
+
+    loop = qasync.QEventLoop(app)
+    asyncio.set_event_loop(loop)
+    _adopt_asyncgen_hooks(loop)
+    _, engine = build_app(sys.argv, DEFAULT_ADDON)
+    if not engine.rootObjects():
+        return 1
+    listener: DeepLinkListener = engine._gravitas_deep_links  # type: ignore[attr-defined]
+    # Claim the socket so the next launch forwards here instead of starting a
+    # second copy. Failure is not fatal: the single-instance guard and deep
+    # links both go away, the app otherwise works, and url_scheme logs why.
+    listener.listen()
+    with loop:
+        bootstrap: Callable[[], Awaitable[None]] = engine._gravitas_bootstrap  # type: ignore[attr-defined]
+        loop.create_task(bootstrap())
+        loop.run_forever()
+        # run_forever() returns once the app is quitting. Destroy the QML scene
+        # HERE — still inside `with loop` (loop open) and before this function
+        # returns (context-property objects still referenced). Otherwise the
+        # scene is torn down later, after the loop closes and during interpreter
+        # GC, where teardown re-evaluations hit a closed loop (an `onAtYEndChanged`
+        # → loadMore asyncSlot does ensure_future → "Event loop is closed") or a
+        # freed context object ("TypeError: Cannot read property 'count' of null").
+        # Deferred-delete must be flushed synchronously: the loop is no longer
+        # running, so nothing else will process the posted delete events.
+        for obj in engine.rootObjects():
+            obj.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

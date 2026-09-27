@@ -1,0 +1,127 @@
+"""Colored console logging for the gravitas process.
+
+Stdlib only (bar a lazy import of the app's data dir for the file fallback).
+Every module already does ``logging.getLogger(__name__)``; this is the one
+place that decides where those records go and what they look like. Colors go
+to a TTY only (and honour ``NO_COLOR``), so redirected output stays clean
+ANSI-free text.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import sys
+from typing import IO
+
+_RESET = "\x1b[0m"
+_DIM = "\x1b[2m"
+_LEVEL_COLORS = {
+    logging.DEBUG: "\x1b[36m",  # cyan
+    logging.INFO: "\x1b[32m",  # green
+    logging.WARNING: "\x1b[33m",  # yellow
+    logging.ERROR: "\x1b[31m",  # red
+    logging.CRITICAL: "\x1b[1;31m",  # bold red
+}
+
+
+class ColorFormatter(logging.Formatter):
+    """``HH:MM:SS LEVEL name: message`` with the level colored, name dimmed."""
+
+    def __init__(self, *, color: bool) -> None:
+        super().__init__(datefmt="%H:%M:%S")
+        self._color = color
+
+    def format(self, record: logging.LogRecord) -> str:
+        message = record.getMessage()
+        if record.exc_info and record.exc_info[0] is not None:
+            message = f"{message}\n{self.formatException(record.exc_info)}"
+        when = self.formatTime(record, self.datefmt)
+        level = f"{record.levelname:<8}"
+        if self._color:
+            color = _LEVEL_COLORS.get(record.levelno, "")
+            return (
+                f"{_DIM}{when}{_RESET} {color}{level}{_RESET} {_DIM}{record.name}{_RESET} {message}"
+            )
+        return f"{when} {level} {record.name} {message}"
+
+
+def abbreviate_url(url: str, limit: int = 120) -> str:
+    """Shorten a URL for log lines; identity for anything within `limit`.
+
+    Proxied stream URLs (debrid, AIOStreams) run to a thousand-plus characters
+    of token, drowning the line that carries them. Keep the head (scheme, host,
+    start of path — the part that identifies the service) and the tail (often
+    the filename), and say how much was elided.
+    """
+    if len(url) <= limit:
+        return url
+    keep_tail = 15
+    head = url[: limit - keep_tail - 1]
+    return f"{head}…{url[-keep_tail:]} ({len(url)} chars)"
+
+
+def _wants_color(stream: IO[str]) -> bool:
+    # https://no-color.org/ -- any non-empty value disables color; a dumb
+    # terminal or a pipe never gets escape codes.
+    if os.environ.get("NO_COLOR"):
+        return False
+    if os.environ.get("TERM") == "dumb":
+        return False
+    return hasattr(stream, "isatty") and stream.isatty()
+
+
+def _file_handler() -> logging.Handler | None:
+    """A rotating log file in the user's data dir, or None if it can't be made.
+
+    The fallback for a windowed frozen build (Windows .exe, macOS .app), where
+    the process has no stderr at all: without this every log line lands in
+    logging's error path and a user reporting a bug has nothing to attach.
+    Two 1 MB files at most -- enough for the launch and the failure after it.
+    """
+    from logging.handlers import RotatingFileHandler
+
+    from gravitas.infrastructure.paths import data_dir
+
+    try:
+        directory = data_dir()
+        directory.mkdir(parents=True, exist_ok=True)
+        handler = RotatingFileHandler(
+            directory / "gravitas.log", maxBytes=1024 * 1024, backupCount=1, encoding="utf-8"
+        )
+    except OSError:
+        # A read-only or missing home is not worth failing a launch over.
+        return None
+    handler.setFormatter(ColorFormatter(color=False))
+    return handler
+
+
+def configure_logging(stream: IO[str] | None = None) -> None:
+    """Install one colored stderr handler on the root logger.
+
+    ``GRAVITAS_LOG_LEVEL`` overrides the INFO default (any name accepted by
+    ``logging.getLevelNamesMapping``, case-insensitive). httpx logs a line per
+    request at INFO; that is transport noise here, so it and httpcore start at
+    WARNING -- a debug run (``GRAVITAS_LOG_LEVEL=DEBUG``) is the one time the
+    wire chatter is wanted, so DEBUG lifts them along with everything else.
+
+    With no usable stderr -- a windowed PyInstaller build sets it to None --
+    the records go to a file instead of nowhere.
+    """
+    out = stream if stream is not None else sys.stderr
+    level_name = os.environ.get("GRAVITAS_LOG_LEVEL", "INFO").upper()
+    level = logging.getLevelNamesMapping().get(level_name, logging.INFO)
+
+    handler: logging.Handler
+    if out is None or not hasattr(out, "write"):
+        handler = _file_handler() or logging.NullHandler()
+    else:
+        handler = logging.StreamHandler(out)
+        handler.setFormatter(ColorFormatter(color=_wants_color(out)))
+    root = logging.getLogger()
+    root.setLevel(level)
+    root.addHandler(handler)
+
+    if level > logging.DEBUG:
+        for noisy in ("httpx", "httpcore"):
+            logging.getLogger(noisy).setLevel(logging.WARNING)

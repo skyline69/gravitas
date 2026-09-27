@@ -1,0 +1,33 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8B5CF6"/>
+      <stop offset="0.55" stop-color="#4C2FBF"/>
+      <stop offset="1" stop-color="#140B33"/>
+    </linearGradient>
+    <linearGradient id="play" x1="430" y1="360" x2="690" y2="664" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E7DEFF"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="22" flood-color="#0B0620" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- rounded-square app tile -->
+  <rect x="64" y="64" width="896" height="896" rx="208" fill="url(#bg)"/>
+
+  <!-- gravity orbit behind the play mark -->
+  <g transform="rotate(-24 512 512)" fill="none" stroke="#FFFFFF" stroke-opacity="0.34" stroke-width="12">
+    <ellipse cx="512" cy="512" rx="322" ry="128"/>
+  </g>
+  <!-- orbiting body -->
+  <g transform="rotate(-24 512 512)">
+    <circle cx="834" cy="512" r="30" fill="#FFFFFF"/>
+  </g>
+
+  <!-- play triangle, rounded corners via round joins -->
+  <polygon points="446,372 446,652 700,512" fill="url(#play)"
+           stroke="url(#play)" stroke-width="52" stroke-linejoin="round"
+           filter="url(#soft)"/>
+</svg>

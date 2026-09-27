@@ -1,0 +1,60 @@
+[package]
+name = "gravitas-player-engine"
+description = "Gravitas' own media player engine: FFmpeg demuxing and decoding, audio output and A/V sync"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+cpal.workspace = true
+crossbeam-channel.workspace = true
+ffmpeg-next.workspace = true
+libass-sys.workspace = true
+log.workspace = true
+parking_lot.workspace = true
+thiserror.workspace = true
+ureq.workspace = true
+
+# libplacebo renders everywhere but macOS (see src/metal/ for why not there).
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+libplacebo-sys.workspace = true
+
+# PipeWire and PulseAudio servers natively (a pure-Rust client): the latency
+# they report, the default sink they follow, and a channel map named by
+# speaker, which is what makes 5.1 and 7.1 output safe (see audio.rs).
+[target.'cfg(target_os = "linux")'.dependencies]
+cpal = { workspace = true, features = ["pulseaudio"] }
+
+# Video renders through Metal itself on macOS: Qt's scene graph runs on Metal
+# there, and VideoToolbox's frames are Metal textures for the asking (see
+# src/metal/).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2.workspace = true
+objc2-audio-toolbox.workspace = true
+objc2-core-audio.workspace = true
+objc2-core-audio-types.workspace = true
+objc2-core-foundation.workspace = true
+objc2-core-video.workspace = true
+objc2-foundation.workspace = true
+objc2-metal.workspace = true
+
+[build-dependencies]
+cc.workspace = true
+pkg-config.workspace = true
+
+[dev-dependencies]
+parking_lot.workspace = true
+
+# On macOS, libplacebo (through MoltenVK) is the reference the Metal
+# renderer's tests compare against; the app never links it there. The
+# end-to-end test makes the device and queue Qt would hand over.
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+libplacebo-sys.workspace = true
+objc2.workspace = true
+objc2-metal.workspace = true
+
+[lints]
+workspace = true

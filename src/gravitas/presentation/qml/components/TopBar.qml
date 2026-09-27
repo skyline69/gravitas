@@ -1,0 +1,153 @@
+pragma ComponentBehavior: Bound
+import QtQuick
+import QtQuick.Layouts
+import Qt5Compat.GraphicalEffects
+import "."
+
+Rectangle {
+    id: bar
+    signal tabSelected(string mode)
+    signal openSettings()
+    signal openDetail(string type, string id)
+    signal openResults()
+    property string activeMode: "all"
+    // True while the Settings page is showing: the gear lights up and the
+    // content tabs drop their active highlight.
+    property bool settingsActive: false
+
+    height: 56
+    color: Theme.surface
+    radius: Theme.radius * 2
+    border.width: 1
+    border.color: Theme.borderStrong
+    // Same soft shadow as the Discover bar: content scrolls underneath both.
+    layer.enabled: true
+    layer.effect: DropShadow {
+        transparentBorder: true
+        radius: 24
+        samples: 25
+        verticalOffset: 4
+        color: "#66000000"
+    }
+
+    readonly property var tabs: [
+        { label: "All", mode: "all", icon: Icons.dashboard, color: Theme.accent },
+        { label: "Movies", mode: "movie", icon: Icons.theaters, color: "#3B82F6" },
+        { label: "Series", mode: "series", icon: Icons.liveTv, color: "#22C55E" },
+        { label: "Trending", mode: "trending", icon: Icons.fire, color: "#F97316" },
+        { label: "Watchlist", mode: "watchlist", icon: Icons.bookmark, color: "#A855F7" }
+    ]
+
+    // RowLayout (not anchor math + width Behavior) so the search field tracks
+    // the free gap instantly during live window resizes.
+    RowLayout {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.leftMargin: 16
+        anchors.rightMargin: 16
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: 16
+
+        Row {
+            id: tabsRow
+            spacing: 8
+
+            Repeater {
+            model: bar.tabs
+            delegate: Item {
+                id: tab
+                required property var modelData
+                readonly property bool active: !bar.settingsActive && bar.activeMode === tab.modelData.mode
+                readonly property color activeColor: tab.modelData.color
+                width: 44
+                height: 36
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: Theme.radius
+                    // Active tab gets a faint wash of its own accent colour;
+                    // hover is the neutral surface highlight.
+                    color: tab.active
+                        ? Qt.rgba(tab.activeColor.r, tab.activeColor.g, tab.activeColor.b, 0.16)
+                        : (tabHover.hovered ? Theme.surfaceHover : "transparent")
+                    Behavior on color { ColorAnimation { duration: Theme.durFast } }
+                }
+                AppIcon {
+                    anchors.centerIn: parent
+                    glyph: tab.modelData.icon
+                    font.pixelSize: Theme.fontTitle
+                    color: tab.active ? tab.activeColor : Theme.text
+                    Behavior on color { ColorAnimation { duration: Theme.durFast } }
+                    // Springy pop when the tab becomes active; settles back when
+                    // it goes inactive.
+                    scale: tab.active ? 1.18 : 1.0
+                    Behavior on scale {
+                        NumberAnimation {
+                            duration: Theme.durMed
+                            easing.type: Easing.OutBack
+                            easing.overshoot: 3.5
+                        }
+                    }
+                }
+                HoverHandler {
+                    id: tabHover
+                    cursorShape: Qt.PointingHandCursor
+                    onHoveredChanged: {
+                        if (tabHover.hovered)
+                            tipTimer.restart()
+                        else {
+                            tipTimer.stop()
+                            tip.close()
+                        }
+                    }
+                }
+                Timer { id: tipTimer; interval: 400; onTriggered: tip.open() }
+                AppToolTip {
+                    id: tip
+                    text: tab.modelData.label
+                    // Against the tab, not `parent`: a popup's parent is
+                    // cleared during teardown (see BackButton).
+                    x: (tab.width - width) / 2
+                    y: tab.height + 8
+                }
+                TapHandler {
+                    // The bar floats over the page (content scrolls under it),
+                    // so without the exclusive grab a tab tap also lands on
+                    // whatever poster happens to be beneath it.
+                    gesturePolicy: TapHandler.ReleaseWithinBounds
+                    onTapped: {
+                        // No-op when re-tapping the tab already showing.
+                        if (!bar.settingsActive && bar.activeMode === tab.modelData.mode)
+                            return
+                        bar.activeMode = tab.modelData.mode
+                        bar.tabSelected(tab.modelData.mode)
+                    }
+                }
+            }
+        }
+    }
+
+        // Soaks up the whole gap between the tabs and the gear; the layout
+        // resizes it immediately, so live window resizes track 1:1.
+        SearchBar {
+            id: searchBar
+            Layout.fillWidth: true
+            Layout.minimumWidth: 120
+            onOpenDetail: (type, id) => bar.openDetail(type, id)
+            onOpenResults: bar.openResults()
+        }
+
+        AppButton {
+            id: gearButton
+            ghost: true
+            iconGlyph: Icons.gear
+            tooltip: "Settings"
+            selected: bar.settingsActive
+            onClicked: bar.openSettings()
+        }
+    }
+
+    // Exposed so Main's click-catcher can query focus state and blur the input.
+    readonly property bool searchActive: searchBar.searchActive
+    function unfocusSearch() { searchBar.unfocus() }
+}

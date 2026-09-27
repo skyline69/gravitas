@@ -1,0 +1,19 @@
+[package]
+name = "libplacebo-sys"
+description = "Raw FFI bindings to libplacebo (Vulkan, renderer, FFmpeg helpers), generated at build time from the installed headers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+links = "placebo"
+
+[dependencies]
+ffmpeg-sys-next.workspace = true
+
+[build-dependencies]
+bindgen.workspace = true
+cc.workspace = true
+pkg-config.workspace = true

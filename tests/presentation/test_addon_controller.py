@@ -1,0 +1,117 @@
+from gravitas.application.addon_repository import AddonRepository
+from gravitas.application.install_addon import InstallAddon
+from gravitas.domain.errors import AddonUnreachable
+from gravitas.domain.models import (
+    AddonManifest,
+    CatalogRef,
+    MediaItem,
+    MediaType,
+    MetaDetail,
+    ResourceSpec,
+    Stream,
+)
+from gravitas.presentation.controllers.addon_controller import AddonController
+
+
+class FakeSource:
+    async def fetch_manifest(self, url: str) -> AddonManifest:
+        return AddonManifest(
+            id="fake",
+            name="Fake Addon",
+            version="1",
+            resources=(
+                ResourceSpec(name="catalog"),
+                ResourceSpec(name="meta"),
+                ResourceSpec(name="stream"),
+            ),
+            types=("movie",),
+            catalogs=(CatalogRef(type="movie", id="top", name="Top"),),
+            base_url=url,
+        )
+
+    async def fetch_catalog(self, manifest: AddonManifest, ref: CatalogRef) -> list[MediaItem]:
+        return [MediaItem(id="tt1", type="movie", name="A", poster=None)]
+
+    async def fetch_meta(self, manifest: AddonManifest, type: MediaType, id: str) -> MetaDetail:
+        raise NotImplementedError
+
+    async def fetch_streams(
+        self, manifest: AddonManifest, type: MediaType, id: str
+    ) -> list[Stream]:
+        raise NotImplementedError
+
+
+class UnreachableSource(FakeSource):
+    async def fetch_manifest(self, url: str) -> AddonManifest:
+        raise AddonUnreachable("boom")
+
+
+class FakeCatalogController:
+    def __init__(self) -> None:
+        self.refresh_calls = 0
+
+    async def load_catalog(self) -> None:
+        self.refresh_calls += 1
+
+
+async def test_add_addon_success(qapp: object) -> None:
+    repo = AddonRepository(FakeSource())
+    catalog = FakeCatalogController()
+    controller = AddonController(InstallAddon(repo), catalog)  # type: ignore[arg-type]
+
+    installed: list[str] = []
+    controller.addonInstalled.connect(installed.append)
+
+    await controller.addAddon("https://a/manifest.json")
+
+    assert repo.installed()[0].id == "fake"
+    assert catalog.refresh_calls == 1
+    assert installed == ["Fake Addon"]
+
+
+async def test_installing_flag_wraps_the_install(qapp: object) -> None:
+    repo = AddonRepository(FakeSource())
+    catalog = FakeCatalogController()
+    controller = AddonController(InstallAddon(repo), catalog)  # type: ignore[arg-type]
+
+    states: list[bool] = []
+    controller.installingChanged.connect(lambda: states.append(controller.installing))
+
+    assert controller.installing is False
+    await controller.addAddon("https://a/manifest.json")
+    # Busy through the whole install, idle again once the catalog refreshed.
+    assert states == [True, False]
+
+
+async def test_installing_flag_resets_after_failure(qapp: object) -> None:
+    repo = AddonRepository(UnreachableSource())
+    catalog = FakeCatalogController()
+    controller = AddonController(InstallAddon(repo), catalog)  # type: ignore[arg-type]
+
+    await controller.addAddon("https://a/manifest.json")
+    # A dead addon must not leave the Add row locked forever.
+    assert controller.installing is False
+
+
+async def test_blank_url_never_flips_installing(qapp: object) -> None:
+    repo = AddonRepository(FakeSource())
+    controller = AddonController(InstallAddon(repo), FakeCatalogController())  # type: ignore[arg-type]
+    states: list[bool] = []
+    controller.installingChanged.connect(lambda: states.append(controller.installing))
+    await controller.addAddon("   ")
+    assert states == []  # no flicker for a no-op
+
+
+async def test_add_addon_error_emits_signal(qapp: object) -> None:
+    repo = AddonRepository(UnreachableSource())
+    catalog = FakeCatalogController()
+    controller = AddonController(InstallAddon(repo), catalog)  # type: ignore[arg-type]
+
+    errors: list[str] = []
+    controller.errorOccurred.connect(errors.append)
+
+    await controller.addAddon("https://a/manifest.json")
+
+    assert errors == ["boom"]
+    assert catalog.refresh_calls == 0
+    assert repo.installed() == []
