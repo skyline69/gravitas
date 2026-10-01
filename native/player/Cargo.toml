@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["crates/engine", "crates/libass-sys", "crates/libplacebo-sys", "crates/python"]
+# Patched third-party crates: not ours to lint or test.
+exclude = ["vendor"]
 
 [workspace.package]
 version = "0.1.0"
@@ -38,6 +40,12 @@ thiserror = "2.0.21"
 # No gzip: media is fetched by byte range, and a compressed body would
 # break every offset. rustls with the platform's own trust store.
 ureq = { version = "3.4.2", default-features = false, features = ["rustls", "platform-verifier"] }
+
+[patch.crates-io]
+# cpal's PulseAudio host connects through this crate, which names the client
+# and nothing else; a stream without `application.process.id` crashes Fedora's
+# uresourced on every playback. See vendor/pulseaudio/Cargo.toml.
+pulseaudio = { path = "vendor/pulseaudio" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

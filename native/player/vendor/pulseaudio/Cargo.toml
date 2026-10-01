@@ -1,0 +1,28 @@
+# pulseaudio 0.3.1 from crates.io, patched in through `[patch.crates-io]` in
+# ../../Cargo.toml. The one change is in `Client::new_unix` (src/client.rs):
+# see the comment there. Drop this copy once a release sends those properties.
+[package]
+name = "pulseaudio"
+description = "A native rust implementation of the PulseAudio protocol."
+repository = "https://github.com/colinmarc/pulseaudio-rs"
+edition = "2024"
+version = "0.3.1"
+authors = ["Colin Marc <hi@colinmarc.com>"]
+license = "MIT"
+
+[dependencies]
+bitflags = "2"
+byteorder = "1"
+enum-primitive-derive = "0.3"
+futures = "0.3"
+log = "0.4"
+mio = { version = "1", features = ["os-ext", "os-poll", "net"] }
+num-traits = "0.2"
+thiserror = "1"
+
+[features]
+_integration-tests = []
+
+# Upstream's own warnings, which a registry build caps and a path build shows.
+[lints.rust]
+unused_assignments = "allow"
