@@ -152,8 +152,10 @@ pub fn configure_shader_cache(directory: &std::path::Path) {
         log: log_create(),
         max_object_size: 0,
         max_total_size: SHADER_CACHE_MEMORY,
-        set: Some(pl::pl_cache_set_file),
-        get: Some(pl::pl_cache_get_file),
+        // None on a libplacebo too old to have them: the cache then lives
+        // for the process only, and each launch compiles its shaders again.
+        set: pl::CACHE_SET_FILE,
+        get: pl::CACHE_GET_FILE,
         // Lives as long as the cache: for the process.
         priv_: path.into_raw().cast(),
     };

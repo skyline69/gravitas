@@ -439,7 +439,10 @@ struct InputFormat {
 
 impl InputFormat {
     fn of(frame: &frame::Audio) -> Self {
-        let layout = ffi::AVChannelLayout::from(frame.channel_layout());
+        // Read off the frame, not through ffmpeg-next's ChannelLayout, whose
+        // type depends on the FFmpeg version (see build.rs).
+        // SAFETY: `ch_layout` is a plain field of a live frame (FFmpeg 5.1+).
+        let layout = unsafe { &(*frame.as_ptr()).ch_layout };
         // Only a native-order layout is a channel mask; anything else (none,
         // custom, ambisonic) is played as the default layout for its count.
         let layout_mask = if layout.order == ffi::AVChannelOrder::AV_CHANNEL_ORDER_NATIVE {
@@ -460,6 +463,11 @@ impl InputFormat {
         if self.layout_mask == 0 {
             return ChannelLayout::default(i32::from(self.channels));
         }
+        #[cfg(not(ffmpeg_7))]
+        {
+            ChannelLayout::from_bits_truncate(self.layout_mask)
+        }
+        #[cfg(ffmpeg_7)]
         // SAFETY: a zeroed AVChannelLayout is the documented starting state
         // for av_channel_layout_from_mask, which fills every field.
         unsafe {

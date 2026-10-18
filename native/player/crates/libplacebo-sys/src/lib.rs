@@ -17,3 +17,23 @@
 )]
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+
+/// `pl_cache_set_file`, for `pl_cache_params::set`, or None where this
+/// libplacebo predates it.
+#[cfg(pl_cache_file)]
+pub const CACHE_SET_FILE: Option<unsafe extern "C" fn(*mut std::os::raw::c_void, pl_cache_obj)> =
+    Some(pl_cache_set_file);
+#[cfg(not(pl_cache_file))]
+pub const CACHE_SET_FILE: Option<unsafe extern "C" fn(*mut std::os::raw::c_void, pl_cache_obj)> =
+    None;
+
+/// `pl_cache_get_file`, for `pl_cache_params::get`, or None where this
+/// libplacebo predates it.
+#[cfg(pl_cache_file)]
+pub const CACHE_GET_FILE: Option<
+    unsafe extern "C" fn(*mut std::os::raw::c_void, u64) -> pl_cache_obj,
+> = Some(pl_cache_get_file);
+#[cfg(not(pl_cache_file))]
+pub const CACHE_GET_FILE: Option<
+    unsafe extern "C" fn(*mut std::os::raw::c_void, u64) -> pl_cache_obj,
+> = None;

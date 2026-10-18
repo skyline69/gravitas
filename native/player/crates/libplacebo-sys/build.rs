@@ -77,6 +77,13 @@ fn main() {
         "pub use self::pl_log_create_{api_version} as pl_log_create;"
     ));
     let bindings = builder.generate().expect("libplacebo bindings");
+    // libplacebo's own callbacks for an on-disk cache arrived after the oldest
+    // release this builds against (6.338, Ubuntu 24.04's). Where they are
+    // missing the shader cache stays in memory (see the lib's CACHE_*_FILE).
+    println!("cargo::rustc-check-cfg=cfg(pl_cache_file)");
+    if bindings.to_string().contains("pub fn pl_cache_set_file(") {
+        println!("cargo:rustc-cfg=pl_cache_file");
+    }
     let out = PathBuf::from(env::var("OUT_DIR").expect("cargo sets OUT_DIR"));
     bindings
         .write_to_file(out.join("bindings.rs"))

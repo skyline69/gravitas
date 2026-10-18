@@ -431,6 +431,7 @@ dependencies = [
  "cpal",
  "crossbeam-channel",
  "ffmpeg-next",
+ "ffmpeg-sys-next",
  "libass-sys",
  "libplacebo-sys",
  "log",

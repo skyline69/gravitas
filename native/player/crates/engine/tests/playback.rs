@@ -288,7 +288,7 @@ fn stopping_mid_playback_returns_promptly() {
         "stop took {:?}",
         began.elapsed()
     );
-    assert!(h.player.tracks().is_empty());
+    assert_eq!(h.player.tracks().len(), 0);
 }
 
 #[test]

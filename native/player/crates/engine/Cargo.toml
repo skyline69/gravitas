@@ -12,6 +12,9 @@ repository.workspace = true
 cpal.workspace = true
 crossbeam-channel.workspace = true
 ffmpeg-next.workspace = true
+# Not used directly: depending on it is what hands build.rs the FFmpeg
+# version ffmpeg-next was built for (DEP_FFMPEG_*).
+ffmpeg-sys-next.workspace = true
 libass-sys.workspace = true
 log.workspace = true
 parking_lot.workspace = true

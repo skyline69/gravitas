@@ -156,7 +156,7 @@ mod tests {
         back.sort_by_key(|(index, _)| *index);
         assert_eq!(back.len(), 2);
         assert_eq!((back[1].0, back[1].1.len()), (42, 20));
-        assert!(load(&root, "b").is_empty());
+        assert_eq!(load(&root, "b").len(), 0);
         // A second save for the same file changes nothing.
         save(&root, "a", &[(7, chunk(3, 5))]);
         assert_eq!(load(&root, "a").len(), 2);

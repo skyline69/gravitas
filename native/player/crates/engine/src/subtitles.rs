@@ -310,7 +310,9 @@ impl Subtitles {
         unsafe {
             ass::ass_process_chunk(
                 track,
-                line.as_ptr().cast::<c_char>(),
+                // `char *` before libass 0.17.2, `const char *` since; it was
+                // never written through, and a mutable pointer fits both.
+                line.as_ptr().cast_mut().cast::<c_char>(),
                 line.len() as c_int,
                 start_ms,
                 duration_ms,
