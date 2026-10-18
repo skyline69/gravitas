@@ -36,6 +36,8 @@ QtObject {
     readonly property string check: String.fromCharCode(0xe5ca) // check
     readonly property string pip: String.fromCharCode(0xe911) // picture_in_picture_alt
     readonly property string pipExit: String.fromCharCode(0xf1ce) // open_in_full
+    readonly property string cast: String.fromCharCode(0xe307) // cast
+    readonly property string castConnected: String.fromCharCode(0xe308) // cast_connected
     readonly property string episodes: String.fromCharCode(0xe04a) // video_library
     // watchlist
     readonly property string bookmark: String.fromCharCode(0xe866) // bookmark

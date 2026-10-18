@@ -180,6 +180,14 @@ _MIN_RATE_SPAN_S = 0.05
 # workers stayed pinned to a connection nobody was reading, and then how the
 # next playback starved on the connection pool.
 _WRITE_TIMEOUT_S = 30.0
+# DLNA.ORG_OP=01: seekable by byte range. FLAGS: streaming transfer mode,
+# background transfer, DLNA 1.5 -- the set every renderer accepts for a plain
+# HTTP file.
+DLNA_CONTENT_FEATURES = (
+    "DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000"
+)
+# The extension a relay URL ends in for each content type it names.
+_EXTENSIONS = {"video/x-matroska": ".mkv", "video/mp4": ".mp4", "video/webm": ".webm"}
 # A block is handed to the socket in slices this size rather than in one go.
 # Writing 4 MiB in a single call buffers the lot inside the transport and runs
 # the copy without yielding, which is a burst of work once per block; sliced,
@@ -309,6 +317,9 @@ class _Entry:
 
     url: str
     headers: tuple[tuple[str, str], ...] = ()
+    # What the response says the body is. None is application/octet-stream,
+    # which mpv does not care about; a TV decides by it whether to play.
+    content_type: str | None = None
     # Where the probe ended up after redirects. Addon URLs here are a signing
     # endpoint that 302s to a CDN, and re-walking that chain for every 4 MiB
     # block is a round trip per block -- on a slow signer, seconds per block.
@@ -564,7 +575,19 @@ class SegmentedStreamProxy:
         cache_bytes: int | None = None,
         backfill_bytes: int = BACKFILL_BYTES,
         cache_dir: Path | None = None,
+        host: str = "127.0.0.1",
+        write_timeout_s: float = _WRITE_TIMEOUT_S,
+        dlna: bool = False,
     ) -> None:
+        # Loopback for mpv. A cast relay listens on the one LAN address its
+        # TV reaches this machine at -- never every interface.
+        self._host = host
+        # A TV paused for an hour still holds its connection and expects it to
+        # carry on; mpv reconnects by itself, and is cut off much sooner.
+        self._write_timeout_s = write_timeout_s
+        # DLNA renderers want to be told the body is a stream they may play
+        # as it arrives (see _dlna_headers).
+        self._dlna = dlna
         self._connections = max(1, connections)
         self._chunk_bytes = max(16 * 1024, chunk_bytes)
         # On disk when given a directory, in memory otherwise (tests, and a
@@ -630,7 +653,8 @@ class SegmentedStreamProxy:
             _log.warning("stream accelerator did not start: %s", self._error)
             return
         _log.info(
-            "segmented stream proxy on 127.0.0.1:%d (%d connections per stream, own thread)",
+            "segmented stream proxy on %s:%d (%d connections per stream, own thread)",
+            self._host,
             self._port,
             self._connections,
         )
@@ -661,7 +685,7 @@ class SegmentedStreamProxy:
     async def _serve_forever(self) -> None:
         self._stop = asyncio.Event()
         try:
-            self._server = await asyncio.start_server(self._handle, host="127.0.0.1", port=0)
+            self._server = await asyncio.start_server(self._handle, host=self._host, port=0)
             self._port = self._server.sockets[0].getsockname()[1]
         except BaseException as exc:
             self._error = exc
@@ -776,10 +800,17 @@ class SegmentedStreamProxy:
 
     # --- StreamAccelerator ---
 
-    def local_url(self, url: str, headers: Sequence[tuple[str, str]] = ()) -> str:
+    def local_url(
+        self,
+        url: str,
+        headers: Sequence[tuple[str, str]] = (),
+        *,
+        content_type: str | None = None,
+    ) -> str:
         """The URL to hand mpv. The upstream URL itself whenever this cannot
         help -- a stopped proxy, the feature turned off, or a scheme mpv has to
-        resolve on its own."""
+        resolve on its own. `content_type` is what the response names the body
+        as (a TV plays by it); the default says nothing."""
         if not self.enabled or not self._ready.is_set() or self._error is not None:
             return url
         if not is_proxyable(url):
@@ -800,12 +831,16 @@ class SegmentedStreamProxy:
                 token: _Entry(
                     url=url,
                     headers=tuple(headers),
+                    content_type=content_type,
                     cache=self._new_cache(token),
                     parallel=self._starting_parallel(url),
                 )
             }
         self._retire(retired)
-        return f"http://127.0.0.1:{self._port}/{token}"
+        # A file name after the token, for renderers that judge a URL by its
+        # extension. Only the token is looked up (see _handle).
+        suffix = _EXTENSIONS.get(content_type or "", "")
+        return f"http://{self._host}:{self._port}/{token}{f'/video{suffix}' if suffix else ''}"
 
     def _starting_parallel(self, url: str) -> int:
         """How many workers a new stream starts with: the configured count,
@@ -847,7 +882,7 @@ class SegmentedStreamProxy:
                 return
             method, path, headers = request
             with self._entries_lock:
-                entry = self._entries.get(path.lstrip("/"))
+                entry = self._entries.get(path.lstrip("/").split("?", 1)[0].split("/", 1)[0])
             if entry is None:
                 await self._send_status(writer, 404, "Not Found")
                 return
@@ -927,7 +962,7 @@ class SegmentedStreamProxy:
             _log.info(
                 "the player stopped reading for %.0fs (paused?); closing the "
                 "connection, it reconnects when it wants more",
-                _WRITE_TIMEOUT_S,
+                self._write_timeout_s,
             )
         except Exception as exc:
             # Warning, not debug: mpv reports a proxy that dies mid-response
@@ -1010,10 +1045,11 @@ class SegmentedStreamProxy:
         length = last - first + 1
         response = [
             f"HTTP/1.1 {'206 Partial Content' if wanted is not None else '200 OK'}",
-            "Content-Type: application/octet-stream",
+            f"Content-Type: {entry.content_type or 'application/octet-stream'}",
             f"Content-Length: {length}",
             "Accept-Ranges: bytes",
             "Connection: close",
+            *self._dlna_headers(),
         ]
         if wanted is not None:
             response.append(f"Content-Range: bytes {first}-{last}/{size}")
@@ -1023,6 +1059,18 @@ class SegmentedStreamProxy:
         if method == "HEAD":
             return
         await self._pump(client, entry, first, last, reader, writer)
+
+    def _dlna_headers(self) -> list[str]:
+        """What a DLNA renderer expects of a media response: that it may play
+        the body as it streams in, and may seek it by byte range. Some TVs
+        refuse a response without them; mpv ignores them, so they are only
+        sent by a relay that is serving one."""
+        if not self._dlna:
+            return []
+        return [
+            "transferMode.dlna.org: Streaming",
+            "contentFeatures.dlna.org: " + DLNA_CONTENT_FEATURES,
+        ]
 
     async def _probe(self, client: httpx.AsyncClient, entry: _Entry) -> None:
         """Ask the host, once per stream, whether it serves ranges and how big
@@ -1120,8 +1168,11 @@ class SegmentedStreamProxy:
             head = [f"HTTP/1.1 {response.status_code} Upstream", "Connection: close"]
             for name in ("content-type", "content-length", "content-range", "accept-ranges"):
                 value = response.headers.get(name)
+                if name == "content-type" and entry.content_type:
+                    value = entry.content_type
                 if value:
                     head.append(f"{name}: {value}")
+            head.extend(self._dlna_headers())
             state.started = True
             writer.write(("\r\n".join(head) + "\r\n\r\n").encode("latin-1"))
             await writer.drain()
@@ -1130,7 +1181,7 @@ class SegmentedStreamProxy:
             async for chunk in response.aiter_bytes():
                 self._meter.add(len(chunk))
                 writer.write(chunk)
-                await asyncio.wait_for(writer.drain(), timeout=_WRITE_TIMEOUT_S)
+                await asyncio.wait_for(writer.drain(), timeout=self._write_timeout_s)
 
     async def _pump(
         self,
@@ -1331,7 +1382,7 @@ class SegmentedStreamProxy:
                     # drain() to a peer that has gone away may never return.
                     spare.set()
                     try:
-                        await asyncio.wait_for(writer.drain(), timeout=_WRITE_TIMEOUT_S)
+                        await asyncio.wait_for(writer.drain(), timeout=self._write_timeout_s)
                     except TimeoutError as exc:
                         raise _ClientStalled from exc
                     finally:

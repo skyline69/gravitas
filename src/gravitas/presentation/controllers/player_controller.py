@@ -11,11 +11,12 @@ from typing import Any, Protocol
 
 from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
+from gravitas.application.cast_session import CastSession, cast_mime, uncastable_reason
 from gravitas.application.link_warmup import LinkWarmup
 from gravitas.application.segments import classify, sections
 from gravitas.application.watch_progress import WatchProgressRepository
 from gravitas.domain import languages
-from gravitas.domain.errors import PlaybackFailed
+from gravitas.domain.errors import CastFailed, PlaybackFailed
 from gravitas.domain.models import (
     DecodeReport,
     MediaFormat,
@@ -25,7 +26,14 @@ from gravitas.domain.models import (
     SubtitleStyle,
     TrackLanguages,
 )
-from gravitas.domain.ports import IdleInhibitor, MediaPlayer, SegmentSource, StreamAccelerator
+from gravitas.domain.ports import (
+    CastTarget,
+    IdleInhibitor,
+    MediaPlayer,
+    SegmentSource,
+    StreamAccelerator,
+    StreamRelay,
+)
 from gravitas.logging_setup import abbreviate_url
 from gravitas.presentation.external_url import open_in_browser
 
@@ -100,6 +108,8 @@ class PlayerController(QObject):
     _loadFailed = Signal()
     # mpv has the current file open (hops from mpv's thread, like the above).
     _opened = Signal()
+    # Playback moved to a TV or back (see castTo / stopCasting).
+    castChanged = Signal()
 
     # Frequent enough that a hard kill costs seconds, not minutes; rare enough
     # that a two-hour film writes ~1400 rows' worth of UPSERTs, not 7 million.
@@ -244,6 +254,11 @@ class PlayerController(QObject):
         # error message asking the viewer to do what the app can do itself.
         self._queue: list[tuple[str, tuple[tuple[str, str], ...], str, str, str]] = []
         self._player: MediaPlayer | None = None
+        # Playing on a TV instead (see cast_to). While set, mpv is stopped and
+        # every transport control and position read goes to the TV; the URL,
+        # headers and media context stay as they were, so "Play here" and the
+        # progress autosave carry on from them.
+        self._cast: CastSession | None = None
         self._context: dict[str, str] = {}
         self._save_timer = QTimer(self)
         self._save_timer.setInterval(PlayerController.SAVE_INTERVAL_MS)
@@ -528,9 +543,16 @@ class PlayerController(QObject):
         Buffering counts as playing (mpv's `pause` stays false through a
         stall): the viewer is still watching, and dimming mid-spinner would
         be the wrong answer to a slow host."""
-        playing = (
-            self._player is not None and bool(self._current_url) and not self._player.is_paused()
-        )
+        if self._cast is not None:
+            # This machine relays every byte the TV plays: let it sleep and
+            # the TV stops too.
+            playing = not self._cast.paused
+        else:
+            playing = (
+                self._player is not None
+                and bool(self._current_url)
+                and not self._player.is_paused()
+            )
         if playing == self._inhibiting or self._idle_inhibitor is None:
             return
         self._inhibiting = playing
@@ -601,7 +623,8 @@ class PlayerController(QObject):
         mpv reports as an END_FILE error and no end of file).
         """
         self._open_watchdog.stop()
-        if self._player is None or not self._current_url:
+        if self._player is None or not self._current_url or self._cast is not None:
+            # Casting stopped mpv on purpose; the TV reports its own ending.
             return
         if self._reconnect_timer.isActive():
             return  # a retry is already armed; this is its failure arriving
@@ -713,7 +736,7 @@ class PlayerController(QObject):
         self._open_watchdog.start()
 
     def _on_open_timeout(self) -> None:
-        if self._player is None or not self._current_url:
+        if self._player is None or not self._current_url or self._cast is not None:
             return
         _log.warning(
             "source did not open within %ds; treating it as one that never will",
@@ -729,10 +752,14 @@ class PlayerController(QObject):
 
     @Property(bool, notify=stateChanged)
     def paused(self) -> bool:
+        if self._cast is not None:
+            return self._cast.paused
         return self._player.is_paused() if self._player is not None else False
 
     @Property(float, notify=stateChanged)
     def duration(self) -> float:
+        if self._cast is not None:
+            return self._cast.duration()
         if self._player is None:
             return 0.0
         duration = self._player.duration()
@@ -750,11 +777,20 @@ class PlayerController(QObject):
 
     @Property(float, notify=stateChanged)
     def volume(self) -> float:
+        if self._cast is not None:
+            return self._cast.volume
         return self._player.volume() if self._player is not None else 100.0
 
     @Property(bool, notify=stateChanged)
     def muted(self) -> bool:
+        if self._cast is not None:
+            return self._cast.muted
         return self._player.is_muted() if self._player is not None else False
+
+    @Property(str, notify=castChanged)
+    def castingTo(self) -> str:
+        """The TV playback is on, or "" while it plays here."""
+        return self._cast.name if self._cast is not None else ""
 
     @Property(float, notify=stateChanged)
     def videoAspect(self) -> float:
@@ -790,6 +826,9 @@ class PlayerController(QObject):
     def position(self) -> float:
         """Polled by a QML Timer while the player page is open — cheaper than
         observing time-pos, which fires many times a second."""
+        if self._cast is not None:
+            self._last_position = self._cast.position()
+            return self._last_position
         if self._player is None:
             return 0.0
         position = self._player.position()
@@ -802,12 +841,16 @@ class PlayerController(QObject):
         after the connection dropped."""
         if self._reconnecting:
             return True
+        if self._cast is not None:
+            return self._cast.loading
         return self._player.is_loading() if self._player is not None else False
 
     @Slot(result=float)
     def bufferedTo(self) -> float:
         """Polled with position: how far ahead (absolute seconds) the demuxer
         has downloaded — the timeline's loaded track."""
+        if self._cast is not None:
+            return 0.0  # the TV does not say
         return self._player.buffered_to() if self._player is not None else 0.0
 
     # --- renderer bridge ---
@@ -825,10 +868,15 @@ class PlayerController(QObject):
     @Slot(str)
     @Slot(str, "QVariantMap")
     def play(self, url: str, headers: dict[str, str] | None = None) -> None:
+        self._play(url, headers, self._resume_position())
+
+    def _play(self, url: str, headers: dict[str, str] | None, start: float) -> None:
+        if self._cast is not None:
+            self._play_on_cast(url, headers, start)
+            return
         player = self._ensure()
         if player is None:
             return
-        start = self._resume_position()
         self._reset_recovery()
         self._current_url = url
         self._current_headers = tuple(
@@ -930,6 +978,16 @@ class PlayerController(QObject):
     @Slot()
     def stop(self) -> None:
         self._note_manual_playback_change()
+        if self._cast is not None:
+            _log.info("stopped casting %s", self._context.get("name") or "?")
+            self._record()
+            self._emit_scrobble("stop")
+            self._save_timer.stop()
+            self._reset_recovery()
+            self._queue = []
+            self._end_cast(stop_target=True)
+            self.stateChanged.emit()
+            return
         if self._player is not None:
             _log.info(
                 "stopped %s at %.0f/%.0fs",
@@ -963,6 +1021,13 @@ class PlayerController(QObject):
 
     @Slot()
     def pause(self) -> None:
+        if self._cast is not None:
+            self._user_paused = True
+            self._cast.pause()
+            self._record()
+            self._emit_scrobble("pause")
+            self.stateChanged.emit()
+            return
         if self._player is not None:
             self._note_manual_playback_change()
             _log.debug("paused at %.0fs", self._player.position())
@@ -973,6 +1038,12 @@ class PlayerController(QObject):
 
     @Slot()
     def resume(self) -> None:
+        if self._cast is not None:
+            self._user_paused = False
+            self._cast.resume()
+            self._emit_scrobble("start")
+            self.stateChanged.emit()
+            return
         if self._player is not None:
             self._note_manual_playback_change()
             _log.debug("resumed at %.0fs", self._player.position())
@@ -983,6 +1054,12 @@ class PlayerController(QObject):
 
     @Slot()
     def togglePause(self) -> None:
+        if self._cast is not None:
+            if self._cast.paused:
+                self.resume()
+            else:
+                self.pause()
+            return
         if self._player is None:
             return
         # A deliberate press during a resize wins outright: neither the settle
@@ -1023,6 +1100,8 @@ class PlayerController(QObject):
         self._resize_active = True
         if self._player is None or self._resize_paused or self._resize_override:
             return
+        if self._cast is not None:
+            return  # nothing renders here to be held still
         if self._player.is_paused():
             return
         self._resize_paused = True
@@ -1044,6 +1123,10 @@ class PlayerController(QObject):
 
     @Slot(float)
     def seek(self, seconds: float) -> None:
+        if self._cast is not None:
+            _log.debug("seek on TV to %.0fs", seconds)
+            self._cast.seek(seconds)
+            return
         if self._player is None:
             return
         _log.debug("seek to %.0fs", seconds)
@@ -1051,6 +1134,9 @@ class PlayerController(QObject):
 
     @Slot(float)
     def seekBy(self, delta: float) -> None:
+        if self._cast is not None:
+            self._cast.seek(self._cast.position() + delta)
+            return
         if self._player is None:
             return
         target = max(0.0, self._player.position() + delta)
@@ -1061,6 +1147,10 @@ class PlayerController(QObject):
 
     @Slot(float)
     def setVolume(self, volume: float) -> None:
+        if self._cast is not None:
+            self._cast.set_volume(volume)
+            self.stateChanged.emit()
+            return
         if self._player is None:
             return
         self._player.set_volume(volume)
@@ -1068,10 +1158,200 @@ class PlayerController(QObject):
 
     @Slot()
     def toggleMute(self) -> None:
+        if self._cast is not None:
+            self._cast.set_muted(not self._cast.muted)
+            self.stateChanged.emit()
+            return
         if self._player is None:
             return
         self._player.set_muted(not self._player.is_muted())
         self.stateChanged.emit()
+
+    # --- casting ---
+    #
+    # The TV plays the file itself, fetched through a relay on this machine
+    # (application/cast_session.py). Nothing about the title changes when it
+    # moves: the context, the URL and its headers stay, progress is recorded
+    # from the TV's position on the same tick, and Trakt sees one unbroken
+    # watch. What stops is mpv, and with it everything that only mpv knows --
+    # tracks, the decoder's verdict, the line speed.
+
+    def _has_playback(self) -> bool:
+        return self._cast is not None or self._player is not None
+
+    def _playback_position(self) -> float:
+        if self._cast is not None:
+            return self._cast.position()
+        return self._player.position() if self._player is not None else 0.0
+
+    def _playback_duration(self) -> float:
+        if self._cast is not None:
+            return self._cast.duration()
+        return self._player.duration() if self._player is not None else 0.0
+
+    def _cast_title(self) -> str:
+        name = self._context.get("name", "")
+        label = self._context.get("label", "")
+        return f"{name} · {label}" if name and label else name or label
+
+    def _new_cast_session(self, target: CastTarget, relay: StreamRelay) -> CastSession:
+        session: CastSession
+
+        def ended() -> None:
+            if self._cast is session:
+                self._return_from_cast(paused=True, stop_target=False)
+
+        def failed(message: str) -> None:
+            if self._cast is session:
+                self.errorOccurred.emit(message)
+                self._return_from_cast(paused=True, stop_target=False)
+
+        session = CastSession(
+            target,
+            relay,
+            on_changed=self.stateChanged.emit,
+            on_ended=ended,
+            on_failed=failed,
+            on_error=self.errorOccurred.emit,
+        )
+        return session
+
+    async def cast_to(self, target: CastTarget, relay: StreamRelay) -> None:
+        """Move what is playing to `target`, at the position it has reached.
+
+        Playback here is held paused while the TV is asked -- a TV takes
+        seconds to answer, and the viewer should not hear the film twice -- and
+        stops only once the TV has taken the file. A TV that refuses it hands
+        playback back where it was. Casting while already casting moves it
+        from one TV to the other.
+        """
+        url, headers = self._current_url, self._current_headers
+        if not url:
+            self.errorOccurred.emit("Start playing something first, then send it to the TV.")
+            return
+        reason = uncastable_reason(url)
+        if reason is not None:
+            self.errorOccurred.emit(reason)
+            return
+        previous = self._cast
+        start = self._playback_position()
+        duration = self._playback_duration() or self._last_duration
+        held = previous is None and self._player is not None and not self._player.is_paused()
+        if held and self._player is not None:
+            self._player.pause()  # not a scrobble: the viewer is still watching
+        session = self._new_cast_session(target, relay)
+        try:
+            await session.start()
+            await session.load(
+                url,
+                headers,
+                title=self._cast_title(),
+                mime=cast_mime(url, self._source_file),
+                start=start,
+                duration=duration,
+            )
+        except CastFailed as exc:
+            await session.close(stop_target=False)
+            if held and self._cast is previous and self._player is not None:
+                self._player.resume()
+            self.errorOccurred.emit(str(exc))
+            return
+        if self._current_url != url or self._cast is not previous:
+            # Left the player, or started something else, while the TV was
+            # being asked: what it was handed is no longer wanted.
+            await session.close(stop_target=True)
+            return
+        self._cast = session
+        if previous is not None:
+            self._spawn(previous.close(stop_target=True))
+        elif self._player is not None:
+            # Disarmed before mpv stops, as in stop(): stopping ends the stream,
+            # which recovery would otherwise read as a drop. (_cast is already
+            # set, which _on_stream_ended checks too.)
+            self._open_watchdog.stop()
+            self._reconnect_timer.stop()
+            self._verify_timer.stop()
+            self._reconnecting = False
+            self._player.stop()
+        self._save_timer.start()
+        self.castChanged.emit()
+        self.stateChanged.emit()
+
+    def _play_on_cast(self, url: str, headers: dict[str, str] | None, start: float) -> None:
+        """A new file while casting -- the next episode: it goes to the TV too.
+        One the TV cannot be sent plays here instead."""
+        session = self._cast
+        assert session is not None
+        reason = uncastable_reason(url)
+        if reason is not None:
+            self.errorOccurred.emit(reason)
+            self._end_cast(stop_target=True)
+            self._play(url, headers, start)
+            return
+        self._reset_recovery()
+        self._current_url = url
+        self._current_headers = tuple(
+            (str(key), str(value)) for key, value in (headers or {}).items()
+        )
+        self._last_position = start
+        self._refresh_media_format(MediaFormat())
+        self._segments = Segments()
+        self._segments_read = False
+        self._chapters = []
+        self._segments_duration = 0.0
+        self._segments_token += 1
+        self.segmentsChanged.emit()
+        self._nearing_end_sent = False
+        self._spawn(self._load_on_cast(session, url, start))
+        self._emit_scrobble("start")
+        self._save_timer.start()
+        self.stateChanged.emit()
+
+    async def _load_on_cast(self, session: CastSession, url: str, start: float) -> None:
+        try:
+            await session.load(
+                url,
+                self._current_headers,
+                title=self._cast_title(),
+                mime=cast_mime(url, self._source_file),
+                start=start,
+            )
+        except CastFailed as exc:
+            if self._cast is session:
+                self.errorOccurred.emit(str(exc))
+                self._return_from_cast(paused=True, stop_target=False)
+
+    @Slot()
+    def stopCasting(self) -> None:
+        """Bring playback back here, at the TV's position."""
+        if self._cast is not None:
+            self._return_from_cast(paused=self._cast.paused, stop_target=True)
+
+    def _return_from_cast(self, *, paused: bool, stop_target: bool) -> None:
+        """Play here again from where the TV is (or was, when it stopped by
+        itself -- its own remote's Stop, the end of the file, or the TV going
+        away). Paused when the TV was, or when nobody here asked for it."""
+        session = self._cast
+        if session is None:
+            return
+        position = session.position()
+        self._record()
+        url, headers = self._current_url, dict(self._current_headers)
+        self._end_cast(stop_target=stop_target)
+        if not url:
+            self.stateChanged.emit()
+            return
+        self._play(url, headers, position)
+        if paused:
+            self.pause()
+
+    def _end_cast(self, *, stop_target: bool) -> None:
+        session = self._cast
+        if session is None:
+            return
+        self._cast = None
+        self._spawn(session.close(stop_target=stop_target))
+        self.castChanged.emit()
 
     # --- watch progress ---
 
@@ -1172,6 +1452,13 @@ class PlayerController(QObject):
         return self._save_timer.isActive()
 
     def _on_tick(self) -> None:
+        if self._cast is not None:
+            # Only what is about the title: the speed, the decoder and the
+            # file's format are the TV's business here.
+            if not self._cast.paused:
+                self._record()
+                self._check_nearing_end()
+            return
         if self._player is not None and not self._player.is_paused():
             if not self._note_progress(self._player.position()):
                 return
@@ -1185,12 +1472,12 @@ class PlayerController(QObject):
             self._refresh_media_format()
 
     def _check_nearing_end(self) -> None:
-        if self._nearing_end_sent or self._on_nearing_end is None or self._player is None:
+        if self._nearing_end_sent or self._on_nearing_end is None or not self._has_playback():
             return
         if self._context.get("type") != "series" or not self._context.get("videoId"):
             return
-        duration = self._player.duration()
-        if duration <= 0 or duration - self._player.position() > PlayerController.NEARING_END_S:
+        duration = self._playback_duration()
+        if duration <= 0 or duration - self._playback_position() > PlayerController.NEARING_END_S:
             return
         self._nearing_end_sent = True
         self._on_nearing_end(self._context.get("mediaId", ""), self._context["videoId"])
@@ -1305,10 +1592,10 @@ class PlayerController(QObject):
     def _emit_scrobble(self, action: str) -> None:
         """Snapshot the moment: consumers run async, and by the time they
         look, the player may have moved on (or been stopped)."""
-        if not self._context.get("mediaId") or self._player is None:
+        if not self._context.get("mediaId") or not self._has_playback():
             return
         self.scrobbleEvent.emit(
-            action, dict(self._context), self._player.position(), self._player.duration()
+            action, dict(self._context), self._playback_position(), self._playback_duration()
         )
 
     def _resume_position(self) -> float:
@@ -1319,9 +1606,9 @@ class PlayerController(QObject):
 
     def _record(self) -> None:
         media_id = self._context.get("mediaId", "")
-        if self._progress is None or self._player is None or not media_id:
+        if self._progress is None or not self._has_playback() or not media_id:
             return
-        duration = self._player.duration()
+        duration = self._playback_duration()
         if duration <= 0:
             # mpv has not parsed the file yet; a fraction against 0 is noise.
             return
@@ -1337,7 +1624,7 @@ class PlayerController(QObject):
             label=self._context.get("label", ""),
             # Mid-reconnect, where the stream stalled: wherever mpv is sitting
             # then is a reload still settling, or one that landed astray.
-            position=self._stall_position if self._reconnecting else self._player.position(),
+            position=self._stall_position if self._reconnecting else self._playback_position(),
             duration=duration,
         )
         self.progressRecorded.emit()

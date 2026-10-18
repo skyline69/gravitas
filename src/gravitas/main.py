@@ -54,6 +54,7 @@ from gravitas.domain.ports import MediaPlayer
 from gravitas.infrastructure.addons.client import AddonClient
 from gravitas.infrastructure.cache.json_disk_cache import JsonDiskCache
 from gravitas.infrastructure.cache.network_cache import CachingNetworkAccessManagerFactory
+from gravitas.infrastructure.cast.dlna import SsdpDiscovery
 from gravitas.infrastructure.desktop.idle_inhibitor import IdleInhibitor
 from gravitas.infrastructure.desktop.kwin_window import KWinFloatingWindow
 from gravitas.infrastructure.desktop.url_scheme import (
@@ -88,6 +89,7 @@ from gravitas.infrastructure.watchlist.sqlite_store import SqliteWatchlistStore
 from gravitas.logging_setup import abbreviate_url, configure_logging
 from gravitas.presentation import qml_module
 from gravitas.presentation.controllers.addon_controller import AddonController
+from gravitas.presentation.controllers.cast_controller import CastController
 from gravitas.presentation.controllers.catalog_controller import CatalogController
 from gravitas.presentation.controllers.deep_link_controller import DeepLinkController
 from gravitas.presentation.controllers.detail_controller import DetailController
@@ -768,6 +770,21 @@ def build_app(
     if floating_window is not None:
         app.aboutToQuit.connect(floating_window.shutdown)
     window_controller = WindowController(floating_window)
+    # Playing on a TV. The TV fetches the file through a relay of its own on
+    # the LAN address it reaches this machine at: the addon's headers, the
+    # debrid redirect and the HTTPS CDN are the relay's problem, and a TV
+    # paused for an hour keeps its connection. Its cache stays in memory: one
+    # relay is made per TV picked, and two sharing a directory would have the
+    # first one's shutdown delete the second one's chunks.
+    cast_controller = CastController(
+        SsdpDiscovery(),
+        lambda host: SegmentedStreamProxy(
+            host=host,
+            write_timeout_s=6 * 60 * 60.0,
+            dlna=True,
+        ),
+        player_controller,
+    )
     engine.addImportPath(str(_QML_DIR))
     qml_module.bind(
         engine,
@@ -775,6 +792,7 @@ def build_app(
             "CatalogController": catalog_controller,
             "DetailController": detail_controller,
             "PlayerController": player_controller,
+            "CastController": cast_controller,
             "AddonController": addon_controller,
             "CatalogRowsModel": rows_model,
             "StreamModel": stream_model,

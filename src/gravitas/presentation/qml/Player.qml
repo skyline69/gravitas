@@ -31,6 +31,21 @@ Item {
     property int currentAudio: -1
     property int currentSub: -1
     property bool controlsVisible: true
+    // Playback is on a TV (CastController); mpv is stopped and the controls
+    // drive the TV. Truthiness, not a bare read: tests bind a stub controller.
+    readonly property bool casting: !!(PlayerController && PlayerController.castingTo)
+
+    // The cast menu's rows: "Play here" while casting, then every TV found,
+    // with the one playing marked.
+    function refreshCastMenu() {
+        const devices = CastController.devices
+        castMenu.tracks = (player.casting ? [{ id: -2, title: "Play here" }] : []).concat(devices)
+        castMenu.currentId = -1
+        for (let i = 0; i < devices.length; i++) {
+            if (devices[i].title === PlayerController.castingTo)
+                castMenu.currentId = devices[i].id
+        }
+    }
 
     // Polled (not bound): the duration property's change signal comes off
     // mpv's event thread; polling alongside position guarantees the timeline
@@ -503,7 +518,7 @@ Item {
         id: hideTimer
         interval: 2500
         onTriggered: {
-            if (!subsMenu.visible && !audioMenu.visible && !timeline.pressed)
+            if (!subsMenu.visible && !audioMenu.visible && !castMenu.visible && !timeline.pressed)
                 player.controlsVisible = false
         }
     }
@@ -645,7 +660,8 @@ Item {
         z: 5
         anchors.fill: parent
         color: Qt.rgba(0, 0, 0, 0.45)
-        opacity: player.showLoader ? 1 : 0
+        // While casting the TV is what is loading; the cast panel says so.
+        opacity: player.showLoader && !player.casting ? 1 : 0
         visible: opacity > 0
         Behavior on opacity { NumberAnimation { duration: Theme.durMed } }
 
@@ -665,6 +681,58 @@ Item {
                 text: qsTr("Reconnecting…")
                 color: "white"
                 font.pixelSize: Theme.fontSmall
+            }
+        }
+    }
+
+    // ---- casting ----
+    // What stands in for the picture while a TV plays it. Opaque: the video
+    // item keeps mpv's last frame after mpv stops, and that frame is not
+    // what is playing. Under the controls (z 10), which stay usable.
+    Rectangle {
+        id: castPanel
+        z: 6
+        anchors.fill: parent
+        color: Theme.bg
+        opacity: player.casting ? 1 : 0
+        visible: opacity > 0
+        Behavior on opacity { NumberAnimation { duration: Theme.durMed } }
+        // The TV's name outlives the cast by the fade-out, so the line does
+        // not go blank while it is still on screen.
+        property string tv: ""
+        Binding {
+            castPanel.tv: PlayerController.castingTo
+            when: player.casting
+            restoreMode: Binding.RestoreNone
+        }
+
+        Column {
+            anchors.centerIn: parent
+            spacing: 14
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: Icons.castConnected
+                font.family: Icons.family
+                font.pixelSize: 72
+                color: Theme.textDim
+            }
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: qsTr("Playing on %1").arg(castPanel.tv)
+                color: Theme.text
+                font.pixelSize: Theme.fontBody
+            }
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: qsTr("Starting on the TV…")
+                visible: player.showLoader
+                color: Theme.textDim
+                font.pixelSize: Theme.fontSmall
+            }
+            AppButton {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: qsTr("Play here")
+                onClicked: PlayerController.stopCasting()
             }
         }
     }
@@ -972,7 +1040,43 @@ Item {
                     spacing: 4
 
                     AppButton {
+                        id: castBtn
+                        ghost: true
+                        iconSize: 24
+                        iconGlyph: player.casting ? Icons.castConnected : Icons.cast
+                        selected: player.casting
+                        tooltip: player.casting
+                            ? qsTr("Playing on %1").arg(PlayerController.castingTo)
+                            : qsTr("Play on TV")
+                        onClicked: {
+                            player.refreshCastMenu()
+                            castMenu.open()
+                            CastController.scan()
+                        }
+                        TrackMenu {
+                            id: castMenu
+                            offEntry: false
+                            busy: CastController.scanning
+                            emptyText: qsTr("No TVs found")
+                            onPicked: (id) => {
+                                if (id === -2)
+                                    PlayerController.stopCasting()
+                                else
+                                    CastController.castTo(id)
+                            }
+                        }
+                        // The search answers after the menu opened.
+                        Connections {
+                            target: CastController
+                            function onDevicesChanged() {
+                                if (castMenu.visible)
+                                    player.refreshCastMenu()
+                            }
+                        }
+                    }
+                    AppButton {
                         id: audioBtn
+                        visible: !player.casting
                         ghost: true
                         iconSize: 24
                         iconGlyph: Icons.audio
@@ -994,6 +1098,7 @@ Item {
                     }
                     AppButton {
                         id: subsBtn
+                        visible: !player.casting
                         ghost: true
                         iconSize: 24
                         iconGlyph: Icons.subtitles
@@ -1054,6 +1159,7 @@ Item {
                         iconSize: 24
                         iconGlyph: Icons.pip
                         tooltip: "Picture in picture"
+                        visible: !player.casting
                         // enterPip drops fullscreen itself; this is the same
                         // decision made where the state is read, so the button
                         // cannot ask for a frameless fullscreen window even if

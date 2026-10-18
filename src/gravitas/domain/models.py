@@ -331,6 +331,20 @@ class Segments:
     credits_start: float | None = None
 
 
+CastState = Literal["playing", "paused", "loading", "stopped"]
+
+
+@dataclass(frozen=True, slots=True)
+class CastStatus:
+    """What a cast target reports it is doing. `position` and `duration` are
+    seconds; 0 where the target does not say (a renderer that has not parsed
+    the file yet reports its duration as nothing at all)."""
+
+    state: CastState = "stopped"
+    position: float = 0.0
+    duration: float = 0.0
+
+
 @dataclass(frozen=True, slots=True)
 class TraktAuth:
     """A granted Trakt OAuth session. `expires_at` is wall-clock epoch seconds

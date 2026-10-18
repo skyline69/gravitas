@@ -50,6 +50,40 @@ Module {
         exportMetaObjectRevisions: [256]
     }
     Component {
+        file: "src/gravitas/presentation/controllers/cast_controller.py"
+        lineNumber: 0
+        name: "CastController"
+        accessSemantics: "reference"
+        prototype: "QObject"
+        exports: ["Gravitas/CastController 1.0"]
+        isCreatable: false
+        isSingleton: true
+        exportMetaObjectRevisions: [256]
+        Property {
+            name: "devices"
+            type: "QVariantList"
+            read: "devices"
+            notify: "devicesChanged"
+            index: 0
+            isReadonly: true
+        }
+        Property {
+            name: "scanning"
+            type: "bool"
+            read: "scanning"
+            notify: "scanningChanged"
+            index: 1
+            isReadonly: true
+        }
+        Signal { name: "devicesChanged" }
+        Signal { name: "scanningChanged" }
+        Method { name: "scan" }
+        Method {
+            name: "castTo"
+            Parameter { name: "index"; type: "int" }
+        }
+    }
+    Component {
         file: "src/gravitas/presentation/controllers/catalog_controller.py"
         lineNumber: 0
         name: "CatalogController"
@@ -800,11 +834,19 @@ Module {
             isReadonly: true
         }
         Property {
+            name: "castingTo"
+            type: "QString"
+            read: "castingTo"
+            notify: "castChanged"
+            index: 11
+            isReadonly: true
+        }
+        Property {
             name: "videoAspect"
             type: "float"
             read: "videoAspect"
             notify: "stateChanged"
-            index: 11
+            index: 12
             isReadonly: true
         }
         Property {
@@ -812,7 +854,7 @@ Module {
             type: "QString"
             read: "mediaTitle"
             notify: "mediaContextChanged"
-            index: 12
+            index: 13
             isReadonly: true
         }
         Property {
@@ -820,7 +862,7 @@ Module {
             type: "QString"
             read: "videoId"
             notify: "mediaContextChanged"
-            index: 13
+            index: 14
             isReadonly: true
         }
         Property {
@@ -828,7 +870,7 @@ Module {
             type: "QString"
             read: "mediaLabel"
             notify: "mediaContextChanged"
-            index: 14
+            index: 15
             isReadonly: true
         }
         Property {
@@ -836,7 +878,7 @@ Module {
             type: "QVariantList"
             read: "mediaBadges"
             notify: "mediaFormatChanged"
-            index: 15
+            index: 16
             isReadonly: true
         }
         Signal {
@@ -868,6 +910,7 @@ Module {
         Signal { name: "_tracksReady" }
         Signal { name: "_loadFailed" }
         Signal { name: "_opened" }
+        Signal { name: "castChanged" }
         Method { name: "position"; type: "float" }
         Method { name: "isLoading"; type: "bool" }
         Method { name: "bufferedTo"; type: "float" }
@@ -907,6 +950,7 @@ Module {
             Parameter { name: "a1"; type: "float" }
         }
         Method { name: "toggleMute" }
+        Method { name: "stopCasting" }
         Method {
             name: "setMediaContext"
             Parameter { name: "a1"; type: "QVariantMap" }

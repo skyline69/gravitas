@@ -2350,3 +2350,129 @@ async def test_the_file_name_says_which_episode_the_subtitles_belong_to(qapp: ob
     await _settle()
     ranked = [s.label for s in controller._online_in("en")]
     assert ranked[:2] == ["South Park - s06e01 - Freak Strike", "S6E01 - Freak Strike"]
+
+
+# --- casting ---
+
+
+def _casting_setup(at: float = 231.0) -> tuple[FakePlayer, PlayerController]:
+    from gravitas.application.cast_session import CastSession
+
+    CastSession.POLL_S = 0.0
+    player = FakePlayer()
+    controller = PlayerController(lambda: player)
+    controller.setMediaContext({"mediaId": "tt1", "type": "movie", "name": "Ted"})
+    player._duration = 2530.0
+    controller.play("https://signer/x", {"Referer": "https://addon/"})
+    player._position = at
+    return player, controller
+
+
+async def _drain() -> None:
+    import asyncio
+
+    for _ in range(10):
+        await asyncio.sleep(0)
+
+
+@pytest.fixture
+def restore_poll() -> object:
+    from gravitas.application.cast_session import CastSession
+
+    saved = CastSession.POLL_S
+    yield None
+    CastSession.POLL_S = saved
+
+
+async def test_casting_moves_playback_to_the_tv(qapp: object, restore_poll: object) -> None:
+    from gravitas.domain.models import CastStatus
+    from tests.application.test_cast_session import FakeRelay, FakeTarget
+
+    player, controller = _casting_setup()
+    tv, relay = FakeTarget(), FakeRelay()
+    tv.reports = [CastStatus("playing", 231.0, 2530.0)]
+    await controller.cast_to(tv, relay)
+    assert controller.castingTo == "Living room"
+    # Held while the TV was asked, then stopped once it took the file.
+    assert player.calls[-2:] == ["pause", "stop"]
+    assert relay.registered[0][:2] == ("https://signer/x", (("Referer", "https://addon/"),))
+    await _drain()
+    assert "seek:231" in tv.calls
+    # The controls drive the TV now.
+    controller.seek(600.0)
+    controller.togglePause()
+    await _drain()
+    assert "seek:600" in tv.calls and "pause" in tv.calls
+    assert controller.position() == 600.0
+    assert controller.duration == 2530.0
+    controller.stop()
+    await _drain()
+    assert tv.calls[-1] == "stop" and relay.closed
+
+
+async def test_play_here_resumes_at_the_tvs_position(qapp: object, restore_poll: object) -> None:
+    from gravitas.domain.models import CastStatus
+    from tests.application.test_cast_session import FakeRelay, FakeTarget
+
+    player, controller = _casting_setup(at=0.0)
+    tv = FakeTarget()
+    tv.reports = [CastStatus("playing", 0.0, 2530.0), CastStatus("playing", 1200.0, 2530.0)]
+    await controller.cast_to(tv, FakeRelay())
+    await _drain()
+    player.calls.clear()
+    controller.stopCasting()
+    assert controller.castingTo == ""
+    assert player.calls == ["play:https://signer/x"]
+    assert player.start == 1200.0
+    assert player.headers == (("Referer", "https://addon/"),)
+    await _drain()
+    assert tv.calls[-1] == "stop"
+
+
+async def test_a_tv_that_refuses_the_file_leaves_playback_here(
+    qapp: object, restore_poll: object
+) -> None:
+    from tests.application.test_cast_session import FakeRelay, FakeTarget
+
+    player, controller = _casting_setup()
+    errors: list[str] = []
+    controller.errorOccurred.connect(errors.append)
+    tv = FakeTarget()
+    tv.refuse_play = True
+    await controller.cast_to(tv, FakeRelay())
+    assert controller.castingTo == ""
+    assert player.calls[-2:] == ["pause", "resume"]
+    assert errors and "714" in errors[0]
+
+
+async def test_a_tv_that_stops_by_itself_hands_back_paused(
+    qapp: object, restore_poll: object
+) -> None:
+    from gravitas.domain.models import CastStatus
+    from tests.application.test_cast_session import FakeRelay, FakeTarget
+
+    player, controller = _casting_setup(at=0.0)
+    tv = FakeTarget()
+    tv.reports = [CastStatus("playing", 900.0, 2530.0), CastStatus("stopped")]
+    await controller.cast_to(tv, FakeRelay())
+    player.calls.clear()
+    await _drain()
+    assert controller.castingTo == ""
+    assert player.calls == ["play:https://signer/x", "pause"]
+    assert player.start == 900.0
+    # Nobody here said stop: the TV is not told to.
+    assert "stop" not in tv.calls
+
+
+async def test_a_trailer_is_not_sent_to_the_tv(qapp: object, restore_poll: object) -> None:
+    from tests.application.test_cast_session import FakeRelay, FakeTarget
+
+    player = FakePlayer()
+    controller = PlayerController(lambda: player)
+    controller.play("https://www.youtube.com/watch?v=abc")
+    errors: list[str] = []
+    controller.errorOccurred.connect(errors.append)
+    tv = FakeTarget()
+    await controller.cast_to(tv, FakeRelay())
+    assert controller.castingTo == "" and tv.calls == []
+    assert errors == ["YouTube videos can't be sent to a TV."]

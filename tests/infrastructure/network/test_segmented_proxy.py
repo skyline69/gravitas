@@ -429,7 +429,7 @@ async def test_a_client_that_walks_away_takes_its_workers_with_it() -> None:
 
 
 async def test_a_player_that_stops_reading_is_let_go_quietly(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A paused player with its buffer full stops reading without closing.
     Past the write deadline the proxy ends the connection -- the player
@@ -438,10 +438,9 @@ async def test_a_player_that_stops_reading_is_let_go_quietly(
     longer than 30 seconds."""
     from gravitas.infrastructure.network import segmented_proxy
 
-    monkeypatch.setattr(segmented_proxy, "_WRITE_TIMEOUT_S", 0.3)
     origin = Origin(body=bytes(32 * 1024 * 1024))
     await origin.start()
-    accelerator = SegmentedStreamProxy(connections=2, chunk_bytes=1024 * 1024)
+    accelerator = SegmentedStreamProxy(connections=2, chunk_bytes=1024 * 1024, write_timeout_s=0.3)
     await accelerator.start()
     caplog.set_level(logging.INFO, logger=segmented_proxy.__name__)
     try:
@@ -1079,3 +1078,44 @@ async def test_a_rate_limited_probe_is_waited_out_not_taken_as_no_ranges() -> No
     finally:
         await accelerator.aclose()
         await origin.aclose()
+
+
+async def test_a_relay_for_a_tv_names_the_file_and_says_it_may_stream(origin: Origin) -> None:
+    relay = SegmentedStreamProxy(connections=2, chunk_bytes=256 * 1024, host="127.0.0.1", dlna=True)
+    await relay.start()
+    try:
+        url = relay.local_url(origin.url, content_type="video/x-matroska")
+        # Ends in a file name, for renderers that judge a URL by its extension.
+        assert url.startswith("http://127.0.0.1:") and url.endswith("/video.mkv")
+        status, headers, body = await fetch(url, span="bytes=0-99")
+        assert status == 206
+        assert body == BODY[:100]
+        assert headers["content-type"] == "video/x-matroska"
+        assert headers["transfermode.dlna.org"] == "Streaming"
+        assert headers["contentfeatures.dlna.org"].startswith("DLNA.ORG_OP=01")
+    finally:
+        await relay.aclose()
+
+
+async def test_a_relay_names_the_type_on_the_plain_copy_too() -> None:
+    origin = Origin(ranges=False)
+    await origin.start()
+    relay = SegmentedStreamProxy(connections=2, dlna=True)
+    await relay.start()
+    try:
+        status, headers, body = await fetch(relay.local_url(origin.url, content_type="video/mp4"))
+        assert status == 200
+        assert body == BODY
+        assert headers["content-type"] == "video/mp4"
+        assert headers["transfermode.dlna.org"] == "Streaming"
+    finally:
+        await relay.aclose()
+        await origin.aclose()
+
+
+async def test_the_player_proxy_sends_no_dlna_headers(
+    origin: Origin, proxy: SegmentedStreamProxy
+) -> None:
+    _, headers, _ = await fetch(proxy.local_url(origin.url), span="bytes=0-9")
+    assert headers["content-type"] == "application/octet-stream"
+    assert "transfermode.dlna.org" not in headers

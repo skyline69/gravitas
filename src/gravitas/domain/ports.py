@@ -7,6 +7,7 @@ from typing import Protocol, runtime_checkable
 
 from gravitas.domain.models import (
     AddonManifest,
+    CastStatus,
     CatalogRef,
     DecodeReport,
     MediaFormat,
@@ -398,6 +399,60 @@ class StreamAccelerator(Protocol):
         from the sofa.
         """
         ...
+
+
+class StreamRelay(Protocol):
+    """Serves one upstream stream at a URL another device on the network can
+    fetch -- a cast target, which can send neither an addon's proxy headers
+    nor, often, follow an HTTPS redirect to a CDN. Like StreamAccelerator,
+    `local_url` is synchronous and hands the URL back when it cannot help."""
+
+    async def start(self) -> None: ...
+
+    def local_url(
+        self,
+        url: str,
+        headers: Sequence[tuple[str, str]] = (),
+        *,
+        content_type: str | None = None,
+    ) -> str: ...
+
+    async def aclose(self) -> None: ...
+
+
+class CastTarget(Protocol):
+    """A device on the network that plays a URL by itself: a DLNA TV.
+
+    It fetches the media on its own, so it is handed a URL, never bytes, and
+    every command is a round trip to it. `status` is what it reports, not
+    what was last asked of it -- a TV's own remote changes it too.
+    """
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def local_address(self) -> str:
+        """The address of this machine the target reaches it at: what a relay
+        for it must listen on."""
+        ...
+
+    async def play(self, url: str, *, mime: str, title: str) -> None: ...
+    async def pause(self) -> None: ...
+    async def resume(self) -> None: ...
+    async def seek(self, seconds: float) -> None: ...
+    async def stop(self) -> None: ...
+    async def status(self) -> CastStatus: ...
+    async def volume(self) -> int: ...
+    async def set_volume(self, volume: int) -> None: ...
+    async def set_muted(self, muted: bool) -> None: ...
+
+
+class CastDiscovery(Protocol):
+    """Finds the cast targets on the local network. Never raises: a network
+    that cannot be searched has no targets on it."""
+
+    async def discover(self, listen_s: float) -> list[CastTarget]: ...
 
 
 @runtime_checkable

@@ -28,6 +28,7 @@ from PySide6.QtCore import QObject
 from PySide6.QtQml import QQmlEngine, qmlRegisterSingletonType
 
 from gravitas.presentation.controllers.addon_controller import AddonController
+from gravitas.presentation.controllers.cast_controller import CastController
 from gravitas.presentation.controllers.catalog_controller import CatalogController
 from gravitas.presentation.controllers.deep_link_controller import DeepLinkController
 from gravitas.presentation.controllers.detail_controller import DetailController
@@ -60,6 +61,7 @@ MINOR_VERSION: Final = 0
 SINGLETONS: Final[Mapping[str, type[QObject]]] = {
     "AddonController": AddonController,
     "AddonListModel": AddonListModel,
+    "CastController": CastController,
     "CatalogController": CatalogController,
     "CatalogRowsModel": CatalogRowsModel,
     "DeepLinkController": DeepLinkController,

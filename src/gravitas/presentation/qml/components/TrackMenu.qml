@@ -10,6 +10,10 @@ Popup {
     property var tracks: []
     property int currentId: 0
     property bool offEntry: false
+    // Shown in place of the list when it is empty.
+    property string emptyText: "No tracks"
+    // Still filling: an empty list shows a spinner instead of emptyText.
+    property bool busy: false
     signal picked(int id)
 
     readonly property var entries: offEntry
@@ -55,7 +59,9 @@ Popup {
     }
 
     contentItem: ListView {
-        implicitHeight: Math.min(contentHeight, 280)
+        // An empty list still needs room for what stands in for it.
+        implicitHeight: menu.entries.length === 0
+            ? Theme.controlHeight + 8 : Math.min(contentHeight, 280)
         clip: true
         model: menu.entries
         ScrollBar.vertical: AppScrollBar {}
@@ -102,10 +108,16 @@ Popup {
                 }
             }
         }
+        AppSpinner {
+            anchors.centerIn: parent
+            width: 24
+            height: 24
+            running: menu.busy && menu.entries.length === 0
+        }
         Text {
             anchors.centerIn: parent
-            visible: menu.entries.length === 0
-            text: "No tracks"
+            visible: menu.entries.length === 0 && !menu.busy
+            text: menu.emptyText
             color: Theme.textDim
             font.pixelSize: Theme.fontSmall
         }

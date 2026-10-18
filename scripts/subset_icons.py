@@ -55,6 +55,8 @@ GLYPHS = [
     "picture_in_picture_alt",
     "open_in_full",
     "video_library",
+    "cast",
+    "cast_connected",
     # watchlist
     "bookmark",
     "bookmark_border",

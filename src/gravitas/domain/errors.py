@@ -38,6 +38,10 @@ class PlaybackFailed(GravitasError):
     """The media player failed to start or continue playback."""
 
 
+class CastFailed(GravitasError):
+    """A cast target refused a command, or could not be reached."""
+
+
 class TmdbUnavailable(GravitasError):
     """TMDB could not resolve an external id (no API key, or the lookup failed)."""
 
